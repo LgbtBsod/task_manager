@@ -15,50 +15,50 @@ except ImportError:
 
 def validate_date(date_str: str) -> bool:
     """Проверка формата даты YYYY-MM-DD."""
-    if not date_str:
-        return True  # Empty is valid (optional field)
-    pattern = r'^\d{4}-\d{2}-\d{2}$'
-    if not re.match(pattern, date_str):
-        return False
-    
-    # Check valid date values
-    try:
-        year, month, day = map(int, date_str.split('-'))
-        if month < 1 or month > 12:
-            return False
-        if day < 1 or day > 31:
-            return False
-        # Validate actual date (e.g., Feb 30 is invalid)
-        datetime(year, month, day)
-        return True
-    except ValueError:
-        return False
+    match date_str:
+        case "":
+            return True  # Empty is valid (optional field)
+        case None:
+            return True
+        case date_val:
+            try:
+                datetime.strptime(date_val, "%Y-%m-%d")
+                return True
+            except ValueError:
+                return False
 
 
 def format_time_spent(hours: float) -> str:
     """Форматирование затраченного времени."""
-    if hours <= 0:
-        return "0ч"
-    
-    h = int(hours)
-    m = int((hours - h) * 60)
-    
-    if h == 0:
-        return f"{m}м"
-    elif m == 0:
-        return f"{h}ч"
-    else:
-        return f"{h}ч {m}м"
+    match hours:
+        case h if h <= 0:
+            return "0ч"
+        case _:
+            h_int = int(hours)
+            m = int((hours - h_int) * 60)
+            
+            match (h_int, m):
+                case (0, _):
+                    return f"{m}м"
+                case (_, 0):
+                    return f"{h_int}ч"
+                case _:
+                    return f"{h_int}ч {m}м"
 
 
 def get_month_range(year: int, month: int) -> tuple[str, str]:
     """Получить первый и последний день месяца."""
-    if month == 12:
-        next_month = datetime(year + 1, 1, 1)
-    else:
-        next_month = datetime(year, month + 1, 1)
+    match month:
+        case 12:
+            next_month = datetime(year + 1, 1, 1)
+        case _:
+            next_month = datetime(year, month + 1, 1)
+    
     last_day = next_month - timedelta(days=1)
-    return datetime(year, month, 1).strftime("%Y-%m-%d"), last_day.strftime("%Y-%m-%d")
+    return (
+        datetime(year, month, 1).strftime("%Y-%m-%d"),
+        last_day.strftime("%Y-%m-%d")
+    )
 
 
 def parse_date(date_str: str) -> datetime | None:
@@ -73,15 +73,22 @@ def get_tasks_for_month(tasks: list, year: int, month: int) -> list:
     """Фильтрация задач для указанного месяца."""
     start, end = get_month_range(year, month)
     result = []
+    month_start = parse_date(start)
+    month_end = parse_date(end)
+    
     for task in tasks:
         task_start = parse_date(task.get_gantt_start())
         task_end = parse_date(task.get_gantt_end())
-        month_start = parse_date(start)
-        month_end = parse_date(end)
         
         # Проверяем пересечение с месяцем
-        if task_start and month_end >= task_start and (task_end or month_start) >= month_start:
-            result.append(task)
+        match (task_start, task_end):
+            case (None, _) | (_, None):
+                continue
+            case (ts, te) if month_end >= ts and te >= month_start:
+                result.append(task)
+            case _:
+                continue
+    
     return result
 
 
@@ -90,14 +97,16 @@ def get_working_days(start_date: str, end_date: str) -> int:
     Рассчитать количество рабочих дней между двумя датами.
     Использует библиотеку workalendar для учета выходных и праздников России.
     """
-    if not start_date or not end_date:
-        return 0
+    match (start_date, end_date):
+        case ("", _) | (_, "") | (None, _) | (_, None):
+            return 0
     
     start = parse_date(start_date)
     end = parse_date(end_date)
     
-    if not start or not end:
-        return 0
+    match (start, end):
+        case (None, _) | (_, None):
+            return 0
     
     if start > end:
         start, end = end, start
@@ -119,13 +128,14 @@ def get_working_days(start_date: str, end_date: str) -> int:
 def is_weekend(date_str: str) -> bool:
     """Проверить, является ли дата выходным днем."""
     date = parse_date(date_str)
-    if not date:
-        return False
     
-    if _calendar:
-        return not _calendar.is_working_day(date.date())
-    else:
-        return date.weekday() >= 5
+    match date:
+        case None:
+            return False
+        case d if _calendar:
+            return not _calendar.is_working_day(d.date())
+        case d:
+            return d.weekday() >= 5
 
 
 def add_working_days(start_date: str, days: int) -> str:
@@ -133,12 +143,15 @@ def add_working_days(start_date: str, days: int) -> str:
     Добавить указанное количество рабочих дней к дате.
     Возвращает новую дату в формате YYYY-MM-DD.
     """
-    if not start_date or days == 0:
-        return start_date
+    match (start_date, days):
+        case ("", _) | (None, _) | (_, 0):
+            return start_date
     
     date = parse_date(start_date)
-    if not date:
-        return start_date
+    
+    match date:
+        case None:
+            return start_date
     
     if _calendar:
         result_date = _calendar.add_working_days(date.date(), days)
@@ -148,9 +161,9 @@ def add_working_days(start_date: str, days: int) -> str:
         current = date
         added = 0
         step = 1 if days > 0 else -1
-        days = abs(days)
+        days_abs = abs(days)
         
-        while added < days:
+        while added < days_abs:
             current += timedelta(days=step)
             if current.weekday() < 5:  # Только будни
                 added += 1
@@ -163,14 +176,23 @@ def calculate_task_duration_business_days(start_date: str, end_date: str) -> dic
     Рассчитать длительность задачи в рабочих днях с детальной информацией.
     Возвращает словарь с полной статистикой.
     """
-    if not start_date or not end_date:
-        return {'working_days': 0, 'calendar_days': 0, 'weekends': 0, 'holidays': 0}
+    empty_result = {
+        'working_days': 0,
+        'calendar_days': 0,
+        'weekends': 0,
+        'holidays': 0
+    }
+    
+    match (start_date, end_date):
+        case ("", _) | (_, "") | (None, _) | (_, None):
+            return empty_result
     
     start = parse_date(start_date)
     end = parse_date(end_date)
     
-    if not start or not end:
-        return {'working_days': 0, 'calendar_days': 0, 'weekends': 0, 'holidays': 0}
+    match (start, end):
+        case (None, _) | (_, None):
+            return empty_result
     
     if start > end:
         start, end = end, start
@@ -184,10 +206,11 @@ def calculate_task_duration_business_days(start_date: str, end_date: str) -> dic
     while current <= end:
         if _calendar:
             if not _calendar.is_working_day(current.date()):
-                if current.weekday() >= 5:
-                    weekends += 1
-                else:
-                    holidays += 1
+                match current.weekday():
+                    case wd if wd >= 5:
+                        weekends += 1
+                    case _:
+                        holidays += 1
         else:
             if current.weekday() >= 5:
                 weekends += 1
