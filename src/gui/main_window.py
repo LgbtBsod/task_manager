@@ -67,9 +67,9 @@ FONTS = {
     "title": ("SF Pro Display", 24, "bold"),
     "heading": ("SF Pro Display", 18, "bold"),
     "label_bold": ("SF Pro Text", 13, "bold"),
-    "label": ("SF Pro Text", 13, "regular"),
-    "small": ("SF Pro Text", 11, "regular"),
-    "tiny": ("SF Pro Text", 9, "regular"),
+    "label": ("SF Pro Text", 13, "normal"),
+    "small": ("SF Pro Text", 11, "normal"),
+    "tiny": ("SF Pro Text", 9, "normal"),
     "caption": ("SF Pro Text", 12, "italic"),
 }
 
