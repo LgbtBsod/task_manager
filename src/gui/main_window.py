@@ -909,19 +909,13 @@ class KanbanColumn(ctk.CTkScrollableFrame):
     
     def _render_tasks(self, tasks: list):
         """Отрисовка задач в колонке с адаптивной высотой."""
-        # Configure grid to expand properly
-        self.grid_columnconfigure(0, weight=1)
-        
-        for idx, task in enumerate(tasks):
+        for task in tasks:
             card = TaskCard(
                 self, task, self.on_edit, self.on_delete,
                 on_status_change=self.on_status_change,
                 fg_color=COLORS["bg_card_light"]
             )
-            card.grid(row=idx, column=0, sticky="ew", padx=5, pady=3)
-        
-        # Add stretchable empty row at bottom to fill available space
-        self.grid_rowconfigure(len(tasks), weight=1)
+            card.pack(fill="x", padx=5, pady=3)
     
     def refresh_tasks(self, tasks: list):
         """Обновить задачи в колонке."""
