@@ -108,6 +108,7 @@ DIMENSIONS = {
     "entry_height": 44,
     "button_height": 40,
     "button_min_width": 120,
+    "button_width": 120,
     "padding_small": 8,
     "padding_medium": 16,
     "padding_large": 24,
@@ -876,6 +877,10 @@ class KanbanColumn(ctk.CTkScrollableFrame):
             corner_radius=DIMENSIONS["card_corner_radius"]
         )
         
+        # Configure grid for proper expansion
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
         self._create_header()
         self._render_tasks(tasks)
     
@@ -1018,8 +1023,7 @@ class TaskManagerApp(ctk.CTk):
         elif selected_tab == "📅 Диаграмма Ганта" and self.gantt_frame is None:
             from .gantt_view import GanttViewTab
             self.gantt_frame = GanttViewTab(
-                self.tabview.tab("📅 Диаграмма Ганта"), self.service,
-                fg_color="transparent"
+                self.tabview.tab("📅 Диаграмма Ганта"), self.service
             )
             self.gantt_frame.pack(fill="both", expand=True)
     
@@ -1029,7 +1033,8 @@ class TaskManagerApp(ctk.CTk):
         for widget in self.kanban_frame.winfo_children():
             widget.destroy()
         
-        # Configure columns
+        # Configure columns - both rows and columns need weight for expansion
+        self.kanban_frame.grid_rowconfigure(0, weight=1)
         for i in range(3):
             self.kanban_frame.grid_columnconfigure(i, weight=1)
         
