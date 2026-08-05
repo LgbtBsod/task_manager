@@ -703,7 +703,7 @@ class TaskManagerApp(ctk.CTk):
         ).pack(side="left", padx=DIMENSIONS["padding_small"])
         
         # Tab view: Kanban vs Dashboard
-        self.tabview = ctk.CTkTabview(main, fg_color=COLORS["bg_card"])
+        self.tabview = ctk.CTkTabview(main, fg_color=COLORS["bg_card"], command=self._on_tab_changed)
         self.tabview.pack(fill="both", expand=True)
         
         kanban_tab = self.tabview.add("📊 Kanban Доска")
@@ -715,9 +715,8 @@ class TaskManagerApp(ctk.CTk):
         
         # Dashboard (lazy load on tab switch)
         self.dashboard_frame = None
-        self.tabview.bind("<<NotebookTabChanged>>", self._on_tab_changed)
     
-    def _on_tab_changed(self, event=None):
+    def _on_tab_changed(self):
         """Обработка переключения вкладок."""
         selected_tab = self.tabview.get()
         if selected_tab == "📈 Аналитика" and self.dashboard_frame is None:
