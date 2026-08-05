@@ -1,10 +1,10 @@
 """
 Task Manager - Modern Kanban Board
 Repository Pattern for Data Persistence
+Python 3.14+ Compatible
 """
 import json
 import os
-from typing import List, Optional
 from pathlib import Path
 
 from .models import Task, TaskStatus
@@ -24,7 +24,7 @@ class TaskRepository:
             with open(self.db_path, 'w', encoding='utf-8') as f:
                 json.dump([], f)
     
-    def _load_tasks(self) -> List[dict]:
+    def _load_tasks(self) -> list[dict]:
         """Загрузка задач из файла."""
         try:
             with open(self.db_path, 'r', encoding='utf-8') as f:
@@ -32,17 +32,17 @@ class TaskRepository:
         except (json.JSONDecodeError, FileNotFoundError):
             return []
     
-    def _save_tasks(self, tasks: List[dict]):
+    def _save_tasks(self, tasks: list[dict]):
         """Сохранение задач в файл."""
         with open(self.db_path, 'w', encoding='utf-8') as f:
             json.dump(tasks, f, indent=2, ensure_ascii=False)
     
-    def get_all(self) -> List[Task]:
+    def get_all(self) -> list[Task]:
         """Получить все задачи."""
         data = self._load_tasks()
         return [Task.from_dict(item) for item in data]
     
-    def get_by_id(self, task_id: str) -> Optional[Task]:
+    def get_by_id(self, task_id: str) -> Task | None:
         """Получить задачу по ID."""
         tasks = self.get_all()
         for task in tasks:
@@ -50,7 +50,7 @@ class TaskRepository:
                 return task
         return None
     
-    def get_by_status(self, status: TaskStatus) -> List[Task]:
+    def get_by_status(self, status: TaskStatus) -> list[Task]:
         """Получить задачи по статусу."""
         tasks = self.get_all()
         return [t for t in tasks if t.status == status]
