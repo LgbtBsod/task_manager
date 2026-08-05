@@ -624,6 +624,8 @@ class TaskCard(ctk.CTkFrame):
                 self.on_status_change(self.task.id, new_status)
                 # Update local task status after successful change
                 self.task.status = new_status
+                # Refresh the status buttons on this card immediately
+                self.after(100, self.refresh_status_buttons)
             except Exception as e:
                 import logging
                 logging.error(f"Error changing status: {e}")
@@ -934,7 +936,12 @@ class KanbanColumn(ctk.CTkScrollableFrame):
 
 
 class TaskManagerApp(ctk.CTk):
-    """Главное приложение Task Manager."""
+    """Главное приложение Task Manager с улучшенной архитектурой."""
+    
+    # Класс-уровень кэширование для производительности
+    _task_cache = {}
+    _cache_timestamp = 0
+    CACHE_TTL = 5  # секунд
     
     def __init__(self):
         super().__init__()
@@ -951,6 +958,10 @@ class TaskManagerApp(ctk.CTk):
         # Initialize service
         self.service = TaskService()
         
+        # Store column references for efficient updates
+        self._columns = {}
+        
+        # Setup UI first, then refresh
         self._setup_ui()
         self._refresh_board()
     
@@ -960,14 +971,14 @@ class TaskManagerApp(ctk.CTk):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill="both", expand=True, padx=DIMENSIONS["padding_large"], pady=DIMENSIONS["padding_large"])
         
-        # Header with improved styling
+        # Header with improved styling - FIXED HEIGHT for sticky header
         header = ctk.CTkFrame(
             main, fg_color=COLORS["bg_card"],
             corner_radius=DIMENSIONS["card_corner_radius"],
             height=DIMENSIONS["header_height"]
         )
         header.pack(fill="x", pady=(0, DIMENSIONS["padding_medium"]))
-        header.pack_propagate(False)
+        header.pack_propagate(False)  # Prevent shrinking
         
         # Title with icon
         title = ctk.CTkLabel(
@@ -976,9 +987,18 @@ class TaskManagerApp(ctk.CTk):
         )
         title.pack(side="left", padx=DIMENSIONS["padding_large"], pady=DIMENSIONS["padding_medium"])
         
-        # Action buttons
+        # Action buttons - ALWAYS VISIBLE in header
         btn_frame = ctk.CTkFrame(header, fg_color="transparent")
         btn_frame.pack(side="right", padx=DIMENSIONS["padding_large"], pady=DIMENSIONS["padding_small"])
+        
+        # Create button with accent color for visibility
+        ctk.CTkButton(
+            btn_frame, text="➕ Новая задача", command=self._open_new_task_dialog,
+            width=150, height=DIMENSIONS["button_height"],
+            fg_color=COLORS["accent_blue"], hover_color="#1976D2",
+            corner_radius=DIMENSIONS["button_corner_radius"],
+            font=("Arial", 12, "bold")
+        ).pack(side="left", padx=DIMENSIONS["padding_small"])
         
         ctk.CTkButton(
             btn_frame, text="🔄 Обновить", command=self._refresh_board,
@@ -986,13 +1006,6 @@ class TaskManagerApp(ctk.CTk):
             fg_color=COLORS["bg_button"], hover_color="#555555",
             corner_radius=DIMENSIONS["button_corner_radius"],
             font=FONTS["label"]
-        ).pack(side="left", padx=DIMENSIONS["padding_small"])
-        
-        ctk.CTkButton(
-            btn_frame, text="➕ Новая задача", command=self._open_new_task_dialog,
-            width=150, height=DIMENSIONS["button_height"],
-            corner_radius=DIMENSIONS["button_corner_radius"],
-            font=("Arial", 12, "bold")
         ).pack(side="left", padx=DIMENSIONS["padding_small"])
         
         # Tab view: Kanban vs Dashboard vs Gantt
@@ -1028,17 +1041,20 @@ class TaskManagerApp(ctk.CTk):
             self.gantt_frame.pack(fill="both", expand=True)
     
     def _refresh_board(self):
-        """Обновление Kanban-доски."""
+        """Обновление Kanban-доски с оптимизацией производительности."""
         # Clear kanban
         for widget in self.kanban_frame.winfo_children():
             widget.destroy()
+        
+        # Clear column references
+        self._columns.clear()
         
         # Configure columns - both rows and columns need weight for expansion
         self.kanban_frame.grid_rowconfigure(0, weight=1)
         for i in range(3):
             self.kanban_frame.grid_columnconfigure(i, weight=1)
         
-        # Create columns
+        # Create columns and store references
         for i, status in enumerate([TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE]):
             tasks = self.service.get_tasks_by_status(status)
             col = KanbanColumn(
@@ -1048,6 +1064,8 @@ class TaskManagerApp(ctk.CTk):
                 on_status_change=self._change_task_status
             )
             col.grid(row=0, column=i, padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_medium"], sticky="nsew")
+            # Store reference for efficient updates
+            self._columns[status] = col
         
         # Refresh dashboard if exists
         self._refresh_dashboard()
@@ -1077,23 +1095,16 @@ class TaskManagerApp(ctk.CTk):
     
     def _refresh_affected_columns(self, old_status: TaskStatus, new_status: TaskStatus):
         """Обновить только затронутые колонки для оптимизации производительности."""
-        # Get all columns
-        columns = {}
-        for widget in self.kanban_frame.winfo_children():
-            if isinstance(widget, KanbanColumn):
-                columns[widget.status] = widget
-        
-        # Determine which columns need refresh (old and new status columns)
-        statuses_to_refresh = set()
+        # Refresh only affected columns (old and new status columns)
+        statuses_to_refresh = {new_status}
         if old_status:
             statuses_to_refresh.add(old_status)
-        statuses_to_refresh.add(new_status)
         
-        # Refresh only affected columns
+        # Refresh only affected columns using stored references
         for status in statuses_to_refresh:
-            if status in columns:
+            if status in self._columns:
                 tasks = self.service.get_tasks_by_status(status)
-                columns[status].refresh_tasks(tasks)
+                self._columns[status].refresh_tasks(tasks)
     
     def _open_new_task_dialog(self):
         """Открытие диалога создания задачи."""
@@ -1106,32 +1117,43 @@ class TaskManagerApp(ctk.CTk):
         dialog.grab_set()
     
     def _save_new_task(self, data: dict, task_id: str | None = None):
-        """Сохранение новой задачи."""
+        """Сохранение новой задачи с мгновенным обновлением UI."""
         try:
-            self.service.create_task(
+            # Create task
+            new_task = self.service.create_task(
                 title=data['title'],
                 description=data['description'],
                 priority=data['priority'],
-                due_date=data['due_date']
+                due_date=data['due_date'],
+                start_date=data.get('start_date')
             )
-            # Если есть start_date, обновить задачу
-            if 'start_date' in data and data['start_date']:
-                # Получить только что созданную задачу и обновить start_date
-                tasks = self.service.get_all_tasks()
-                for task in tasks:
-                    if task.title == data['title']:
-                        self.service.update_task(task.id, start_date=data['start_date'])
-                        break
+            
+            # Update time_spent if provided
+            if 'time_spent' in data and data['time_spent']:
+                self.service.update_task(new_task.id, time_spent=data['time_spent'])
             
             logger.info(f"Task created: {data['title']}")
-            self._refresh_board()
+            
+            # Refresh only the affected column (TODO by default)
+            if TaskStatus.TODO in self._columns:
+                tasks = self.service.get_tasks_by_status(TaskStatus.TODO)
+                self._columns[TaskStatus.TODO].refresh_tasks(tasks)
+            
+            # Also refresh dashboard and gantt
+            self._refresh_dashboard()
+            self._refresh_gantt()
+            
         except Exception as e:
             logger.error(f"Error creating task: {e}")
             messagebox.showerror("⚠️ Ошибка", str(e))
     
     def _save_edited_task(self, data: dict, task_id: str):
-        """Сохранение изменений задачи."""
+        """Сохранение изменений задачи с мгновенным обновлением UI."""
         try:
+            # Get old status before update
+            old_task = self.service.get_task(task_id)
+            old_status = old_task.status if old_task else TaskStatus.TODO
+            
             update_kwargs = {
                 'task_id': task_id,
                 'title': data['title'],
@@ -1151,17 +1173,39 @@ class TaskManagerApp(ctk.CTk):
             
             self.service.update_task(**update_kwargs)
             logger.info(f"Task updated: {data['title']}")
-            self._refresh_board()
+            
+            # Determine new status
+            new_status = data.get('status', old_status)
+            
+            # Refresh only affected columns
+            self._refresh_affected_columns(old_status, new_status)
+            
+            # Also refresh dashboard and gantt
+            self._refresh_dashboard()
+            self._refresh_gantt()
+            
         except Exception as e:
             logger.error(f"Error updating task: {e}")
             messagebox.showerror("⚠️ Ошибка", str(e))
     
     def _confirm_delete_task(self, task_id: str):
-        """Подтверждение удаления задачи."""
+        """Подтверждение удаления задачи с обновлением только затронутой колонки."""
+        # Get task status before deletion
+        old_task = self.service.get_task(task_id)
+        old_status = old_task.status if old_task else TaskStatus.TODO
+        
         if messagebox.askyesno("🗑️ Удаление", "Вы уверены, что хотите удалить эту задачу?"):
             self.service.delete_task(task_id)
             logger.info(f"Task deleted: {task_id}")
-            self._refresh_board()
+            
+            # Refresh only the affected column
+            if old_status in self._columns:
+                tasks = self.service.get_tasks_by_status(old_status)
+                self._columns[old_status].refresh_tasks(tasks)
+            
+            # Also refresh dashboard and gantt
+            self._refresh_dashboard()
+            self._refresh_gantt()
     
     def _refresh_dashboard(self):
         """Обновление дашборда (если создан)."""
