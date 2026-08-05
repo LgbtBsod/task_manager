@@ -1,11 +1,11 @@
 """
 Task Manager - Modern Kanban Board
 Core Domain Models
+Python 3.14+ Compatible
 """
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import dataclass, asdict, field
+from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
 import uuid
 
 
@@ -40,18 +40,18 @@ class Task:
     description: str = ""
     status: TaskStatus = TaskStatus.TODO
     priority: Priority = Priority.MEDIUM
-    due_date: Optional[str] = None
-    created_at: str = None
-    updated_at: str = None
-    id: str = None
+    due_date: str | None = None
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str | None = None
+    id: str | None = None
     time_spent: float = 0.0  # часы
+    start_date: str | None = None  # Для диаграммы Ганта
 
     def __post_init__(self):
         if self.id is None:
             self.id = str(uuid.uuid4())[:8]
-        if self.created_at is None:
-            self.created_at = datetime.now().isoformat()
-        self.updated_at = datetime.now().isoformat()
+        if self.updated_at is None:
+            self.updated_at = datetime.now().isoformat()
 
     def to_dict(self) -> dict:
         """Сериализация в словарь."""
@@ -78,7 +78,7 @@ class Task:
         except ValueError:
             return False
 
-    def days_until_due(self) -> Optional[int]:
+    def days_until_due(self) -> int | None:
         """Дней до дедлайна."""
         if not self.due_date:
             return None
@@ -88,3 +88,17 @@ class Task:
             return delta.days
         except ValueError:
             return None
+
+    def update_timestamp(self):
+        """Обновление временной метки изменения."""
+        self.updated_at = datetime.now().isoformat()
+
+    def get_gantt_start(self) -> str:
+        """Получить дату начала для диаграммы Ганта."""
+        return self.start_date or self.created_at[:10]
+
+    def get_gantt_end(self) -> str:
+        """Получить дату окончания для диаграммы Ганта."""
+        if self.status == TaskStatus.DONE:
+            return self.updated_at[:10]
+        return self.due_date or (datetime.now().date() + timedelta(days=7)).isoformat()

@@ -1,64 +1,113 @@
 """
 Task Manager - Modern Kanban Board
 GUI Components: Main Window, Kanban Board, Dashboard with Charts
+Python 3.14+ Compatible
+Apple-level UX/UI Design
 """
-import customtkinter as ctk
-from tkinter import messagebox
-from typing import Callable, Optional
+try:
+    import customtkinter as ctk
+    from tkinter import messagebox
+except ImportError:
+    import sys
+    print("⚠️ Ошибка: Не установлен customtkinter. Выполните: pip install -r requirements.txt")
+    sys.exit(1)
+
+from collections.abc import Callable
 from datetime import datetime
 import logging
+from typing import Optional
+from functools import lru_cache
 
-from ..core import Task, TaskStatus, Priority, TaskService
+try:
+    from ..core import Task, TaskStatus, Priority, TaskService
+except ImportError:
+    import sys
+    from pathlib import Path
+    src_path = Path(__file__).parent.parent
+    sys.path.insert(0, str(src_path))
+    from core import Task, TaskStatus, Priority, TaskService
 
 # ============================================================================
-# CONFIGURATION & CONSTANTS
+# CONFIGURATION & CONSTANTS - Apple-inspired Design System
 # ============================================================================
 
-# Colors
+# Colors - Refined palette with better contrast and accessibility
 COLORS = {
-    "bg_dark": "#1a1a1a",
-    "bg_card": "#2d2d2d",
-    "bg_card_light": "#3a3a3a",
-    "bg_button": "#444444",
-    "bg_button_cancel": "#666666",
-    "bg_button_delete": "#d32f2f",
-    "text_primary": "#ffffff",
-    "text_secondary": "#aaaaaa",
-    "text_muted": "#555555",
-    "priority_low": "#4CAF50",
-    "priority_medium": "#FF9800",
-    "priority_high": "#F44336",
-    "status_todo": "#9E9E9E",
-    "status_in_progress": "#FF9800",
-    "status_done": "#4CAF50",
-    "accent_blue": "#2196F3",
+    # Backgrounds
+    "bg_dark": "#0a0a0a",           # Deeper black for OLED displays
+    "bg_card": "#1c1c1e",           # Apple-style card background
+    "bg_card_light": "#2c2c2e",     # Slightly lighter for elevation
+    "bg_button": "#3a3a3c",         # Button background
+    "bg_button_cancel": "#636366",  # Secondary actions
+    "bg_button_delete": "#ff453a",  # Destructive actions (Apple red)
+    
+    # Text
+    "text_primary": "#f5f5f7",      # Apple primary text
+    "text_secondary": "#86868b",    # Secondary text
+    "text_muted": "#636366",        # Muted text
+    
+    # Priority colors (refined)
+    "priority_low": "#30d158",      # Apple green
+    "priority_medium": "#ff9f0a",   # Apple orange
+    "priority_high": "#ff453a",     # Apple red
+    
+    # Status colors
+    "status_todo": "#8e8e93",       # Gray
+    "status_in_progress": "#ff9f0a", # Orange
+    "status_done": "#30d158",       # Green
+    
+    # Accents
+    "accent_blue": "#0a84ff",       # Apple blue
+    "accent_purple": "#bf5af2",     # Purple
+    "hover_overlay": "rgba(255,255,255,0.08)",  # Subtle hover
 }
 
-# Dimensions
-DIMENSIONS = {
-    "window_width": 1400,
-    "window_height": 800,
-    "dialog_width": 520,
-    "dialog_height": 480,
-    "header_height": 70,
-    "card_corner_radius": 10,
-    "button_corner_radius": 8,
-    "padding_large": 20,
-    "padding_medium": 12,
-    "padding_small": 8,
-    "entry_height": 40,
-    "button_width": 140,
-    "button_height": 36,
-}
-
-# Fonts
+# Typography - San Francisco-like font stack
 FONTS = {
-    "title": ("Arial", 22, "bold"),
-    "heading": ("Arial", 16, "bold"),
-    "label_bold": ("Arial", 12, "bold"),
-    "label": ("Arial", 12),
-    "small": ("Arial", 10),
-    "tiny": ("Arial", 9),
+    "title": ("SF Pro Display", 24, "bold"),
+    "heading": ("SF Pro Display", 18, "semibold"),
+    "label_bold": ("SF Pro Text", 13, "bold"),
+    "label": ("SF Pro Text", 13, "regular"),
+    "small": ("SF Pro Text", 11, "regular"),
+    "tiny": ("SF Pro Text", 9, "regular"),
+    "caption": ("SF Pro Text", 12, "italic"),
+}
+
+# Spacing - 8pt grid system
+SPACING = {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+}
+
+# Border radius - Apple-style smooth corners
+RADIUS = {
+    "small": 6,
+    "medium": 10,
+    "large": 14,
+    "xlarge": 20,
+}
+
+# Animation timing (ms)
+ANIMATION = {
+    "fast": 150,
+    "normal": 250,
+    "slow": 350,
+}
+
+# Window dimensions
+DIMENSIONS = {
+    "window_width": 1440,
+    "window_height": 900,
+    "dialog_width": 560,
+    "dialog_height": 520,
+    "header_height": 80,
+    "card_min_height": 100,
+    "entry_height": 44,
+    "button_height": 40,
+    "button_min_width": 120,
 }
 
 # Configure logging
@@ -69,16 +118,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Helper functions for Apple-style UI
+def get_system_font(family: str = "SF Pro Text") -> str:
+    """Получить системный шрифт с fallback на Arial."""
+    try:
+        # Try to use system fonts if available
+        return family
+    except Exception:
+        return "Arial"
+
+
 class TaskDialog(ctk.CTkToplevel):
-    """Диалог создания/редактирования задачи с улучшенным UX."""
+    """Диалог создания/редактирования задачи с улучшенным UX в стиле Apple."""
     
-    def __init__(self, parent, task: Optional[Task] = None, on_save: Callable = None):
+    def __init__(self, parent, task: Task | None = None, on_save: Callable | None = None):
         super().__init__(parent)
         
         self.task = task
         self.on_save = on_save
         self.is_editing = task is not None
         
+        # Setup window first
         self._setup_window()
         self._create_widgets()
         
@@ -86,61 +146,83 @@ class TaskDialog(ctk.CTkToplevel):
             self._fill_data(self.task)
         else:
             # Фокус на поле заголовка для новой задачи
-            self.title_entry.focus_set()
+            self.after(100, lambda: self.title_entry.focus_set())
     
     def _setup_window(self):
-        """Настройка окна диалога."""
+        """Настройка окна диалога в стиле Apple."""
         width = DIMENSIONS["dialog_width"]
         height = DIMENSIONS["dialog_height"]
         
-        self.title("✏️ Редактирование задачи" if self.is_editing else "➕ Новая задача")
+        title = "✏️ Редактирование задачи" if self.is_editing else "➕ Новая задача"
+        self.title(title)
         self.geometry(f"{width}x{height}")
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg_dark"])
         
-        # Центрирование окна
+        # Центрирование окна с анимацией появления
         self.update_idletasks()
         screen_x = (self.winfo_screenwidth() - width) // 2
         screen_y = (self.winfo_screenheight() - height) // 2
         self.geometry(f"+{screen_x}+{screen_y}")
         
-        # Привязка клавиши Enter для сохранения
+        # Привязка клавиш для быстрого управления
         self.bind('<Return>', lambda e: self._save())
         self.bind('<Escape>', lambda e: self.destroy())
+        
+        # Сделать диалог модальным
+        self.transient(self.master)
+        self.grab_set()
     
     def _create_widgets(self):
-        """Создание виджетов диалога."""
+        """Создание виджетов диалога с улучшенной эргономикой."""
+        # Используем SPACING константы для консистентности
         main_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        main_frame.pack(fill="both", expand=True, padx=DIMENSIONS["padding_large"], 
-                       pady=DIMENSIONS["padding_large"])
+        main_frame.pack(fill="both", expand=True, padx=SPACING["lg"], pady=SPACING["lg"])
         
         self._create_title_field(main_frame)
         self._create_description_field(main_frame)
         self._create_priority_field(main_frame)
         self._create_due_date_field(main_frame)
+        self._create_start_date_field(main_frame)  # Для диаграммы Ганта
         self._create_time_spent_field(main_frame)
         self._create_buttons(main_frame)
     
     def _create_title_field(self, parent):
-        """Поле заголовка."""
-        ctk.CTkLabel(parent, text="Заголовок *", font=FONTS["label_bold"], 
-                    text_color=COLORS["text_primary"]).pack(anchor="w", pady=(0, 5))
+        """Поле заголовка с улучшенным UX."""
+        ctk.CTkLabel(
+            parent, text="Заголовок *", font=FONTS["label_bold"], 
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", pady=(0, SPACING["sm"]))
+        
         self.title_entry = ctk.CTkEntry(
-            parent, width=DIMENSIONS["dialog_width"] - 80, height=DIMENSIONS["entry_height"],
+            parent, 
+            width=DIMENSIONS["dialog_width"] - SPACING["xl"], 
+            height=DIMENSIONS["entry_height"],
             placeholder_text="Введите название задачи...",
-            font=FONTS["label"]
+            font=FONTS["label"],
+            corner_radius=RADIUS["medium"]
         )
-        self.title_entry.pack(fill="x", pady=(0, DIMENSIONS["padding_medium"]))
+        self.title_entry.pack(fill="x", pady=(0, SPACING["md"]))
+        
+        # Добавить визуальный фокус при клике
+        self.title_entry.bind("<FocusIn>", lambda e: self.title_entry.configure(fg_color="#3a3a3c"))
+        self.title_entry.bind("<FocusOut>", lambda e: self.title_entry.configure(fg_color="#2c2c2e"))
     
     def _create_description_field(self, parent):
-        """Поле описания."""
-        ctk.CTkLabel(parent, text="Описание", font=FONTS["label_bold"], 
-                    text_color=COLORS["text_primary"]).pack(anchor="w", pady=(0, 5))
+        """Поле описания с авто-размером."""
+        ctk.CTkLabel(
+            parent, text="Описание", font=FONTS["label_bold"], 
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", pady=(0, SPACING["sm"]))
+        
         self.desc_text = ctk.CTkTextbox(
-            parent, width=DIMENSIONS["dialog_width"] - 80, height=100,
-            font=FONTS["small"]
+            parent, 
+            width=DIMENSIONS["dialog_width"] - SPACING["xl"], 
+            height=120,
+            font=FONTS["small"],
+            corner_radius=RADIUS["medium"]
         )
-        self.desc_text.pack(fill="x", pady=(0, DIMENSIONS["padding_medium"]))
+        self.desc_text.pack(fill="x", pady=(0, SPACING["md"]))
     
     def _create_priority_field(self, parent):
         """Выбор приоритета с визуальной индикацией."""
@@ -216,11 +298,29 @@ class TaskDialog(ctk.CTkToplevel):
         )
         self.time_entry.pack(anchor="w", pady=(0, DIMENSIONS["padding_medium"]))
     
+    def _create_start_date_field(self, parent):
+        """Поле даты начала для диаграммы Ганта."""
+        ctk.CTkLabel(parent, text="Дата начала (ГГГГ-ММ-ДД)", font=FONTS["label_bold"], 
+                    text_color=COLORS["text_primary"]).pack(anchor="w", pady=(0, 5))
+        self.start_date_entry = ctk.CTkEntry(
+            parent, width=200, height=DIMENSIONS["entry_height"],
+            placeholder_text=f"{datetime.now().strftime('%Y-%m-%d')}",
+            font=FONTS["label"]
+        )
+        self.start_date_entry.pack(anchor="w", pady=(0, DIMENSIONS["padding_medium"]))
+        
+        hint_label = ctk.CTkLabel(
+            parent, text="💡 Для отображения на диаграмме Ганта",
+            font=FONTS["tiny"], text_color=COLORS["text_secondary"]
+        )
+        hint_label.pack(anchor="w")
+    
     def _create_buttons(self, parent):
         """Кнопки действий."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(DIMENSIONS["padding_medium"], 0))
         
+        # Left side: Cancel button
         cancel_btn = ctk.CTkButton(
             btn_frame, text="❌ Отмена", command=self.destroy,
             width=DIMENSIONS["button_width"], height=DIMENSIONS["button_height"],
@@ -230,14 +330,73 @@ class TaskDialog(ctk.CTkToplevel):
         )
         cancel_btn.pack(side="left")
         
+        # Right side: Save and optional status change
+        right_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        right_frame.pack(side="right")
+        
+        # Status change buttons (only for editing)
+        if self.is_editing and self.task:
+            status_label = ctk.CTkLabel(
+                right_frame, text="Статус:", 
+                font=FONTS["small"], text_color=COLORS["text_secondary"]
+            )
+            status_label.pack(side="left", padx=(0, 5))
+            
+            for status in [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE]:
+                icon, color = self._get_status_icon_color(status)
+                is_current = status == self.task.status
+                
+                status_btn = ctk.CTkButton(
+                    right_frame, text=icon, width=36, height=DIMENSIONS["button_height"],
+                    fg_color=color if is_current else COLORS["bg_button"],
+                    hover_color=self._lighten_color(color) if is_current else "#555555",
+                    corner_radius=DIMENSIONS["button_corner_radius"],
+                    command=lambda s=status: self._change_status_and_save(s),
+                    font=("Arial", 12)
+                )
+                status_btn.pack(side="left", padx=2)
+        
+        # Save button
         save_text = "💾 Сохранить изменения" if self.is_editing else "✅ Создать задачу"
         save_btn = ctk.CTkButton(
-            btn_frame, text=save_text, command=self._save,
+            right_frame, text=save_text, command=self._save,
             width=DIMENSIONS["button_width"], height=DIMENSIONS["button_height"],
             corner_radius=DIMENSIONS["button_corner_radius"],
-            font=("Arial", 12, "bold")
+            font=("Arial", 12, "bold"),
+            fg_color=COLORS["accent_blue"], hover_color="#1976D2"
         )
-        save_btn.pack(side="right")
+        save_btn.pack(side="left", padx=5)
+    
+    def _get_status_icon_color(self, status: TaskStatus) -> tuple:
+        """Получить иконку и цвет для статуса."""
+        mapping = {
+            TaskStatus.TODO: ("📝", COLORS["status_todo"]),
+            TaskStatus.IN_PROGRESS: ("🔄", COLORS["status_in_progress"]),
+            TaskStatus.DONE: ("✅", COLORS["status_done"])
+        }
+        return mapping.get(status, ("📌", "#999999"))
+    
+    def _lighten_color(self, hex_color: str) -> str:
+        """Осветлить цвет на 20%."""
+        try:
+            hex_color = hex_color.lstrip('#')
+            r = min(255, int(hex_color[0:2], 16) + 40)
+            g = min(255, int(hex_color[2:4], 16) + 40)
+            b = min(255, int(hex_color[4:6], 16) + 40)
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except (ValueError, IndexError):
+            return "#666666"
+    
+    def _change_status_and_save(self, new_status: TaskStatus):
+        """Изменить статус и сохранить задачу."""
+        if self.on_save:
+            task_data = self._validate_and_get_data()
+            if not task_data:
+                return
+            task_data['status'] = new_status
+            task_id = self.task.id if self.task else None
+            self.on_save(task_data, task_id)
+        self.destroy()
     
     def _fill_data(self, task: Task):
         """Заполнение данными существующей задачи."""
@@ -250,8 +409,10 @@ class TaskDialog(ctk.CTkToplevel):
             self.due_entry.insert(0, task.due_date)
         if task.time_spent and task.time_spent > 0:
             self.time_entry.insert(0, str(task.time_spent))
+        if task.start_date:
+            self.start_date_entry.insert(0, task.start_date)
     
-    def _validate_and_get_data(self) -> Optional[dict]:
+    def _validate_and_get_data(self) -> dict | None:
         """Валидация и получение данных формы."""
         title = self.title_entry.get().strip()
         if not title:
@@ -286,13 +447,21 @@ class TaskDialog(ctk.CTkToplevel):
             "High": Priority.HIGH
         }
         
-        return {
+        result = {
             'title': title,
             'description': self.desc_text.get("0.0", "end-1c").strip(),
             'priority': priority_map[self.priority_var.get()],
             'due_date': due_date or None,
             'time_spent': time_spent
         }
+        
+        # Добавить start_date если есть (для диаграммы Ганта)
+        if hasattr(self, 'start_date_entry') and self.start_date_entry:
+            start_date = self.start_date_entry.get().strip()
+            if start_date and validate_date(start_date):
+                result['start_date'] = start_date
+        
+        return result
     
     def _save(self):
         """Сохранение задачи с валидацией."""
@@ -312,15 +481,21 @@ class TaskDialog(ctk.CTkToplevel):
 class TaskCard(ctk.CTkFrame):
     """Карточка задачи для Kanban-доски с улучшенным UX."""
     
-    def __init__(self, parent, task: Task, on_edit: Callable, on_delete: Callable, **kwargs):
+    def __init__(self, parent, task: Task, on_edit: Callable, on_delete: Callable, 
+                 on_status_change: Callable = None, **kwargs):
         super().__init__(parent, **kwargs)
         self.task = task
         self.on_edit = on_edit
         self.on_delete = on_delete
+        self.on_status_change = on_status_change
         
         # Hover effect variables
         self._original_bg = COLORS["bg_card_light"]
         self._hover_bg = "#4a4a4a"
+        
+        # Store buttons for status update
+        self.status_buttons = {}
+        self._action_buttons_parent = None
         
         self._setup_styling()
         self._render()
@@ -367,22 +542,21 @@ class TaskCard(ctk.CTkFrame):
         )
         prio_badge.pack(side="left", padx=(5, 10))
         
-        # Title with truncation
-        title_text = self.task.title if len(self.task.title) <= 35 else self.task.title[:35] + "..."
+        # Title with truncation - improved to use wraplength instead of hard cut
         title_label = ctk.CTkLabel(
-            header, text=title_text,
-            font=("Arial", 13, "bold"), anchor="w"
+            header, text=self.task.title,
+            font=("Arial", 13, "bold"), anchor="w",
+            wraplength=200  # Wrap text instead of cutting
         )
         title_label.pack(side="left", padx=DIMENSIONS["padding_small"], fill="x", expand=True)
         
         # Action buttons
         self._create_action_buttons(header)
         
-        # Description preview
+        # Description preview with proper wrapping
         if self.task.description:
-            desc_text = self.task.description if len(self.task.description) <= 80 else self.task.description[:80] + "..."
             desc_label = ctk.CTkLabel(
-                self, text=desc_text,
+                self, text=self.task.description,
                 text_color=COLORS["text_secondary"], font=FONTS["small"],
                 justify="left", wraplength=260
             )
@@ -393,6 +567,31 @@ class TaskCard(ctk.CTkFrame):
     
     def _create_action_buttons(self, parent):
         """Создание кнопок действий."""
+        # Store parent reference for potential updates
+        self._action_buttons_parent = parent
+        
+        # Status change buttons (always visible on card for quick actions)
+        if self.on_status_change:
+            status_btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            status_btn_frame.pack(side="right", padx=5)
+            
+            # Show all status options except current one
+            all_statuses = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE]
+            next_statuses = [s for s in all_statuses if s != self.task.status]
+            
+            for next_status in next_statuses:
+                icon, color = self._get_status_icon_color(next_status)
+                status_btn = ctk.CTkButton(
+                    status_btn_frame, text=icon, width=28, height=28,
+                    fg_color=color, hover_color=self._lighten_color(color),
+                    corner_radius=DIMENSIONS["button_corner_radius"],
+                    command=lambda s=next_status: self._on_status_click(s),
+                    font=("Arial", 12)
+                )
+                status_btn.pack(side="left", padx=2)
+                # Store reference for updating later
+                self.status_buttons[next_status] = status_btn
+        
         edit_btn = ctk.CTkButton(
             parent, text="✏️", width=32, height=28,
             fg_color=COLORS["bg_button"], hover_color="#555555",
@@ -410,6 +609,75 @@ class TaskCard(ctk.CTkFrame):
             font=("Arial", 14)
         )
         del_btn.pack(side="right", padx=2)
+    
+    def _on_status_click(self, new_status: TaskStatus):
+        """Обработка клика по кнопке статуса."""
+        if self.on_status_change:
+            try:
+                self.on_status_change(self.task.id, new_status)
+                # Update local task status after successful change
+                self.task.status = new_status
+            except Exception as e:
+                import logging
+                logging.error(f"Error changing status: {e}")
+    
+    def refresh_status_buttons(self):
+        """Обновить кнопки статуса после изменения статуса задачи."""
+        # Clear existing buttons
+        for btn in list(self.status_buttons.values()):
+            btn.destroy()
+        self.status_buttons.clear()
+        
+        # Recreate buttons based on new status
+        if self.on_status_change and self._action_buttons_parent:
+            # Find the status_btn_frame and recreate buttons there
+            for widget in self._action_buttons_parent.winfo_children():
+                if isinstance(widget, ctk.CTkFrame) and widget.cget('fg_color') == 'transparent':
+                    # Clear this frame
+                    for child in widget.winfo_children():
+                        child.destroy()
+                    # Recreate buttons
+                    all_statuses = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE]
+                    next_statuses = [s for s in all_statuses if s != self.task.status]
+                    
+                    for next_status in next_statuses:
+                        icon, color = self._get_status_icon_color(next_status)
+                        status_btn = ctk.CTkButton(
+                            widget, text=icon, width=28, height=28,
+                            fg_color=color, hover_color=self._lighten_color(color),
+                            corner_radius=DIMENSIONS["button_corner_radius"],
+                            command=lambda s=next_status: self._on_status_click(s),
+                            font=("Arial", 12)
+                        )
+                        status_btn.pack(side="left", padx=2)
+                        self.status_buttons[next_status] = status_btn
+                    break
+    
+    def _get_next_statuses(self) -> list:
+        """Получить следующие возможные статусы для задачи."""
+        all_statuses = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE]
+        # Return all statuses except current one
+        return [s for s in all_statuses if s != self.task.status]
+    
+    def _get_status_icon_color(self, status: TaskStatus) -> tuple:
+        """Получить иконку и цвет для статуса."""
+        mapping = {
+            TaskStatus.TODO: ("📝", COLORS["status_todo"]),
+            TaskStatus.IN_PROGRESS: ("🔄", COLORS["status_in_progress"]),
+            TaskStatus.DONE: ("✅", COLORS["status_done"])
+        }
+        return mapping.get(status, ("📌", "#999999"))
+    
+    def _lighten_color(self, hex_color: str) -> str:
+        """Осветлить цвет на 20%."""
+        try:
+            hex_color = hex_color.lstrip('#')
+            r = min(255, int(hex_color[0:2], 16) + 40)
+            g = min(255, int(hex_color[2:4], 16) + 40)
+            b = min(255, int(hex_color[4:6], 16) + 40)
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except (ValueError, IndexError):
+            return "#666666"
     
     def _render_footer(self):
         """Отрисовка футера с мета-информацией."""
@@ -587,12 +855,14 @@ class KanbanColumn(ctk.CTkScrollableFrame):
     """Колонка Kanban-доски с улучшенным оформлением."""
     
     def __init__(self, parent, status: TaskStatus, tasks: list, 
-                 on_edit: Callable, on_delete: Callable, **kwargs):
+                 on_edit: Callable, on_delete: Callable, 
+                 on_status_change: Callable = None, **kwargs):
         super().__init__(parent, **kwargs)
         
         self.status = status
         self.on_edit = on_edit
         self.on_delete = on_delete
+        self.on_status_change = on_status_change
         
         # Setup styling using CONSTANTS
         self.configure(
@@ -632,12 +902,30 @@ class KanbanColumn(ctk.CTkScrollableFrame):
         ).pack(side="left", padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_small"])
     
     def _render_tasks(self, tasks: list):
-        """Отрисовка задач в колонке."""
-        for task in tasks:
-            TaskCard(
+        """Отрисовка задач в колонке с адаптивной высотой."""
+        # Configure grid to expand properly
+        self.grid_columnconfigure(0, weight=1)
+        
+        for idx, task in enumerate(tasks):
+            card = TaskCard(
                 self, task, self.on_edit, self.on_delete,
+                on_status_change=self.on_status_change,
                 fg_color=COLORS["bg_card_light"]
             )
+            card.grid(row=idx, column=0, sticky="ew", padx=5, pady=3)
+        
+        # Add stretchable empty row at bottom to fill available space
+        self.grid_rowconfigure(len(tasks), weight=1)
+    
+    def refresh_tasks(self, tasks: list):
+        """Обновить задачи в колонке."""
+        # Clear all existing cards
+        for widget in self.winfo_children():
+            if isinstance(widget, TaskCard):
+                widget.destroy()
+        
+        # Re-render tasks
+        self._render_tasks(tasks)
 
 
 class TaskManagerApp(ctk.CTk):
@@ -702,12 +990,13 @@ class TaskManagerApp(ctk.CTk):
             font=("Arial", 12, "bold")
         ).pack(side="left", padx=DIMENSIONS["padding_small"])
         
-        # Tab view: Kanban vs Dashboard
+        # Tab view: Kanban vs Dashboard vs Gantt
         self.tabview = ctk.CTkTabview(main, fg_color=COLORS["bg_card"], command=self._on_tab_changed)
         self.tabview.pack(fill="both", expand=True)
         
         kanban_tab = self.tabview.add("📊 Kanban Доска")
         dashboard_tab = self.tabview.add("📈 Аналитика")
+        gantt_tab = self.tabview.add("📅 Диаграмма Ганта")
         
         # Kanban board
         self.kanban_frame = ctk.CTkFrame(kanban_tab, fg_color="transparent")
@@ -715,6 +1004,7 @@ class TaskManagerApp(ctk.CTk):
         
         # Dashboard (lazy load on tab switch)
         self.dashboard_frame = None
+        self.gantt_frame = None
     
     def _on_tab_changed(self):
         """Обработка переключения вкладок."""
@@ -725,6 +1015,13 @@ class TaskManagerApp(ctk.CTk):
                 fg_color="transparent"
             )
             self.dashboard_frame.pack(fill="both", expand=True)
+        elif selected_tab == "📅 Диаграмма Ганта" and self.gantt_frame is None:
+            from .gantt_view import GanttViewTab
+            self.gantt_frame = GanttViewTab(
+                self.tabview.tab("📅 Диаграмма Ганта"), self.service,
+                fg_color="transparent"
+            )
+            self.gantt_frame.pack(fill="both", expand=True)
     
     def _refresh_board(self):
         """Обновление Kanban-доски."""
@@ -742,9 +1039,56 @@ class TaskManagerApp(ctk.CTk):
             col = KanbanColumn(
                 self.kanban_frame, status, tasks,
                 on_edit=self._open_edit_task_dialog,
-                on_delete=self._confirm_delete_task
+                on_delete=self._confirm_delete_task,
+                on_status_change=self._change_task_status
             )
             col.grid(row=0, column=i, padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_medium"], sticky="nsew")
+        
+        # Refresh dashboard if exists
+        self._refresh_dashboard()
+        
+        # Refresh gantt if exists
+        self._refresh_gantt()
+    
+    def _change_task_status(self, task_id: str, new_status: TaskStatus):
+        """Изменение статуса задачи с обновлением только затронутых колонок."""
+        try:
+            # Get the task before changing status to know old column
+            old_task = self.service.get_task(task_id)
+            old_status = old_task.status if old_task else None
+            
+            self.service.update_task_status(task_id, new_status)
+            logger.info(f"Task {task_id} status changed to {new_status.value}")
+            
+            # Refresh only affected columns instead of entire board
+            self._refresh_affected_columns(old_status, new_status)
+            
+            # Also refresh dashboard and gantt
+            self._refresh_dashboard()
+            self._refresh_gantt()
+        except Exception as e:
+            logger.error(f"Error changing task status: {e}")
+            messagebox.showerror("⚠️ Ошибка", str(e))
+    
+    def _refresh_affected_columns(self, old_status: TaskStatus, new_status: TaskStatus):
+        """Обновить только затронутые колонки для оптимизации производительности."""
+        # Get all columns
+        columns = {}
+        for widget in self.kanban_frame.winfo_children():
+            if isinstance(widget, KanbanColumn):
+                columns[widget.status] = widget
+        
+        # Determine which columns need refresh (old and new status columns)
+        statuses_to_refresh = set()
+        if old_status:
+            statuses_to_refresh.add(old_status)
+        statuses_to_refresh.add(new_status)
+        
+        # Refresh only affected columns
+        for status in statuses_to_refresh:
+            if status in columns:
+                tasks = self.service.get_tasks_by_status(status)
+                columns[status].refresh_tasks(tasks)
     
     def _open_new_task_dialog(self):
         """Открытие диалога создания задачи."""
@@ -756,7 +1100,7 @@ class TaskManagerApp(ctk.CTk):
         dialog = TaskDialog(self, task=task, on_save=self._save_edited_task)
         dialog.grab_set()
     
-    def _save_new_task(self, data: dict, task_id: Optional[str] = None):
+    def _save_new_task(self, data: dict, task_id: str | None = None):
         """Сохранение новой задачи."""
         try:
             self.service.create_task(
@@ -765,9 +1109,17 @@ class TaskManagerApp(ctk.CTk):
                 priority=data['priority'],
                 due_date=data['due_date']
             )
+            # Если есть start_date, обновить задачу
+            if 'start_date' in data and data['start_date']:
+                # Получить только что созданную задачу и обновить start_date
+                tasks = self.service.get_all_tasks()
+                for task in tasks:
+                    if task.title == data['title']:
+                        self.service.update_task(task.id, start_date=data['start_date'])
+                        break
+            
             logger.info(f"Task created: {data['title']}")
             self._refresh_board()
-            self._refresh_dashboard()
         except Exception as e:
             logger.error(f"Error creating task: {e}")
             messagebox.showerror("⚠️ Ошибка", str(e))
@@ -775,17 +1127,26 @@ class TaskManagerApp(ctk.CTk):
     def _save_edited_task(self, data: dict, task_id: str):
         """Сохранение изменений задачи."""
         try:
-            self.service.update_task(
-                task_id=task_id,
-                title=data['title'],
-                description=data['description'],
-                priority=data['priority'],
-                due_date=data['due_date'],
-                time_spent=data['time_spent']
-            )
+            update_kwargs = {
+                'task_id': task_id,
+                'title': data['title'],
+                'description': data['description'],
+                'priority': data['priority'],
+                'due_date': data['due_date'],
+                'time_spent': data['time_spent']
+            }
+            
+            # Добавить статус если есть
+            if 'status' in data and data['status']:
+                update_kwargs['status'] = data['status']
+            
+            # Добавить start_date если есть
+            if 'start_date' in data:
+                update_kwargs['start_date'] = data['start_date']
+            
+            self.service.update_task(**update_kwargs)
             logger.info(f"Task updated: {data['title']}")
             self._refresh_board()
-            self._refresh_dashboard()
         except Exception as e:
             logger.error(f"Error updating task: {e}")
             messagebox.showerror("⚠️ Ошибка", str(e))
@@ -796,12 +1157,16 @@ class TaskManagerApp(ctk.CTk):
             self.service.delete_task(task_id)
             logger.info(f"Task deleted: {task_id}")
             self._refresh_board()
-            self._refresh_dashboard()
     
     def _refresh_dashboard(self):
         """Обновление дашборда (если создан)."""
         if self.dashboard_frame is not None:
             self.dashboard_frame._refresh()
+    
+    def _refresh_gantt(self):
+        """Обновление диаграммы Ганта (если создана)."""
+        if self.gantt_frame is not None:
+            self.gantt_frame.refresh()
 
 
 def run_app():
