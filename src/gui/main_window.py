@@ -65,7 +65,7 @@ COLORS = {
 # Typography - San Francisco-like font stack
 FONTS = {
     "title": ("SF Pro Display", 24, "bold"),
-    "heading": ("SF Pro Display", 18, "semibold"),
+    "heading": ("SF Pro Display", 18, "bold"),
     "label_bold": ("SF Pro Text", 13, "bold"),
     "label": ("SF Pro Text", 13, "regular"),
     "small": ("SF Pro Text", 11, "regular"),
