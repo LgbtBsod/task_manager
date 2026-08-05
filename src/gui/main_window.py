@@ -111,6 +111,9 @@ DIMENSIONS = {
     "padding_small": 8,
     "padding_medium": 16,
     "padding_large": 24,
+    "card_corner_radius": 12,
+    "button_corner_radius": 8,
+    "entry_corner_radius": 8,
 }
 
 # Configure logging
