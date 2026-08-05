@@ -108,6 +108,9 @@ DIMENSIONS = {
     "entry_height": 44,
     "button_height": 40,
     "button_min_width": 120,
+    "padding_small": 8,
+    "padding_medium": 16,
+    "padding_large": 24,
 }
 
 # Configure logging
