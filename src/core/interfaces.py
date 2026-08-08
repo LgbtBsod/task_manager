@@ -3,8 +3,9 @@ Interfaces for Dependency Inversion Principle (DIP).
 Defines contracts that concrete implementations must follow.
 """
 from abc import ABC, abstractmethod
-from typing import List, Optional, Callable
-from .models import Task, TaskID
+from typing import List, Optional, Callable, Any
+
+from .models import Task
 
 
 class ITaskRepository(ABC):
@@ -12,22 +13,27 @@ class ITaskRepository(ABC):
     
     @abstractmethod
     def get_all(self) -> List[Task]:
+        """Get all tasks."""
         pass
 
     @abstractmethod
-    def get_by_id(self, task_id: TaskID) -> Optional[Task]:
+    def get_by_id(self, task_id: str) -> Optional[Task]:
+        """Get task by ID."""
         pass
 
     @abstractmethod
     def add(self, task: Task) -> Task:
+        """Add a new task."""
         pass
 
     @abstractmethod
-    def update(self, task: Task) -> None:
+    def update(self, task: Task) -> Task:
+        """Update an existing task."""
         pass
 
     @abstractmethod
-    def delete(self, task_id: TaskID) -> bool:
+    def delete(self, task_id: str) -> bool:
+        """Delete task by ID."""
         pass
 
 
@@ -35,13 +41,16 @@ class IEventBus(ABC):
     """Interface for Event System."""
     
     @abstractmethod
-    def subscribe(self, event_type: str, callback: Callable) -> None:
+    def subscribe(self, event_type: Any, callback: Callable[[Any], None]) -> None:
+        """Subscribe to an event type."""
         pass
 
     @abstractmethod
-    def unsubscribe(self, event_type: str, callback: Callable) -> None:
+    def unsubscribe(self, event_type: Any, callback: Callable[[Any], None]) -> None:
+        """Unsubscribe from an event type."""
         pass
 
     @abstractmethod
-    def publish(self, event_type: str, data: dict) -> None:
+    def publish(self, event: Any) -> None:
+        """Publish an event to all subscribers."""
         pass

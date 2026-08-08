@@ -9,9 +9,6 @@ from pathlib import Path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
-# Set package context for proper relative imports
-__package__ = 'src'
-import src.gui
 from src.gui.main_window import run_app
 
 
