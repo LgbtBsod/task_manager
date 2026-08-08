@@ -3,8 +3,18 @@ Task Manager - Modern Kanban Board
 Business Logic Service Layer
 Python 3.14+ Compatible
 
-Using Pydantic for DTO validation (DRTTW)
+This module implements the Domain Service pattern, orchestrating business logic
+between domain models (Task) and data access layer (Repository).
+
+Principles:
+- SRP: Only handles business logic, validation delegated to Pydantic
+- DRY: Reuses Pydantic for DTO validation instead of custom code
+- DRTTW: Uses established Pydantic library
+- YAGNI: Removed excessive DTO classes
+- DIP: Depends on repository abstraction, not concrete implementation
 """
+
+from typing import Optional
 
 from .models import Task, TaskStatus, Priority, TaskModel
 from .repository import TaskRepository
@@ -12,33 +22,65 @@ from .events import EventBus, EventType, Event, event_bus
 
 
 class TaskService:
-    """Сервис бизнес-логики для управления задачами.
+    """
+    Business logic service for task management.
     
-    Реализует паттерн Domain Service с реактивными обновлениями через EventBus.
+    Implements the Domain Service pattern with reactive updates via EventBus.
     
-    Принципы:
-    - SRP: Только бизнес-логика, валидация делегирована Pydantic
-    - DRY: Переиспользуем Pydantic вместо самописных DTO
-    - DRTTW: Используем готовую библиотеку Pydantic
-    - YAGNI: Удалены избыточные DTO классы
+    Responsibilities:
+    - Task creation with validation
+    - Task status transitions
+    - Task updates with validation
+    - Task deletion
+    - Statistics calculation
+    
+    Not responsible for:
+    - Data persistence (handled by TaskRepository)
+    - Data validation schema (handled by TaskModel/Pydantic)
+    - UI rendering (handled by GUI components)
+    
+    Example usage:
+        service = TaskService()
+        task = service.create_task("My Task", priority=Priority.HIGH)
+        service.update_task_status(task.id, TaskStatus.IN_PROGRESS)
+        stats = service.get_statistics()
     """
     
-    def __init__(self, repository: TaskRepository | None = None, event_bus: EventBus | None = None):
+    def __init__(self, repository: Optional[TaskRepository] = None, event_bus: Optional[EventBus] = None):
+        """Initialize service with optional custom repository and event bus.
+        
+        Args:
+            repository: Custom task repository (default: TaskRepository())
+            event_bus: Custom event bus for reactive updates (default: singleton)
+        """
         self.repo = repository or TaskRepository()
         # Use provided event_bus or fall back to global singleton
         self.event_bus = event_bus if event_bus is not None else EventBus()
     
-    def create_task(self, title: str, description: str = "", priority: Priority = Priority.MEDIUM, due_date: str | None = None, start_date: str | None = None) -> Task:
-        """Создание новой задачи с публикацией события и валидацией через Pydantic.
+    def create_task(
+        self, 
+        title: str, 
+        description: str = "", 
+        priority: Priority = Priority.MEDIUM, 
+        due_date: Optional[str] = None, 
+        start_date: Optional[str] = None
+    ) -> Task:
+        """Create a new task with validation and event publication.
         
         Args:
-            title: Заголовок задачи
-            description: Описание
-            priority: Приоритет
-            due_date: Дедлайн (YYYY-MM-DD)
-            start_date: Дата начала (YYYY-MM-DD)
+            title: Task title (required, will be stripped)
+            description: Optional task description
+            priority: Task priority level (default: MEDIUM)
+            due_date: Optional due date in YYYY-MM-DD format
+            start_date: Optional start date for Gantt chart
+            
+        Returns:
+            Created task with generated ID
+            
+        Raises:
+            ValueError: If validation fails
         """
-        # Валидация через Pydantic (DRTTW)
+        # Validate using Pydantic (DRTTW)
         try:
             task_model = TaskModel(
                 title=title.strip(),
@@ -63,15 +105,34 @@ class TaskService:
         return created_task
     
     def get_all_tasks(self) -> list[Task]:
-        """Получить все задачи."""
+        """Retrieve all tasks from storage.
+        
+        Returns:
+            List of all tasks
+        """
         return self.repo.get_all()
     
-    def get_task(self, task_id: str) -> Task | None:
-        """Получить задачу по ID."""
+    def get_task(self, task_id: str) -> Optional[Task]:
+        """Find task by unique identifier.
+        
+        Args:
+            task_id: Unique task identifier
+            
+        Returns:
+            Task if found, None otherwise
+        """
         return self.repo.get_by_id(task_id)
     
-    def update_task_status(self, task_id: str, status: TaskStatus) -> Task | None:
-        """Обновить статус задачи с публикацией события."""
+    def update_task_status(self, task_id: str, status: TaskStatus) -> Optional[Task]:
+        """Update task status with event publication.
+        
+        Args:
+            task_id: ID of task to update
+            status: New status value
+            
+        Returns:
+            Updated task if found, None otherwise
+        """
         task = self.repo.get_by_id(task_id)
         if task:
             old_status = task.status
@@ -92,22 +153,39 @@ class TaskService:
     def update_task(
         self,
         task_id: str,
-        title: str | None = None,
-        description: str | None = None,
-        priority: Priority | None = None,
-        due_date: str | None = None,
-        time_spent: float | None = None,
-        start_date: str | None = None,
-        status: TaskStatus | None = None
-    ) -> Task | None:
-        """Обновить задачу с публикацией события и валидацией через Pydantic."""
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        priority: Optional[Priority] = None,
+        due_date: Optional[str] = None,
+        time_spent: Optional[float] = None,
+        start_date: Optional[str] = None,
+        status: Optional[TaskStatus] = None
+    ) -> Optional[Task]:
+        """Update task fields with validation and event publication.
+        
+        Args:
+            task_id: ID of task to update
+            title: New title (optional)
+            description: New description (optional)
+            priority: New priority (optional)
+            due_date: New due date (optional)
+            time_spent: New time spent in hours (optional, must be >= 0)
+            start_date: New start date (optional)
+            status: New status (optional)
+            
+        Returns:
+            Updated task if found, None otherwise
+            
+        Raises:
+            ValueError: If validation fails after updates
+        """
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
         
         old_status = task.status
         
-        # Обновляем поля
+        # Update fields
         if title is not None:
             task.title = title.strip()
         if description is not None:
@@ -117,17 +195,17 @@ class TaskService:
         if due_date is not None:
             task.due_date = due_date
         if time_spent is not None:
-            task.time_spent = max(0, time_spent)  # Неотрицательное значение
+            task.time_spent = max(0, time_spent)  # Ensure non-negative
         if start_date is not None:
             task.start_date = start_date
         if status is not None:
             task.status = status
         
-        # Валидация через Pydantic после обновления (DRTTW)
+        # Validate using Pydantic after updates (DRTTW)
         try:
             task_model = TaskModel.from_task(task)
         except Exception as e:
-            # Откат изменений при ошибке валидации
+            # Rollback on validation error
             raise ValueError(f"Validation failed: {e}")
         
         task.update_timestamp()
@@ -144,7 +222,14 @@ class TaskService:
         return updated_task
     
     def delete_task(self, task_id: str) -> bool:
-        """Удалить задачу с публикацией события."""
+        """Delete task with event publication.
+        
+        Args:
+            task_id: ID of task to delete
+            
+        Returns:
+            True if deleted, False if not found
+        """
         # Get task before deletion to know its status
         task = self.repo.get_by_id(task_id)
         if task:
@@ -160,14 +245,29 @@ class TaskService:
         return False
     
     def get_tasks_by_status(self, status: TaskStatus) -> list[Task]:
-        """Получить задачи по статусу."""
+        """Filter tasks by status.
+        
+        Args:
+            status: Status to filter by
+            
+        Returns:
+            List of tasks matching the status
+        """
         return self.repo.get_by_status(status)
     
     def get_statistics(self) -> dict:
-        """Получить статистику для дашборда."""
+        """Get dashboard statistics.
+        
+        Returns:
+            Dictionary with task statistics
+        """
         return self.repo.get_statistics()
     
     def get_overdue_tasks(self) -> list[Task]:
-        """Получить просроченные задачи."""
+        """Get all overdue tasks.
+        
+        Returns:
+            List of tasks past their due date
+        """
         all_tasks = self.get_all_tasks()
         return [t for t in all_tasks if t.is_overdue()]
