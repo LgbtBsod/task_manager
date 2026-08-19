@@ -5,14 +5,11 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Source distributions
-dist/
-build/
-*.egg-info/
+# Logs and temp files
+*.log
+*.tmp
 
 # Environment
-.venv/
-venv/
 .env
 .env.local
 *.env.*
@@ -20,23 +17,9 @@ venv/
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# Logs
-*.log
-
-# Coverage
-.coverage
-coverage/
-htmlcov/
-
-# Testing
-.pytest_cache/
-.mypy_cache/
+# Build artifacts
+dist/
+build/
+target/
 ```
-Nothing should be ignored based on the provided file changes. The only modified file is `main.py`, which is a source code file and should not be added to .gitignore. There are no build artifacts, dependencies, or temporary files in the changes that would warrant adding ignore rules.
-/src/core/__pycache__
-/src/__pycache__
-/src/gui/__pycache__
-/src/utils/__pycache__

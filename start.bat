@@ -113,6 +113,14 @@ if %errorlevel% neq 0 (
 )
 echo.
 
+:: Запуск проверки обновлений через Python (надежнее чем парсинг в bat)
+echo [INFO] Проверка обновлений приложения...
+python -c "from src.utils.updater import check_updates; check_updates('LgbtBsod', 'task_manager')"
+if %errorlevel% neq 0 (
+    echo [WARNING] Не удалось проверить обновления, продолжаем запуск...
+)
+echo.
+
 :: Запуск приложения
 echo [4/4] Запуск приложения...
 echo ============================================
