@@ -98,6 +98,13 @@ if not exist "venv" (
 :: Активация виртуального окружения
 call venv\Scripts\activate.bat
 
+:: Обновление pip
+echo Обновление pip...
+python -m pip install --upgrade pip --quiet
+if %errorlevel% neq 0 (
+    echo [WARNING] Не удалось обновить pip
+)
+
 :: Установка зависимостей
 echo Установка зависимостей...
 pip install -r requirements.txt --upgrade --quiet

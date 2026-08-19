@@ -11,7 +11,7 @@ import shutil
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from urllib.request import urlopen, urlretrieve
+from urllib.request import urlopen, urlretrieve, Request
 from urllib.error import URLError, HTTPError
 
 
@@ -33,6 +33,12 @@ class AutoUpdater:
         self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
         self.app_dir = Path(__file__).parent.parent.parent  # Go to project root
         
+    def _create_request(self, url: str) -> Request:
+        """Create a request with User-Agent header to avoid GitHub API rate limiting."""
+        req = Request(url)
+        req.add_header('User-Agent', f'TaskManager/{self.current_version}')
+        return req
+    
     def get_latest_release(self) -> Optional[Dict[str, Any]]:
         """
         Fetch latest release information from GitHub API.
@@ -42,7 +48,8 @@ class AutoUpdater:
         """
         try:
             url = f"{self.api_url}/releases/latest"
-            with urlopen(url, timeout=10) as response:
+            req = self._create_request(url)
+            with urlopen(req, timeout=10) as response:
                 return json.loads(response.read().decode('utf-8'))
         except (URLError, HTTPError, json.JSONDecodeError) as e:
             print(f"[Обновление] Не удалось получить информацию о релизе: {e}")
@@ -57,7 +64,8 @@ class AutoUpdater:
         """
         try:
             url = f"{self.api_url}/commits/main"
-            with urlopen(url, timeout=10) as response:
+            req = self._create_request(url)
+            with urlopen(req, timeout=10) as response:
                 return json.loads(response.read().decode('utf-8'))
         except (URLError, HTTPError, json.JSONDecodeError) as e:
             print(f"[Обновление] Не удалось получить информацию о коммите: {e}")
@@ -114,10 +122,11 @@ class AutoUpdater:
         try:
             print("[Обновление] Скачивание обновлений...")
             
-            # Create temporary file
+            # Create temporary file with User-Agent header
+            req = self._create_request(zip_url)
             with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
                 tmp_path = tmp_file.name
-                urlretrieve(zip_url, tmp_path)
+                urlretrieve(req, tmp_path)
             
             print("[Обновление] Распаковка обновлений...")
             
@@ -198,19 +207,13 @@ class AutoUpdater:
             return True
     
     def _update_version_file(self, new_version: str) -> None:
-        """Update the _version.py file with the new version."""
-        version_file = self.app_dir / "src" / "utils" / "_version.py"
+        """Update the version.txt file with the new version."""
+        # Update version.txt in project root
+        version_file = self.app_dir / "version.txt"
         
         try:
-            content = f'''"""
-Task Manager - Version File
-Auto-generated version information
-"""
-__version__ = "{new_version}"
-__build__ = "auto-updated"
-'''
             with open(version_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+                f.write(new_version.strip())
             print(f"[Обновление] Версия обновлена: {new_version}")
         except Exception as e:
             print(f"[Обновление] Не удалось обновить файл версии: {e}")
@@ -266,20 +269,22 @@ __build__ = "auto-updated"
 
 
 def get_current_version() -> str:
-    """Get current version from various sources."""
-    # Try to get from _version.py if exists
-    version_file = Path(__file__).parent / '_version.py'
+    """Get current version from version.txt file."""
+    # Try to get from version.txt in project root
+    version_file = Path(__file__).parent.parent.parent / 'version.txt'
     if version_file.exists():
         try:
             with open(version_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                if '__version__' in content:
-                    # Simple parsing
-                    for line in content.split('\n'):
-                        if line.startswith('__version__'):
-                            return line.split('=')[1].strip().strip('"\'')
+                return f.read().strip()
         except Exception:
             pass
+    
+    # Fallback to _version.py module
+    try:
+        from ._version import get_version
+        return get_version()
+    except Exception:
+        pass
     
     # Try to get from git if available (fallback)
     try:
@@ -311,6 +316,7 @@ def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
         True if update was performed
     """
     current_version = get_current_version()
+    print(f"[Обновление] Текущая версия: {current_version}")
     updater = AutoUpdater(repo_owner, repo_name, current_version)
     return updater.run_update_check(auto=auto)
 
