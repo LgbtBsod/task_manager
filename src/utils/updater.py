@@ -93,6 +93,7 @@ class AutoUpdater:
                 zip_url = release_info.get('zipball_url')
             
             if zip_url and latest_version != self.current_version:
+                print(f"[Обновление] Найдена новая версия: {latest_version}")
                 return True, latest_version, zip_url
             elif latest_version == self.current_version:
                 return False, latest_version, None
@@ -103,8 +104,14 @@ class AutoUpdater:
             latest_sha = commit_info.get('sha', '')[:7]
             zip_url = f"{self.api_url}/zipball/main"
             
-            if latest_sha != self.current_version[:7] if self.current_version != "unknown" else True:
-                return True, latest_sha, zip_url
+            # Only suggest commit-based update if current version is not a semantic version
+            if self.current_version != "unknown" and latest_sha != self.current_version[:7]:
+                import re
+                # If current version looks like a semantic version (e.g., 1.1.0), don't update to commit
+                if re.match(r'^v?\d+\.\d+', self.current_version):
+                    return False, latest_version, None
+                else:
+                    return True, latest_sha, zip_url
         
         return False, None, None
     
