@@ -61,6 +61,12 @@ if %errorlevel% neq 0 (
     start /wait "" "%TEMP_DIR%\python-installer.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
     rmdir /s /q "%TEMP_DIR%" 2>nul
     
+    :: Обновляем переменные окружения для текущей сессии
+    echo Обновление переменных окружения...
+    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v PATH 2^>nul') do set "USER_PATH=%%b"
+    for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SYSTEM_PATH=%%b"
+    set "PATH=%USER_PATH%;%SYSTEM_PATH%"
+    
     :: Проверяем установку
     where python >nul 2>nul
     if %errorlevel% neq 0 (
