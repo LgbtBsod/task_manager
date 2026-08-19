@@ -28,6 +28,9 @@ echo [INFO] Версия для обновления: !VERSION!
 echo [INFO] URL архива: !ARCHIVE_URL!
 echo.
 
+:: Сохраняем путь к приложению
+set "APP_DIR=%~dp0"
+
 :: Создание уникальной временной папки
 set "TEMP_BASE=%TEMP%\task_manager_update"
 set "TEMP_DIR=%TEMP_BASE%\update_%VERSION%_%RANDOM%"
@@ -81,17 +84,18 @@ echo.
 :: Остановка приложения (если запущено)
 echo [4/6] Остановка приложения...
 taskkill /F /FI "WINDOWTITLE eq Task Manager*" >nul 2>nul
+taskkill /F /IM python.exe >nul 2>nul
 timeout /t 2 /nobreak >nul
 
 :: Копирование файлов из временной папки в основную
 echo [5/6] Копирование файлов обновления...
-set "APP_DIR=%~dp0"
 
 :: Создаем список файлов для исключения (заблокированные файлы)
 echo venv > "!TEMP_DIR!\exclude.txt"
 echo .git >> "!TEMP_DIR!\exclude.txt"
 echo __pycache__ >> "!TEMP_DIR!\exclude.txt"
 echo *.pyc >> "!TEMP_DIR!\exclude.txt"
+echo tasks.json >> "!TEMP_DIR!\exclude.txt"
 
 :: Копируем все файлы
 xcopy "!SOURCE_FOLDER!\*" "!APP_DIR!" /E /I /Y /Q /exclude:"!TEMP_DIR!\exclude.txt"
@@ -108,8 +112,8 @@ if exist "!SOURCE_FOLDER!\version.txt" (
 
 echo.
 echo [6/6] Очистка временных файлов...
-rmdir /s /q "!TEMP_DIR!" 2>nul
 timeout /t 1 /nobreak >nul
+rmdir /s /q "!TEMP_DIR!" 2>nul
 
 echo.
 echo ============================================
@@ -122,8 +126,8 @@ echo.
 echo [INFO] Перезапуск приложения...
 timeout /t 2 /nobreak >nul
 
-:: Запускаем start.bat в новом окне
-start "" "cmd.exe" "/c" "cd /d !APP_DIR! && start.bat"
+:: Запускаем start.bat в новом окне с правильной кодировкой
+start "" cmd.exe /c "cd /d "!APP_DIR!" && chcp 65001 >nul && start.bat"
 
 :: Закрываем текущее окно
 exit
