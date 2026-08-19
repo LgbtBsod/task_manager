@@ -1,1 +1,43 @@
-Nothing needs to be added to the .gitignore file based on the provided changes. The modification of 'start.bat' (a batch script file) does not require any new ignore rules, as it's a source/config file that shouldn't be ignored. The current .gitignore content is empty, so there are no existing rules to preserve or modify.
+```
+# Dependencies
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.env.local
+*.env.*
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Distribution archives
+*.tar.gz
+*.zip
+*.whl
+```
