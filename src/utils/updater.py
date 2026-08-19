@@ -219,7 +219,7 @@ class AutoUpdater:
     
     def download_and_extract(self, zip_url: str, latest_version: str) -> bool:
         """
-        Download and extract the update.
+        Download and extract the update to a temporary folder, then restart.
         
         Args:
             zip_url: URL to download the zip file from
@@ -228,33 +228,91 @@ class AutoUpdater:
         Returns:
             True if successful, False otherwise
         """
+        import subprocess
+        
         try:
             print("[Обновление] Скачивание обновлений...")
             
-            # Create temporary file and download with User-Agent header
-            req = self._create_request(zip_url)
-            with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-                # Use urlopen to send request with headers, then write content
-                with urlopen(req, timeout=30) as response:
-                    shutil.copyfileobj(response, tmp_file)
+            # Create temporary directory for extraction
+            temp_base = Path(tempfile.gettempdir()) / "task_manager_update"
+            temp_dir = temp_base / f"update_{latest_version.replace('.', '_')}_{os.getpid()}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
             
-            print("[Обновление] Распаковка обновлений...")
+            print(f"[Обновление] Временная папка: {temp_dir}")
+            
+            # Download archive to temp folder
+            zip_path = temp_dir / "update.zip"
+            req = self._create_request(zip_url)
+            with urlopen(req, timeout=30) as response, open(zip_path, 'wb') as out_file:
+                shutil.copyfileobj(response, out_file)
+            
+            print("[Обновление] Распаковка обновлений во временную папку...")
             
             # Extract to temporary directory
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
-                    zip_ref.extractall(tmp_dir)
+            extracted_dir = temp_dir / "extracted"
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extracted_dir)
+            
+            # Find the extracted folder (GitHub adds a prefix like username-repo-hash/)
+            extracted_folders = [f for f in extracted_dir.iterdir() if f.is_dir()]
+            if not extracted_folders:
+                print("[Обновление] Ошибка: не найдено распакованных файлов")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False
+            
+            source_folder = extracted_folders[0]
+            print(f"[Обновление] Источник: {source_folder}")
+            
+            # Prepare restart script path
+            app_dir = self.app_dir
+            start_bat = app_dir / "start.bat"
+            update_bat = app_dir / "update.bat"
+            
+            print("[Обновление] Подготовка перезапуска...")
+            
+            # Save update info for batch script
+            update_info = {
+                'source_folder': str(source_folder),
+                'app_dir': str(app_dir),
+                'version': latest_version,
+                'temp_dir': str(temp_dir)
+            }
+            update_info_file = temp_dir / "update_info.json"
+            with open(update_info_file, 'w', encoding='utf-8') as f:
+                json.dump(update_info, f, ensure_ascii=False, indent=2)
+            
+            # Stop current application gracefully
+            print("[Обновление] Остановка приложения...")
+            
+            # If running from start.bat, we'll let the batch script handle the copy
+            if update_bat.exists():
+                print("[Обновление] Запуск внешнего скрипта обновления...")
                 
-                # Find the extracted folder (GitHub adds a prefix like username-repo-hash/)
-                extracted_folders = [f for f in Path(tmp_dir).iterdir() if f.is_dir()]
-                if not extracted_folders:
-                    print("[Обновление] Ошибка: не найдено распакованных файлов")
-                    return False
+                # Close current GUI if exists
+                try:
+                    import tkinter as tk
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.destroy()
+                except Exception:
+                    pass
                 
-                source_folder = extracted_folders[0]
+                # Start update.bat with parameters
+                subprocess.Popen([
+                    'cmd.exe', '/c',
+                    str(update_bat),
+                    zip_url,
+                    latest_version
+                ], cwd=str(app_dir))
                 
-                # Copy files to app directory, preserving structure
+                # Exit current process
+                sys.exit(0)
+            else:
+                # Fallback: copy files directly then restart
+                print("[Обновление] Копирование файлов из временной папки...")
+                
                 files_copied = 0
                 errors = []
                 for item in source_folder.rglob('*'):
@@ -264,7 +322,7 @@ class AutoUpdater:
                             continue
                         
                         relative_path = item.relative_to(source_folder)
-                        dest_path = self.app_dir / relative_path
+                        dest_path = app_dir / relative_path
                         
                         # Skip currently running script files that might be locked
                         if dest_path.exists() and self._is_file_locked(dest_path):
@@ -283,7 +341,7 @@ class AutoUpdater:
                 
                 if errors:
                     print("[Обновление] Предупреждения:")
-                    for err in errors[:5]:  # Show first 5 errors
+                    for err in errors[:5]:
                         print(f"  - {err}")
                     if len(errors) > 5:
                         print(f"  ... и ещё {len(errors) - 5} ошибок")
@@ -292,17 +350,28 @@ class AutoUpdater:
                 
                 # Update version file after successful extraction
                 self._update_version_file(latest_version)
+                
+                # Clean up temp directory
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                
+                print("[Обновление] Обновление успешно установлено!")
+                
+                # Restart application
+                print("[Обновление] Перезапуск приложения...")
+                if start_bat.exists():
+                    subprocess.Popen(['cmd.exe', '/c', str(start_bat)], cwd=str(app_dir))
+                else:
+                    subprocess.Popen([sys.executable, 'main.py'], cwd=str(app_dir))
+                
+                sys.exit(0)
             
-            # Clean up temp file
-            os.unlink(tmp_path)
-            
-            print("[Обновление] Обновление успешно установлено!")
             return True
             
         except Exception as e:
             print(f"[Обновление] Ошибка при установке обновлений: {e}")
-            if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            # Cleanup on error
+            if 'temp_dir' in locals() and temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
             return False
     
     def _is_file_locked(self, filepath: Path) -> bool:
