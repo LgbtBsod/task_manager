@@ -20,9 +20,8 @@ def restart_application():
 
 if __name__ == "__main__":
     # Check for updates before starting the app
-    # Replace with your actual GitHub repo details
-    REPO_OWNER = "your-username"  # TODO: Замените на ваш username GitHub
-    REPO_NAME = "task_manager"     # TODO: Замените на имя вашего репозитория
+    REPO_OWNER = "LgbtBsod"
+    REPO_NAME = "task_manager"
     
     updated = False
     try:
