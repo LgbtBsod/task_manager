@@ -78,6 +78,8 @@ class AutoUpdater:
         Returns:
             Tuple of (has_update, latest_version, download_url)
         """
+        import re
+        
         # Try to get latest release first
         release_info = self.get_latest_release()
         if release_info:
@@ -92,11 +94,13 @@ class AutoUpdater:
             if not zip_url:
                 zip_url = release_info.get('zipball_url')
             
-            if zip_url and latest_version != self.current_version:
-                print(f"[Обновление] Найдена новая версия: {latest_version}")
-                return True, latest_version, zip_url
-            elif latest_version == self.current_version:
-                return False, latest_version, None
+            if zip_url:
+                # Compare versions properly using semantic versioning
+                if self._is_newer_version(latest_version, self.current_version):
+                    print(f"[Обновление] Найдена новая версия: {latest_version}")
+                    return True, latest_version, zip_url
+                else:
+                    return False, latest_version, None
         
         # Fallback to checking commits
         commit_info = self.get_latest_commit()
@@ -106,7 +110,6 @@ class AutoUpdater:
             
             # Only suggest commit-based update if current version is not a semantic version
             if self.current_version != "unknown" and latest_sha != self.current_version[:7]:
-                import re
                 # If current version looks like a semantic version (e.g., 1.1.0), don't update to commit
                 if re.match(r'^v?\d+\.\d+', self.current_version):
                     return False, latest_version, None
@@ -114,6 +117,105 @@ class AutoUpdater:
                     return True, latest_sha, zip_url
         
         return False, None, None
+    
+    def _parse_version(self, version_str: str) -> Tuple[Tuple[int, ...], str, str]:
+        """
+        Parse version string into components for comparison.
+        Handles formats like: 1.1.0, v1.1.0, 1.1.0a, 1.1.0b, 1.1.0rc, 1.1.0.0
+        Returns: (numeric_tuple, prerelease_type, prerelease_number)
+        """
+        import re
+        
+        # Remove 'v' prefix if present
+        version_str = version_str.lstrip('v').strip()
+        
+        # Pattern to match version with optional prerelease suffix
+        # Examples: 1.1.0, 1.1.0a, 1.1.0alpha, 1.1.0b2, 1.1.0rc1, 1.1.0.0
+        pattern = r'^(\d+(?:\.\d+)*)\.?(\d*)\s*([a-zA-Z]+)?\s*(\d*)$'
+        match = re.match(pattern, version_str)
+        
+        if not match:
+            # Fallback: just extract numbers
+            parts = re.findall(r'\d+', version_str)
+            numeric_tuple = tuple(int(p) for p in parts[:4]) + (0,) * (4 - len(parts))
+            return numeric_tuple, '', ''
+        
+        base_version, patch, prerelease_type, prerelease_num = match.groups()
+        
+        # Build numeric tuple from base version and optional patch
+        base_parts = [int(p) for p in base_version.split('.')]
+        if patch:
+            base_parts.append(int(patch))
+        
+        # Pad to 4 elements
+        numeric_tuple = tuple(base_parts[:4]) + (0,) * (4 - len(base_parts))
+        
+        # Normalize prerelease type
+        prerelease_type = (prerelease_type or '').lower().strip()
+        prerelease_num = (prerelease_num or '0').strip()
+        
+        # Map common aliases
+        type_map = {
+            'a': 'alpha', 'alpha': 'alpha',
+            'b': 'beta', 'beta': 'beta',
+            'rc': 'rc', 'releasecandidate': 'rc', 'release': 'rc',
+            'dev': 'dev', 'development': 'dev',
+            'post': 'post',
+        }
+        prerelease_type = type_map.get(prerelease_type, prerelease_type)
+        
+        return numeric_tuple, prerelease_type, prerelease_num
+    
+    def _is_newer_version(self, latest: str, current: str) -> bool:
+        """
+        Check if latest version is newer than current version.
+        Supports semantic versioning with prerelease suffixes (alpha, beta, rc).
+        
+        Version order: dev < alpha < beta < rc < (no suffix/stable) < post
+        Within same prerelease type, higher number is newer.
+        Same base version with no suffix is newer than any prerelease.
+        
+        Args:
+            latest: Latest version from GitHub (e.g., "v1.1.0", "1.1.0b2")
+            current: Current local version (e.g., "1.1.0a", "1.1.0")
+            
+        Returns:
+            True if latest is newer, False otherwise
+        """
+        try:
+            latest_nums, latest_pre_type, latest_pre_num = self._parse_version(latest)
+            current_nums, current_pre_type, current_pre_num = self._parse_version(current)
+            
+            # First compare numeric parts
+            if latest_nums > current_nums:
+                return True
+            if latest_nums < current_nums:
+                return False
+            
+            # Numeric parts are equal, check prerelease status
+            # Priority order: dev < alpha < beta < rc < '' (stable) < post
+            priority = {'dev': 0, 'alpha': 1, 'a': 1, 'beta': 2, 'b': 2, 'rc': 3, '': 4, 'post': 5}
+            
+            latest_priority = priority.get(latest_pre_type, 4)  # Default to stable if unknown
+            current_priority = priority.get(current_pre_type, 4)
+            
+            # If both have same prerelease type, compare prerelease numbers
+            if latest_pre_type == current_pre_type:
+                try:
+                    latest_num = int(latest_pre_num) if latest_pre_num else 0
+                    current_num = int(current_pre_num) if current_pre_num else 0
+                    return latest_num > current_num
+                except ValueError:
+                    return False
+            
+            # Stable release (no suffix) is newer than any prerelease
+            # post is newer than stable
+            return latest_priority > current_priority
+            
+        except Exception as e:
+            print(f"[Обновление] Ошибка сравнения версий: {e}")
+            # If parsing fails, fall back to simple string comparison
+            return latest != current and latest > current
     
     def download_and_extract(self, zip_url: str, latest_version: str) -> bool:
         """
@@ -331,13 +433,12 @@ def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
 
 
 if __name__ == "__main__":
-    # Example usage
-    # Replace with your actual GitHub repo details
-    REPO_OWNER = "your-username"
+    # Production settings for Task Manager
+    REPO_OWNER = "LgbtBsod"
     REPO_NAME = "task_manager"
     
     print("Task Manager - Автообновление")
-    print("-" * 30)
+    print("=" * 50)
     
     updated = check_updates(REPO_OWNER, REPO_NAME, auto=False)
     
@@ -345,3 +446,5 @@ if __name__ == "__main__":
         print("\n[Обновление] Приложение будет перезапущено для применения обновлений...")
         # Optionally restart the application here
         # os.execv(sys.executable, [sys.executable] + sys.argv)
+    else:
+        print("\nПроект актуален")
