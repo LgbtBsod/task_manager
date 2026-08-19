@@ -129,11 +129,13 @@ class AutoUpdater:
         try:
             print("[Обновление] Скачивание обновлений...")
             
-            # Create temporary file with User-Agent header
+            # Create temporary file and download with User-Agent header
             req = self._create_request(zip_url)
             with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
                 tmp_path = tmp_file.name
-                urlretrieve(req, tmp_path)
+                # Use urlopen to send request with headers, then write content
+                with urlopen(req, timeout=30) as response:
+                    shutil.copyfileobj(response, tmp_file)
             
             print("[Обновление] Распаковка обновлений...")
             
