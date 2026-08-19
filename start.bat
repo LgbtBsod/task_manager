@@ -2,6 +2,9 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
+:: Сохраняем путь к приложению
+set "APP_DIR=%~dp0"
+
 echo ============================================
 echo   Task Manager - Setup and Launch Script
 echo ============================================
@@ -124,13 +127,10 @@ echo.
 :: Запуск приложения
 echo [4/4] Запуск приложения...
 echo ============================================
-python main.py
+echo.
 
-:: Если приложение завершилось с ошибкой
-if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Приложение завершилось с кодом ошибки: %errorlevel%
-    pause
-)
+:: Запускаем Python в отдельном процессе, чтобы bat мог завершиться
+start "" cmd /c "cd /d "%APP_DIR%" && chcp 65001 >nul && python main.py"
 
-endlocal
+:: Завершаем текущий скрипт сразу
+exit

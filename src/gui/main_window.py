@@ -486,15 +486,18 @@ class TaskDialog(ctk.CTkToplevel):
 
 
 class TaskCard(ctk.CTkFrame):
-    """Карточка задачи для Kanban-доски с улучшенным UX."""
+    """Карточка задачи для Kanban-доски с улучшенным UX и Drag-n-Drop."""
     
     def __init__(self, parent, task: Task, on_edit: Callable, on_delete: Callable, 
-                 on_status_change: Callable = None, **kwargs):
+                 on_status_change: Callable = None, on_drag_start: Callable = None,
+                 on_drop: Callable = None, **kwargs):
         super().__init__(parent, **kwargs)
         self.task = task
         self.on_edit = on_edit
         self.on_delete = on_delete
         self.on_status_change = on_status_change
+        self.on_drag_start = on_drag_start
+        self.on_drop = on_drop
         
         # Hover effect variables
         self._original_bg = COLORS["bg_card_light"]
@@ -504,7 +507,11 @@ class TaskCard(ctk.CTkFrame):
         self.status_buttons = {}
         self._action_buttons_parent = None
         
+        # Drag-n-Drop variables
+        self._drag_data = {"x": 0, "y": 0, "active": False}
+        
         self._setup_styling()
+        self._setup_drag_drop()
         self._render()
     
     def _setup_styling(self):
@@ -518,16 +525,79 @@ class TaskCard(ctk.CTkFrame):
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
     
+    def _setup_drag_drop(self):
+        """Настройка Drag-n-Drop."""
+        # Bind mouse events for drag-and-drop
+        self.bind("<Button-1>", self._on_drag_start)
+        self.bind("<B1-Motion>", self._on_drag_motion)
+        self.bind("<ButtonRelease-1>", self._on_drag_release)
+    
+    def _on_drag_start(self, event):
+        """Начало перетаскивания."""
+        self._drag_data["active"] = True
+        self._drag_data["x"] = event.x_root
+        self._drag_data["y"] = event.y_root
+        
+        # Visual feedback
+        self.configure(fg_color="#5a5a5a")
+        
+        if self.on_drag_start:
+            self.on_drag_start(self.task)
+    
+    def _on_drag_motion(self, event):
+        """Перемещение при перетаскивании."""
+        if not self._drag_data["active"]:
+            return
+        
+        # Calculate offset
+        dx = event.x_root - self._drag_data["x"]
+        dy = event.y_root - self._drag_data["y"]
+        
+        # Move the widget
+        self.place(x=self.winfo_x() + dx, y=self.winfo_y() + dy)
+        
+        # Update drag data
+        self._drag_data["x"] = event.x_root
+        self._drag_data["y"] = event.y_root
+    
+    def _on_drag_release(self, event):
+        """Завершение перетаскивания."""
+        self._drag_data["active"] = False
+        
+        # Restore visual appearance
+        self.configure(fg_color=self._original_bg)
+        
+        # Reset position (will be re-rendered by parent)
+        self.place_forget()
+        self.pack(fill="x", padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_small"])
+        
+        # Check if dropped on a valid target
+        if self.on_drop:
+            # Get widget under cursor
+            x, y = event.x_root, event.y_root
+            widget_under = self.winfo_containing(x, y)
+            
+            # Find parent column
+            while widget_under and not isinstance(widget_under, KanbanColumn):
+                widget_under = widget_under.master
+            
+            if widget_under and isinstance(widget_under, KanbanColumn):
+                new_status = widget_under.status
+                if new_status != self.task.status and self.on_status_change:
+                    self.on_status_change(self.task.id, new_status)
+    
     def _on_enter(self, event=None):
         """Эффект при наведении."""
-        self.configure(fg_color=self._hover_bg)
+        if not self._drag_data["active"]:
+            self.configure(fg_color=self._hover_bg)
     
     def _on_leave(self, event=None):
         """Возврат к исходному цвету."""
-        self.configure(fg_color=self._original_bg)
+        if not self._drag_data["active"]:
+            self.configure(fg_color=self._original_bg)
     
     def _render(self):
-        """Отрисовка карточки."""
+        """Отрисовка карточки с полным пулом полей для inline-редактирования."""
         self.pack(fill="x", padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_small"])
         
         # Header with priority and title
@@ -542,35 +612,68 @@ class TaskCard(ctk.CTkFrame):
         )
         prio_dot.pack(side="left")
         
-        # Priority badge
-        prio_badge = ctk.CTkLabel(
-            header, text=self.task.priority.value,
-            text_color=prio_color, font=FONTS["small"]
+        # Priority badge with dropdown
+        prio_badge = ctk.CTkOptionMenu(
+            header, values=["low", "medium", "high"],
+            variable=ctk.StringVar(value=self.task.priority.value),
+            command=self._on_priority_change,
+            fg_color=prio_color, bg_color=prio_color,
+            button_color=prio_color, button_hover_color="#ffffff30",
+            text_color="#000000", font=FONTS["small"],
+            width=70, height=24, corner_radius=4
         )
         prio_badge.pack(side="left", padx=(5, 10))
         
-        # Title with truncation - improved to use wraplength instead of hard cut
-        title_label = ctk.CTkLabel(
-            header, text=self.task.title,
-            font=("Arial", 13, "bold"), anchor="w",
-            wraplength=200  # Wrap text instead of cutting
+        # Title with inline edit
+        title_frame = ctk.CTkFrame(header, fg_color="transparent")
+        title_frame.pack(side="left", padx=DIMENSIONS["padding_small"], fill="x", expand=True)
+        
+        self.title_entry = ctk.CTkEntry(
+            title_frame, text=self.task.title,
+            font=("Arial", 13, "bold"), border_width=0,
+            fg_color="transparent", bg_color="transparent",
+            text_color=COLORS["text_primary"],
+            placeholder_text="Название задачи",
+            width=150
         )
-        title_label.pack(side="left", padx=DIMENSIONS["padding_small"], fill="x", expand=True)
+        self.title_entry.pack(side="left", fill="x", expand=True)
+        self.title_entry.bind("<Return>", lambda e: self._save_title())
+        self.title_entry.bind("<FocusOut>", lambda e: self._save_title())
+        
+        # Show/hide edit icon
+        title_edit_icon = ctk.CTkLabel(
+            title_frame, text="✏️", text_color=COLORS["text_muted"],
+            font=("Arial", 10), cursor="hand2"
+        )
+        title_edit_icon.pack(side="right", padx=5)
+        title_edit_icon.bind("<Button-1>", lambda e: self.title_entry.focus())
         
         # Action buttons
         self._create_action_buttons(header)
         
-        # Description preview with proper wrapping
-        if self.task.description:
-            desc_label = ctk.CTkLabel(
-                self, text=self.task.description,
-                text_color=COLORS["text_secondary"], font=FONTS["small"],
-                justify="left", wraplength=260
-            )
-            desc_label.pack(anchor="w", padx=DIMENSIONS["padding_medium"], pady=(0, DIMENSIONS["padding_small"]))
+        # Description with inline edit
+        desc_frame = ctk.CTkFrame(self, fg_color="transparent")
+        desc_frame.pack(fill="x", padx=DIMENSIONS["padding_medium"], pady=(0, DIMENSIONS["padding_small"]))
         
-        # Footer with metadata
-        self._render_footer()
+        desc_label = ctk.CTkLabel(
+            desc_frame, text="Описание:",
+            text_color=COLORS["text_muted"], font=FONTS["tiny"]
+        )
+        desc_label.pack(anchor="w")
+        
+        self.desc_text = ctk.CTkTextbox(
+            self, height=50, corner_radius=6,
+            border_width=1, border_color=COLORS["bg_button"],
+            fg_color=COLORS["bg_card"], text_color=COLORS["text_secondary"],
+            font=FONTS["small"], wrap="word"
+        )
+        self.desc_text.pack(fill="x", padx=DIMENSIONS["padding_medium"], pady=(0, DIMENSIONS["padding_small"]))
+        if self.task.description:
+            self.desc_text.insert("0.0", self.task.description)
+        self.desc_text.bind("<FocusOut>", lambda e: self._save_description())
+        
+        # Footer with metadata (due date, time spent, etc.)
+        self._render_footer_inline()
     
     def _create_action_buttons(self, parent):
         """Создание кнопок действий."""
@@ -721,6 +824,89 @@ class TaskCard(ctk.CTkFrame):
             text_color=COLORS["text_muted"], font=FONTS["tiny"]
         )
         id_label.pack(side="right", padx=DIMENSIONS["padding_medium"])
+    
+    def _on_priority_change(self, new_priority: str):
+        """Обработка изменения приоритета."""
+        priority_map = {"low": Priority.LOW, "medium": Priority.MEDIUM, "high": Priority.HIGH}
+        new_prio = priority_map.get(new_priority)
+        if new_prio and self.on_edit:
+            # Save priority change
+            self.task.priority = new_prio
+            # Trigger save via on_edit callback with updated task
+            self.on_edit(self.task, save_only=True)
+    
+    def _save_title(self):
+        """Сохранение измененного названия."""
+        new_title = self.title_entry.get().strip()
+        if new_title and new_title != self.task.title:
+            self.task.title = new_title
+            if self.on_edit:
+                self.on_edit(self.task, save_only=True)
+    
+    def _save_description(self):
+        """Сохранение измененного описания."""
+        new_desc = self.desc_text.get("0.0", "end").strip()
+        if new_desc != self.task.description:
+            self.task.description = new_desc
+            if self.on_edit:
+                self.on_edit(self.task, save_only=True)
+    
+    def _render_footer_inline(self):
+        """Отрисовка футера с inline-редактированием полей."""
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=DIMENSIONS["padding_medium"], pady=(0, DIMENSIONS["padding_medium"]))
+        
+        # Due date with inline edit
+        due_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        due_frame.pack(side="left")
+        
+        due_label = ctk.CTkLabel(
+            due_frame, text="📅",
+            text_color=COLORS["text_muted"], font=("Arial", 10)
+        )
+        due_label.pack(side="left")
+        
+        self.due_entry = ctk.CTkEntry(
+            due_frame, width=80, height=20, corner_radius=4,
+            border_width=0, fg_color=COLORS["bg_button"],
+            text_color=COLORS["text_primary"], font=FONTS["tiny"],
+            placeholder_text="YYYY-MM-DD"
+        )
+        self.due_entry.pack(side="left", padx=5)
+        if self.task.due_date:
+            self.due_entry.insert(0, str(self.task.due_date))
+        self.due_entry.bind("<FocusOut>", lambda e: self._save_due_date())
+        self.due_entry.bind("<Return>", lambda e: self._save_due_date())
+        
+        # Time spent
+        if self.task.time_spent and self.task.time_spent > 0:
+            from ..utils.helpers import format_time_spent
+            time_text = format_time_spent(self.task.time_spent)
+            time_label = ctk.CTkLabel(
+                footer, text=f"⏱ {time_text}",
+                text_color=COLORS["text_secondary"], font=FONTS["small"]
+            )
+            time_label.pack(side="right")
+        
+        # ID badge
+        id_label = ctk.CTkLabel(
+            footer, text=f"#{self.task.id}",
+            text_color=COLORS["text_muted"], font=FONTS["tiny"]
+        )
+        id_label.pack(side="right", padx=DIMENSIONS["padding_medium"])
+    
+    def _save_due_date(self):
+        """Сохранение измененной даты дедлайна."""
+        new_date = self.due_entry.get().strip()
+        if new_date:
+            try:
+                from datetime import datetime
+                parsed_date = datetime.strptime(new_date, "%Y-%m-%d").date()
+                self.task.due_date = parsed_date
+                if self.on_edit:
+                    self.on_edit(self.task, save_only=True)
+            except ValueError:
+                pass  # Invalid date format
     
     def _get_due_date_info(self, days: int) -> dict:
         """Получение информации о дедлайне."""
@@ -915,7 +1101,7 @@ class KanbanColumn(ctk.CTkScrollableFrame):
         ).pack(side="left", padx=DIMENSIONS["padding_medium"], pady=DIMENSIONS["padding_small"])
     
     def _render_tasks(self, tasks: list):
-        """Отрисовка задач в колонке с адаптивной высотой."""
+        """Отрисовка задач в колонке с адаптивной высотой и Drag-n-Drop."""
         for task in tasks:
             card = TaskCard(
                 self, task, self.on_edit, self.on_delete,
@@ -1111,10 +1297,29 @@ class TaskManagerApp(ctk.CTk):
         dialog = TaskDialog(self, on_save=self._save_new_task)
         dialog.grab_set()
     
-    def _open_edit_task_dialog(self, task: Task):
-        """Открытие диалога редактирования задачи."""
-        dialog = TaskDialog(self, task=task, on_save=self._save_edited_task)
-        dialog.grab_set()
+    def _open_edit_task_dialog(self, task: Task, save_only: bool = False):
+        """Открытие диалога редактирования задачи или быстрое сохранение."""
+        if save_only:
+            # Быстрое сохранение без диалога
+            try:
+                self.service.update_task(
+                    task_id=task.id,
+                    title=task.title,
+                    description=task.description,
+                    priority=task.priority,
+                    due_date=task.due_date,
+                    time_spent=task.time_spent
+                )
+                logger.info(f"Task quick-updated: {task.title}")
+                # Refresh affected columns
+                self._refresh_affected_columns(task.status, task.status)
+                self._refresh_dashboard()
+                self._refresh_gantt()
+            except Exception as e:
+                logger.error(f"Error quick-updating task: {e}")
+        else:
+            dialog = TaskDialog(self, task=task, on_save=self._save_edited_task)
+            dialog.grab_set()
     
     def _save_new_task(self, data: dict, task_id: str | None = None):
         """Сохранение новой задачи с мгновенным обновлением UI."""
