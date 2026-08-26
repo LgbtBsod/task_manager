@@ -1,100 +1,106 @@
 """
 Task Manager - Auto Updater Module
-Checks for updates from GitHub.  Non-blocking by default.
 
-Key design decisions:
-- check_updates() never calls sys.exit or input()
-- All network calls have short timeouts
-- Downloading an update is a separate explicit step, never automatic
-- Works cross-platform (no .bat dependency)
+Responsibilities:
+- Query GitHub releases for a newer version.
+- Download a ZIP update bundle.
+- Apply the update to the project root or the frozen EXE directory.
+- Relaunch the app after update installation.
+
+This module keeps the update logic isolated from the GUI and startup flow.
 """
-import os
-import sys
 import json
-import zipfile
-import tempfile
-import shutil
-from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
-import subprocess
 import logging
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-# Files to skip when copying update files
-SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json"}
+SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data"}
 SKIP_EXTENSIONS = {".pyc", ".pyo"}
 
 
-class AutoUpdater:
-    """Automatic updater for Task Manager application."""
+@dataclass(frozen=True)
+class UpdateJob:
+    has_update: bool
+    latest_version: Optional[str]
+    download_url: Optional[str]
 
-    TIMEOUT_API = 8       # seconds for GitHub API calls
-    TIMEOUT_DOWNLOAD = 60  # seconds for zip download
+
+class AutoUpdater:
+    """Responsible only for checking and applying app updates."""
+
+    TIMEOUT_API = 8
+    TIMEOUT_DOWNLOAD = 60
 
     def __init__(self, repo_owner: str, repo_name: str, current_version: str = "unknown"):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.current_version = current_version
         self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
-        self.app_dir = Path(__file__).parent.parent.parent  # project root
-
-    # ── Network helpers ───────────────────────────────────────────────────
+        self.is_frozen = bool(getattr(sys, "frozen", False))
+        self.app_dir = (
+            Path(sys.executable).resolve().parent
+            if self.is_frozen
+            else Path(__file__).resolve().parent.parent.parent
+        )
+        self.current_exe = Path(sys.executable).resolve() if self.is_frozen else None
 
     def _create_request(self, url: str) -> Request:
         req = Request(url)
-        req.add_header('User-Agent', f'TaskManager/{self.current_version}')
+        req.add_header("User-Agent", f"TaskManager/{self.current_version}")
         return req
 
     def _api_get(self, url: str) -> Optional[Dict[str, Any]]:
-        """GET JSON from GitHub API with timeout.  Returns None on any error."""
         try:
-            req = self._create_request(url)
-            with urlopen(req, timeout=self.TIMEOUT_API) as resp:
-                return json.loads(resp.read().decode('utf-8'))
-        except Exception as e:
-            logger.debug("API request failed: %s", e)
+            with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            logger.debug("API request failed: %s", exc)
             return None
-
-    # ── Version parsing ───────────────────────────────────────────────────
 
     @staticmethod
     def _parse_version(version_str: str) -> Tuple[Tuple[int, ...], str, str]:
-        """
-        Parse version string.  Handles: 1.1.0, v1.1.0, 1.1.0a, 1.1.0b2, 1.1.0rc1
-        Returns: (numeric_tuple, prerelease_type, prerelease_number)
-        """
         import re
-        version_str = version_str.lstrip('v').strip()
-        # Primary pattern: match dotted numbers, optional prerelease suffix
-        pattern = r'^(\d+(?:\.\d+)*)([a-zA-Z]+)?(\d*)$'
-        match = re.match(pattern, version_str)
 
+        version_str = version_str.lstrip("v").strip()
+        pattern = r"^(\d+(?:\.\d+)*)([a-zA-Z]+)?(\d*)$"
+        match = re.match(pattern, version_str)
         if not match:
-            parts = re.findall(r'\d+', version_str)
+            parts = re.findall(r"\d+", version_str)
             padded = tuple(int(p) for p in parts[:8]) + (0,) * max(0, 8 - len(parts))
-            return padded, '', ''
+            return padded, "", ""
 
         base_version, pre_type, pre_num = match.groups()
-        base_parts = [int(p) for p in base_version.split('.')]
-        numeric_tuple = tuple(base_parts[:8]) + (0,) * max(0, 8 - len(base_parts))
+        base_parts = [int(p) for p in base_version.split(".")]
+        numeric = tuple(base_parts[:8]) + (0,) * max(0, 8 - len(base_parts))
 
-        pre_type = (pre_type or '').lower().strip()
-        pre_num = (pre_num or '0').strip()
+        pre_type = (pre_type or "").lower().strip()
+        pre_num = (pre_num or "0").strip()
         type_map = {
-            'a': 'alpha', 'alpha': 'alpha',
-            'b': 'beta', 'beta': 'beta',
-            'rc': 'rc', 'releasecandidate': 'rc', 'release': 'rc',
-            'dev': 'dev', 'development': 'dev',
-            'post': 'post',
+            "a": "alpha",
+            "alpha": "alpha",
+            "b": "beta",
+            "beta": "beta",
+            "rc": "rc",
+            "releasecandidate": "rc",
+            "release": "rc",
+            "dev": "dev",
+            "development": "dev",
+            "post": "post",
         }
         pre_type = type_map.get(pre_type, pre_type)
-        return numeric_tuple, pre_type, pre_num
+        return numeric, pre_type, pre_num
 
     def _is_newer_version(self, latest: str, current: str) -> bool:
-        """Check if *latest* is strictly newer than *current*."""
         try:
             l_nums, l_pre, l_pn = self._parse_version(latest)
             c_nums, c_pre, c_pn = self._parse_version(current)
@@ -104,8 +110,7 @@ class AutoUpdater:
             if l_nums < c_nums:
                 return False
 
-            priority = {'dev': 0, 'alpha': 1, 'a': 1, 'beta': 2, 'b': 2,
-                        'rc': 3, '': 4, 'post': 5}
+            priority = {"dev": 0, "alpha": 1, "a": 1, "beta": 2, "b": 2, "rc": 3, "": 4, "post": 5}
             l_pri = priority.get(l_pre, 4)
             c_pri = priority.get(c_pre, 4)
 
@@ -116,53 +121,160 @@ class AutoUpdater:
                     return False
             return l_pri > c_pri
         except Exception:
-            return latest != current and latest > current
+            return str(latest).strip() != str(current).strip() and str(latest) > str(current)
 
-    # ── Check for updates (read-only, never blocks) ────────────────────────
+    def _resolve_download_url(self, release_info: Dict[str, Any]) -> Optional[str]:
+        assets = release_info.get("assets") or []
+        preferred_suffix = ".exe" if self.is_frozen else ".zip"
+        for asset in assets:
+            name = str(asset.get("name") or "").lower()
+            if name.endswith(preferred_suffix):
+                return asset.get("browser_download_url")
+        if not self.is_frozen:
+            return release_info.get("zipball_url")
+        return None
 
     def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Non-blocking check.  Returns (has_update, latest_version, download_url).
-        Never raises, never calls input/sys.exit.
-        """
-        import re
-
         release_info = self._api_get(f"{self.api_url}/releases/latest")
         if release_info:
-            latest_version = release_info.get('tag_name', 'unknown')
-            zip_url = None
-            for asset in release_info.get('assets', []):
-                if (asset.get('name', '') or '').endswith('.zip'):
-                    zip_url = asset.get('browser_download_url')
-                    break
-            if not zip_url:
-                zip_url = release_info.get('zipball_url')
-
+            latest_version = str(release_info.get("tag_name") or "unknown").strip()
+            zip_url = self._resolve_download_url(release_info)
             if zip_url and self._is_newer_version(latest_version, self.current_version):
                 logger.info("New version available: %s", latest_version)
                 return True, latest_version, zip_url
             return False, latest_version, None
 
-        # Fallback: check latest commit
+        import re
+
         commit_info = self._api_get(f"{self.api_url}/commits/main")
         if commit_info:
-            latest_sha = commit_info.get('sha', '')[:7]
+            latest_sha = str(commit_info.get("sha") or "")[:7]
             zip_url = f"{self.api_url}/zipball/main"
-            if (self.current_version != "unknown"
-                    and latest_sha != self.current_version[:7]
-                    and not re.match(r'^v?\d+\.\d+', self.current_version)):
+            if (
+                self.current_version != "unknown"
+                and latest_sha
+                and latest_sha != self.current_version[:7]
+                and not re.match(r"^v?\d+\.\d+", self.current_version)
+            ):
                 return True, latest_sha, zip_url
-
         return False, None, None
 
-    # ── Download & apply update ───────────────────────────────────────────
+    def _find_source_root(self, extracted_dir: Path) -> Path:
+        for candidate in sorted(extracted_dir.iterdir(), key=lambda p: p.name.lower()):
+            if candidate.is_dir():
+                return candidate
+        return extracted_dir
+
+    def _find_exe_in_bundle(self, source_folder: Path, preferred_name: Optional[str] = None) -> Optional[Path]:
+        preferred_name = (preferred_name or "").lower()
+        candidates = []
+        for item in source_folder.rglob("*.exe"):
+            candidates.append(item)
+        if not candidates:
+            return None
+        if preferred_name:
+            for item in candidates:
+                if item.name.lower() == preferred_name:
+                    return item
+        return candidates[0]
+
+    def _copy_update_files(self, source_folder: Path) -> int:
+        files_copied = 0
+        for item in source_folder.rglob("*"):
+            if not item.is_file():
+                continue
+            rel = item.relative_to(source_folder)
+            parts = rel.parts
+            if any(p.startswith(".") for p in parts):
+                continue
+            if any(p in SKIP_PATTERNS for p in parts):
+                continue
+            if item.suffix.lower() in SKIP_EXTENSIONS:
+                continue
+            dest = self.app_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(item, dest)
+                files_copied += 1
+            except PermissionError:
+                logger.warning("Skipping locked file: %s", rel)
+        return files_copied
+
+    def _update_version_file(self, new_version: str) -> None:
+        version_file = self.app_dir / "version.txt"
+        try:
+            version_file.write_text(str(new_version).strip(), encoding="utf-8")
+            logger.info("Version updated to %s", new_version)
+        except Exception as exc:
+            logger.warning("Could not update version.txt: %s", exc)
+
+    def _relaunch_after_update(self) -> None:
+        if not self.current_exe:
+            return
+
+        exe_name = self.current_exe.name
+        staged_exe = self.app_dir / f"{exe_name}.updated"
+        target = self.current_exe
+
+        if staged_exe.exists():
+            try:
+                if target.exists():
+                    target.unlink()
+                shutil.move(str(staged_exe), str(target))
+            except Exception:
+                pass
+
+        launcher = self.app_dir / "update_restart.cmd"
+        launcher.write_text(
+            "@echo off\n"
+            "setlocal\n"
+            "ping -n 4 127.0.0.1 >nul\n"
+            f"if exist \"{staged_exe}\" (\n"
+            f"  copy /Y \"{staged_exe}\" \"{target}\" >nul\n"
+            "  if errorlevel 1 exit /b 1\n"
+            "  del /f /q \"{staged_exe}\"\n"
+            ")\n"
+            f"start \"\" \"{target}\"\n"
+            f"del /f /q \"{launcher}\"\n",
+            encoding="utf-8",
+        )
+        subprocess.Popen(["cmd.exe", "/c", str(launcher)], shell=False, creationflags=0)
+
+    def _install_frozen_update(self, source_folder: Path, latest_version: str) -> bool:
+        if not self.current_exe:
+            return False
+
+        exe_name = self.current_exe.name
+        bundled_exe = self._find_exe_in_bundle(source_folder, exe_name)
+        if bundled_exe:
+            staged_exe = self.app_dir / f"{exe_name}.updated"
+            shutil.copy2(bundled_exe, staged_exe)
+        else:
+            staged_exe = None
+
+        version_file_in_bundle = source_folder / "version.txt"
+        if version_file_in_bundle.exists():
+            shutil.copy2(version_file_in_bundle, self.app_dir / "version.txt")
+
+        if staged_exe and staged_exe.exists():
+            self._relaunch_after_update()
+            return True
+        return False
+
+    def _install_frozen_executable(self, downloaded_exe: Path, latest_version: str) -> bool:
+        if not self.current_exe or not downloaded_exe.exists():
+            return False
+
+        staged_exe = self.app_dir / f"{self.current_exe.name}.updated"
+        shutil.copy2(downloaded_exe, staged_exe)
+        self._update_version_file(latest_version)
+        self._relaunch_after_update()
+        return True
 
     def download_update(self, zip_url: str, latest_version: str) -> bool:
-        """
-        Download zip to a temp dir and apply file-by-file.
-        Cross-platform — no .bat dependency.
-        Returns True on success, False on failure (never raises to caller).
-        """
+        if not zip_url:
+            return False
+
         temp_dir = None
         try:
             temp_base = Path(tempfile.gettempdir()) / "task_manager_update"
@@ -171,91 +283,38 @@ class AutoUpdater:
 
             zip_path = temp_dir / "update.zip"
             logger.info("Downloading update from %s", zip_url)
+            with urlopen(self._create_request(zip_url), timeout=self.TIMEOUT_DOWNLOAD) as resp, open(zip_path, "wb") as dest:
+                shutil.copyfileobj(resp, dest)
 
-            req = self._create_request(zip_url)
-            with urlopen(req, timeout=self.TIMEOUT_DOWNLOAD) as resp, open(zip_path, 'wb') as f:
-                shutil.copyfileobj(resp, f)
+            if self.is_frozen and zip_url.lower().split("?", 1)[0].endswith(".exe"):
+                result = self._install_frozen_executable(zip_path, latest_version)
+                if result:
+                    logger.info("Executable update staged successfully: %s", latest_version)
+                return result
 
             extracted_dir = temp_dir / "extracted"
             extracted_dir.mkdir(parents=True, exist_ok=True)
-
-            with zipfile.ZipFile(zip_path, 'r') as zf:
+            with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall(extracted_dir)
 
-            # GitHub zips have a single root folder like owner-repo-hash/
-            folders = [p for p in extracted_dir.iterdir() if p.is_dir()]
-            if not folders:
-                logger.error("No extracted folder found")
-                return False
-            source_folder = folders[0]
+            source_folder = self._find_source_root(extracted_dir)
+            if self.is_frozen:
+                result = self._install_frozen_update(source_folder, latest_version)
+            else:
+                result = self._copy_update_files(source_folder) > 0
+                self._update_version_file(latest_version)
 
-            # Copy files
-            files_copied = self._copy_update_files(source_folder)
-            logger.info("Updated %d files", files_copied)
-
-            # Update version file
-            self._update_version_file(latest_version)
-
-            # Cleanup
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return True
-
-        except Exception as e:
-            logger.error("Update download/apply failed: %s", e)
+            if result:
+                logger.info("Update installed successfully: %s", latest_version)
+            return result
+        except Exception as exc:
+            logger.error("Update download/apply failed: %s", exc)
+            return False
+        finally:
             if temp_dir and temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
-            return False
-
-    def _copy_update_files(self, source_folder: Path) -> int:
-        """Copy files from extracted update, skipping venv/.git/__pycache__/tasks.json."""
-        app_dir = self.app_dir
-        files_copied = 0
-
-        for item in source_folder.rglob('*'):
-            if not item.is_file():
-                continue
-            rel = item.relative_to(source_folder)
-            parts = rel.parts
-
-            # Skip hidden dirs/files, venv, __pycache__, etc.
-            if any(p.startswith('.') for p in parts):
-                continue
-            if any(p in SKIP_PATTERNS for p in parts):
-                continue
-            if item.suffix in SKIP_EXTENSIONS:
-                continue
-
-            dest = app_dir / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.copy2(item, dest)
-                files_copied += 1
-            except PermissionError:
-                logger.warning("Skipping locked file: %s", rel)
-
-        return files_copied
-
-    def _update_version_file(self, new_version: str) -> None:
-        version_file = self.app_dir / "version.txt"
-        try:
-            version_file.write_text(new_version.strip(), encoding='utf-8')
-            logger.info("Version updated to %s", new_version)
-        except Exception as e:
-            logger.warning("Could not update version.txt: %s", e)
-
-    # ── Public entry point ─────────────────────────────────────────────────
 
     def run_update_check(self, auto: bool = False) -> bool:
-        """
-        Check and optionally apply updates.
-
-        Args:
-            auto: if True, download+apply without prompting (for CI/background).
-                  if False, just print a notice (never calls input()).
-
-        Returns:
-            True if an update was applied, False otherwise.
-        """
         logger.info("Checking for updates (current: %s)", self.current_version)
         has_update, latest_version, download_url = self.check_for_updates()
 
@@ -267,24 +326,22 @@ class AutoUpdater:
             print(f"[Обновление] Новая версия: {latest_version}. Автообновление...")
             ok = self.download_update(download_url, latest_version)
             if ok:
-                print("[Обновление] Обновление установлено. Перезапустите приложение.")
+                print("[Обновление] Обновление установлено и приложение будет перезапущено.")
             else:
                 print("[Обновление] Не удалось установить обновление.")
             return ok
 
-        # Non-auto: just inform, do NOT block with input()
         print(f"[Обновление] Доступна новая версия: {latest_version}")
         print(f"[Обновление] Текущая версия: {self.current_version}")
-        print("[Обновление] Для обновления перезапустите с флагом --update")
+        print("[Обновление] Для обновления перезапустите приложение заново.")
         return False
 
 
 def get_current_version() -> str:
-    """Get current version from version.txt, _version.py, or git."""
-    version_file = Path(__file__).parent.parent.parent / 'version.txt'
+    version_file = Path(__file__).resolve().parent.parent.parent / "version.txt"
     if version_file.exists():
         try:
-            return version_file.read_text(encoding='utf-8').strip()
+            return version_file.read_text(encoding="utf-8").strip()
         except Exception:
             pass
 
@@ -296,9 +353,11 @@ def get_current_version() -> str:
 
     try:
         result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True, text=True, timeout=5,
-            cwd=str(Path(__file__).parent.parent.parent),
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(Path(__file__).resolve().parent.parent.parent),
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -309,9 +368,6 @@ def get_current_version() -> str:
 
 
 def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
-    """
-    Convenience function — non-blocking, never calls input() or sys.exit.
-    """
     current_version = get_current_version()
     logger.info("Current version: %s", current_version)
     updater = AutoUpdater(repo_owner, repo_name, current_version)
@@ -320,8 +376,6 @@ def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    REPO_OWNER = "LgbtBsod"
-    REPO_NAME = "task_manager"
     print("Task Manager - Проверка обновлений")
     print("=" * 50)
-    check_updates(REPO_OWNER, REPO_NAME, auto=False)
+    check_updates("LgbtBsod", "task_manager", auto=False)

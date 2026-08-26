@@ -38,7 +38,7 @@ class GanttView:
         btns = []
         for val, label in range_items:
             btn = ft.Button(
-                text=label, on_click=lambda e, v=val: self._set_range(v),
+                content=label, on_click=lambda e, v=val: self._set_range(v),
                 style=ft.ButtonStyle(
                     bgcolor=COLORS["accent_blue"] if val == self._range_var else ft.Colors.TRANSPARENT,
                     color="#ffffff" if val == self._range_var else COLORS["text_primary"],

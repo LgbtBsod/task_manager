@@ -67,6 +67,11 @@ def main():
     install_error_handler(str(app_dir))
 
     args = sys.argv[1:]
+    if getattr(sys, "frozen", False) and "--no-update" not in args:
+        from utils.updater import check_updates
+        if check_updates("LgbtBsod", "task_manager", auto=True):
+            return
+
     gui_mode = "flet"  # default
 
     if "--gui" in args:

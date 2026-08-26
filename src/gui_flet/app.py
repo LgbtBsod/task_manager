@@ -133,7 +133,7 @@ class TaskManagerApp:
         nav_buttons_row = []
         for view_id, label, icon in nav_items:
             btn = ft.Button(
-                text=label,
+                content=label,
                 icon=icon,
                 on_click=lambda e, v=view_id: self.switch_view(v),
                 style=ft.ButtonStyle(
@@ -150,7 +150,7 @@ class TaskManagerApp:
             width=200, height=36, text_size=13,
             prefix_icon="search", border_radius=8,
             filled=True, fill_color=COLORS["bg_button"],
-            focused_fill_color=COLORS["bg_card_hover"],
+            focused_bgcolor=COLORS["bg_card_hover"],
             border_color=ft.Colors.TRANSPARENT,
             on_change=self._on_search,
             content_padding=ft.Padding.only(left=36, top=4, bottom=4),
@@ -166,12 +166,12 @@ class TaskManagerApp:
             value="default", filled=True,
             fill_color=COLORS["bg_button"],
             border_color=ft.Colors.TRANSPARENT, border_radius=8,
-            on_change=self._on_sort,
+            on_select=self._on_sort,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=4),
         )
 
         self.add_button = ft.Button(
-            text="\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c",
+            content="\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c",
             icon="add",
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
