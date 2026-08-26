@@ -235,7 +235,9 @@ class TaskManagerApp:
             self.views_container.controls.append(view.container)
             if self.page:
                 self.page.update()
-            if view_name == "gantt":
+            if view_name == "kanban":
+                self.refresh_all()
+            elif view_name == "gantt":
                 self.gantt_view.refresh()
             elif view_name == "dashboard":
                 self.dashboard_view.refresh()

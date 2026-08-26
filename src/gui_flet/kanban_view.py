@@ -254,8 +254,6 @@ class DropColumn:
     def set_cards(self, cards: list):
         self._list_view.controls = [c for c in cards]
         self._badge.value = str(len(cards))
-        self._list_view.update()
-        self._badge.update()
 
 
 class KanbanView:
