@@ -219,7 +219,7 @@ class DropColumn:
 
         self._border_container = ft.Container(
             content=self._list_view, expand=True,
-            border=ft.border.all(1, COLORS["border_color"]),
+            border=ft.Border.all(1, COLORS["border_color"]),
             border_radius=12, bgcolor=ft.Colors.TRANSPARENT,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         )
@@ -233,16 +233,16 @@ class DropColumn:
         return ft.Column(controls=[header, self._drag_target], spacing=0, expand=True)
 
     def _on_will_accept(self, e):
-        self._border_container.border = ft.border.all(2, COLORS["accent_blue"])
+        self._border_container.border = ft.Border.all(2, COLORS["accent_blue"])
         self._border_container.update()
         e.control.update()
 
     def _on_leave(self, e):
-        self._border_container.border = ft.border.all(1, COLORS["border_color"])
+        self._border_container.border = ft.Border.all(1, COLORS["border_color"])
         self._border_container.update()
 
     def _on_accept(self, e):
-        self._border_container.border = ft.border.all(1, COLORS["border_color"])
+        self._border_container.border = ft.Border.all(1, COLORS["border_color"])
         self._border_container.update()
 
         task_id = e.data if e.data else ""

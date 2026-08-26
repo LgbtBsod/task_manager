@@ -25,6 +25,22 @@ def get_app_dir() -> Path:
     return Path(__file__).parent.resolve()
 
 
+def configure_import_path() -> None:
+    """Add the source directory for both normal and frozen execution."""
+    candidates = []
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        candidates.append(Path(bundle_dir) / "src")
+    candidates.append(get_app_dir() / "src")
+
+    for src_path in candidates:
+        if src_path.exists() and str(src_path) not in sys.path:
+            sys.path.insert(0, str(src_path))
+
+
+configure_import_path()
+
+
 def get_data_dir() -> Path:
     """Return the user-data directory.
 
@@ -45,11 +61,6 @@ def get_db_path() -> str:
 def main():
     app_dir = get_app_dir()
     db_path = get_db_path()
-
-    # Add src to path for imports
-    src_path = app_dir / "src"
-    if src_path.exists():
-        sys.path.insert(0, str(src_path))
 
     # Setup logging FIRST — before anything else
     from utils.logger import setup_logging, get_logger

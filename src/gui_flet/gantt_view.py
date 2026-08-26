@@ -108,7 +108,7 @@ class GanttView:
                         ft.Container(height=4),
                         ft.Text("Добавьте дату начала или дедлайн к задаче", size=12, color="#48484a"),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    alignment=ft.alignment.center(0, 0), expand=True,
+                    alignment=ft.Alignment(0, 0), expand=True,
                 )
             ]
             self._scroll.update()
