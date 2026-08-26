@@ -99,11 +99,10 @@ class TaskManagerApp:
         page.padding = 0
         page.spacing = 0
 
-        self.views_container = ft.Column(spacing=0, expand=True)
-
-        self._build_top_bar(page)
-        page.add(self.views_container)
-        self._build_status_bar(page)
+        self.views_container = ft.Container(
+            expand=True,
+            bgcolor=COLORS["bg_dark"],
+        )
 
         from .kanban_view import KanbanView
         from .gantt_view import GanttView
@@ -119,7 +118,29 @@ class TaskManagerApp:
             "dashboard": self.dashboard_view,
         }
 
-        self.switch_view("kanban")
+        self.kanban_view.build()
+        all_tasks = self._filter_and_sort(self.service.get_all_tasks())
+        from core.models import TaskStatus
+        self.kanban_view.update_tasks(
+            todo=[t for t in all_tasks if t.status == TaskStatus.TODO],
+            in_progress=[t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS],
+            done=[t for t in all_tasks if t.status == TaskStatus.DONE],
+        )
+        self.views_container.content = self.kanban_view.container
+
+        self._build_top_bar(page)
+        self._view_host_index = len(page.controls)
+        page.add(self.kanban_view.container)
+        self._build_status_bar(page)
+        self.current_view = "kanban"
+        for vid, btn in self.nav_buttons.items():
+            btn.style = ft.ButtonStyle(
+                bgcolor=COLORS["accent_blue"] if vid == "kanban" else None,
+                color="#ffffff" if vid == "kanban" else COLORS["text_primary"],
+                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+                text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
+            )
+        self.refresh_status_bar()
         page.update()
 
     def _build_top_bar(self, page: ft.Page):
@@ -228,11 +249,13 @@ class TaskManagerApp:
                     padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                     text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
                 )
-        self.views_container.controls.clear()
         view = self.views_map.get(view_name)
         if view:
             view.build()
-            self.views_container.controls.append(view.container)
+            if self.page and hasattr(self, "_view_host_index"):
+                self.page.controls[self._view_host_index] = view.container
+            else:
+                self.views_container.content = view.container
             if self.page:
                 self.page.update()
             if view_name == "kanban":

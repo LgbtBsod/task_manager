@@ -213,43 +213,25 @@ class DropColumn:
             padding=ft.Padding.only(left=8, right=8, top=12, bottom=8),
         )
 
-        self._list_view = ft.ListView(expand=True, spacing=4,
-                                         padding=ft.Padding.only(left=8, right=8, bottom=8),
-                                         auto_scroll=True)
-
+        self._list_view = ft.Column(spacing=8)
         self._border_container = ft.Container(
-            content=self._list_view, expand=True,
+            content=self._list_view,
+            padding=ft.Padding.only(left=8, right=8, bottom=8),
+            expand=True,
             border=ft.Border.all(1, COLORS["border_color"]),
-            border_radius=12, bgcolor=ft.Colors.TRANSPARENT,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border_radius=12,
+            bgcolor=COLORS["bg_card"],
         )
 
-        self._drag_target = ft.DragTarget(
-            group="kanban", content=self._border_container,
-            on_accept=self._on_accept, on_will_accept=self._on_will_accept,
-            on_leave=self._on_leave,
+        return ft.Container(
+            content=ft.Column(controls=[header, self._border_container], spacing=8),
+            width=500,
+            height=540,
+            padding=12,
+            bgcolor=COLORS["bg_card"],
+            border=ft.Border.all(1, COLORS["border_color"]),
+            border_radius=12,
         )
-
-        return ft.Column(controls=[header, self._drag_target], spacing=0, expand=True)
-
-    def _on_will_accept(self, e):
-        self._border_container.border = ft.Border.all(2, COLORS["accent_blue"])
-        self._border_container.update()
-        e.control.update()
-
-    def _on_leave(self, e):
-        self._border_container.border = ft.Border.all(1, COLORS["border_color"])
-        self._border_container.update()
-
-    def _on_accept(self, e):
-        self._border_container.border = ft.Border.all(1, COLORS["border_color"])
-        self._border_container.update()
-
-        task_id = e.data if e.data else ""
-        if task_id:
-            task = self.app.service.get_task(task_id)
-            if task:
-                self.app.handle_drop(task, self.status_value)
 
     def set_cards(self, cards: list):
         self._list_view.controls = [c for c in cards]
@@ -274,17 +256,18 @@ class KanbanView:
         self.container = ft.Container(
             content=ft.Row([
                 self.todo_col.build(),
-                ft.Container(width=6),
+                ft.Container(width=8),
                 self.progress_col.build(),
-                ft.Container(width=6),
+                ft.Container(width=8),
                 self.done_col.build(),
-            ], spacing=0, expand=True),
-            padding=12, expand=True,
+            ], spacing=0, scroll=ft.ScrollMode.AUTO),
+            padding=12,
+            bgcolor=COLORS["bg_dark"],
         )
 
     def update_tasks(self, todo, in_progress, done):
         if self.todo_col is None:
             return
-        self.todo_col.set_cards([TaskCard(t.id, t, self.app) for t in todo])
-        self.progress_col.set_cards([TaskCard(t.id, t, self.app) for t in in_progress])
-        self.done_col.set_cards([TaskCard(t.id, t, self.app) for t in done])
+        self.todo_col.set_cards([TaskCard(t.id, t, self.app).content for t in todo])
+        self.progress_col.set_cards([TaskCard(t.id, t, self.app).content for t in in_progress])
+        self.done_col.set_cards([TaskCard(t.id, t, self.app).content for t in done])
