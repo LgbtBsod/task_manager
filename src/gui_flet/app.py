@@ -224,24 +224,25 @@ class TaskManagerApp:
                 )
             else:
                 btn.style = ft.ButtonStyle(
-                    color=ft.Colors.TRANSPARENT,
+                    color=COLORS["text_primary"],
                     padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                     text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
                 )
-            btn.update()
-
         self.views_container.controls.clear()
         view = self.views_map.get(view_name)
         if view:
             view.build()
             self.views_container.controls.append(view.container)
+            if self.page:
+                self.page.update()
             if view_name == "gantt":
                 self.gantt_view.refresh()
             elif view_name == "dashboard":
                 self.dashboard_view.refresh()
 
-        self.views_container.update()
         self.refresh_status_bar()
+        if self.page:
+            self.page.update()
 
     def _on_search(self, e):
         self._search_query = self.search_field.value.strip().lower() if self.search_field.value else ""
@@ -282,6 +283,8 @@ class TaskManagerApp:
             self.dashboard_view.refresh()
 
         self.refresh_status_bar()
+        if self.page:
+            self.page.update()
 
     def refresh_status_bar(self):
         stats = self.service.get_statistics()
@@ -291,7 +294,6 @@ class TaskManagerApp:
             self.status_text.value = f"\u041d\u0430\u0439\u0434\u0435\u043d\u043e: {filtered} \u0438\u0437 {total}"
         else:
             self.status_text.value = f"\u0417\u0430\u0434\u0430\u0447: {total}"
-        self.status_text.update()
 
     def show_create_dialog(self):
         from .task_dialog import show_task_dialog

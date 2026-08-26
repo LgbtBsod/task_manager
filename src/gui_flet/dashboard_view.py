@@ -36,10 +36,8 @@ class StatCard(ft.Container):
 
     def set_value(self, value: str, subtitle: str = ""):
         self._value_label.value = value
-        self._value_label.update()
         if subtitle and hasattr(self, '_subtitle_label'):
             self._subtitle_label.value = subtitle
-            self._subtitle_label.update()
 
 
 class PriorityBar(ft.Container):
@@ -71,9 +69,6 @@ class PriorityBar(ft.Container):
         self._count_text.value = f"{self.label}: {count}"
         self._pct_text.value = f"{pct:.0f}%"
         self._bar.width = max(pct * 3, 0)
-        self._count_text.update()
-        self._pct_text.update()
-        self._bar.update()
 
 
 class TypeBar(ft.Container):
@@ -104,9 +99,6 @@ class TypeBar(ft.Container):
         self._count_text.value = f"{self.label}: {count}"
         self._pct_text.value = f"{pct:.0f}%"
         self._bar.width = max(pct * 3, 0)
-        self._count_text.update()
-        self._pct_text.update()
-        self._bar.update()
 
 
 class DashboardView:
@@ -260,10 +252,8 @@ class DashboardView:
             pct = (count / total * 100) if total > 0 else 0
             if key in self._status_labels:
                 self._status_labels[key].value = f"{status_labels_map[key]}: {count}"
-                self._status_labels[key].update()
             if key in self._status_bars:
                 self._status_bars[key].width = max(pct * 3, 0)
-                self._status_bars[key].update()
 
         self._update_workload()
 
@@ -272,9 +262,6 @@ class DashboardView:
             self._progress_bar.value = rate / 100
             self._progress_label.value = f"{rate}%"
             self._time_label.value = _format_time(stats['total_time_spent'])
-            self._progress_bar.update()
-            self._progress_label.update()
-            self._time_label.update()
 
     def _update_workload(self):
         """Update team workload section."""
@@ -305,7 +292,6 @@ class DashboardView:
                     ft.Text(_format_time(time_s) if time_s > 0 else "", size=12, color=COLORS["text_secondary"]),
                 ], spacing=4)
                 self._workload_column.controls.append(row)
-            self._workload_column.update()
         except Exception:
             pass
 

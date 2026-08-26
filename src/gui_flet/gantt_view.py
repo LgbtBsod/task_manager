@@ -68,7 +68,6 @@ class GanttView:
         for v, btn in self.range_buttons.items():
             btn.style.bgcolor = COLORS["accent_blue"] if v == value else ft.Colors.TRANSPARENT
             btn.style.color = "#ffffff" if v == value else COLORS["text_primary"]
-            btn.update()
         self.refresh()
 
     def _get_date_range(self, tasks):
@@ -111,7 +110,6 @@ class GanttView:
                     alignment=ft.Alignment(0, 0), expand=True,
                 )
             ]
-            self._scroll.update()
             return
 
         status_order = {"In Progress": 0, "Todo": 1, "Done": 2}
@@ -243,4 +241,3 @@ class GanttView:
             controls.append(today_marker_row)
 
         self._scroll.controls = controls
-        self._scroll.update()
