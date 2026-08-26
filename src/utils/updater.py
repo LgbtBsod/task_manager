@@ -1,6 +1,12 @@
 """
 Task Manager - Auto Updater Module
-Checks for updates from GitHub and downloads new version without Git installed.
+Checks for updates from GitHub.  Non-blocking by default.
+
+Key design decisions:
+- check_updates() never calls sys.exit or input()
+- All network calls have short timeouts
+- Downloading an update is a separate explicit step, never automatic
+- Works cross-platform (no .bat dependency)
 """
 import os
 import sys
@@ -8,153 +14,75 @@ import json
 import zipfile
 import tempfile
 import shutil
-import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from urllib.request import urlopen, urlretrieve, Request
+from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
+import subprocess
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Files to skip when copying update files
+SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json"}
+SKIP_EXTENSIONS = {".pyc", ".pyo"}
 
 
 class AutoUpdater:
     """Automatic updater for Task Manager application."""
-    
+
+    TIMEOUT_API = 8       # seconds for GitHub API calls
+    TIMEOUT_DOWNLOAD = 60  # seconds for zip download
+
     def __init__(self, repo_owner: str, repo_name: str, current_version: str = "unknown"):
-        """
-        Initialize the updater.
-        
-        Args:
-            repo_owner: GitHub repository owner (e.g., "username")
-            repo_name: GitHub repository name (e.g., "task_manager")
-            current_version: Current version string (can be commit hash or tag)
-        """
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.current_version = current_version
         self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
-        self.app_dir = Path(__file__).parent.parent.parent  # Go to project root
-        
+        self.app_dir = Path(__file__).parent.parent.parent  # project root
+
+    # ── Network helpers ───────────────────────────────────────────────────
+
     def _create_request(self, url: str) -> Request:
-        """Create a request with User-Agent header to avoid GitHub API rate limiting."""
         req = Request(url)
         req.add_header('User-Agent', f'TaskManager/{self.current_version}')
         return req
-    
-    def get_latest_release(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetch latest release information from GitHub API.
-        
-        Returns:
-            Dictionary with release info or None if failed
-        """
+
+    def _api_get(self, url: str) -> Optional[Dict[str, Any]]:
+        """GET JSON from GitHub API with timeout.  Returns None on any error."""
         try:
-            url = f"{self.api_url}/releases/latest"
             req = self._create_request(url)
-            with urlopen(req, timeout=10) as response:
-                return json.loads(response.read().decode('utf-8'))
-        except (URLError, HTTPError, json.JSONDecodeError) as e:
-            print(f"[Обновление] Не удалось получить информацию о релизе: {e}")
+            with urlopen(req, timeout=self.TIMEOUT_API) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            logger.debug("API request failed: %s", e)
             return None
-    
-    def get_latest_commit(self) -> Optional[Dict[str, Any]]:
+
+    # ── Version parsing ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_version(version_str: str) -> Tuple[Tuple[int, ...], str, str]:
         """
-        Fetch latest commit information from GitHub API.
-        
-        Returns:
-            Dictionary with commit info or None if failed
-        """
-        try:
-            url = f"{self.api_url}/commits/main"
-            req = self._create_request(url)
-            with urlopen(req, timeout=10) as response:
-                return json.loads(response.read().decode('utf-8'))
-        except (URLError, HTTPError, json.JSONDecodeError) as e:
-            print(f"[Обновление] Не удалось получить информацию о коммите: {e}")
-            return None
-    
-    def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Check if updates are available.
-        
-        Returns:
-            Tuple of (has_update, latest_version, download_url)
-        """
-        import re
-        
-        # Try to get latest release first
-        release_info = self.get_latest_release()
-        if release_info:
-            latest_version = release_info.get('tag_name', 'unknown')
-            zip_url = None
-            for asset in release_info.get('assets', []):
-                if asset.get('name', '').endswith('.zip'):
-                    zip_url = asset.get('browser_download_url')
-                    break
-            
-            # If no zip asset, use source zip
-            if not zip_url:
-                zip_url = release_info.get('zipball_url')
-            
-            if zip_url:
-                # Compare versions properly using semantic versioning
-                if self._is_newer_version(latest_version, self.current_version):
-                    print(f"[Обновление] Найдена новая версия: {latest_version}")
-                    return True, latest_version, zip_url
-                else:
-                    return False, latest_version, None
-        
-        # Fallback to checking commits
-        commit_info = self.get_latest_commit()
-        if commit_info:
-            latest_sha = commit_info.get('sha', '')[:7]
-            zip_url = f"{self.api_url}/zipball/main"
-            
-            # Only suggest commit-based update if current version is not a semantic version
-            if self.current_version != "unknown" and latest_sha != self.current_version[:7]:
-                # If current version looks like a semantic version (e.g., 1.1.0), don't update to commit
-                if re.match(r'^v?\d+\.\d+', self.current_version):
-                    return False, latest_version, None
-                else:
-                    return True, latest_sha, zip_url
-        
-        return False, None, None
-    
-    def _parse_version(self, version_str: str) -> Tuple[Tuple[int, ...], str, str]:
-        """
-        Parse version string into components for comparison.
-        Handles formats like: 1.1.0, v1.1.0, 1.1.0a, 1.1.0b, 1.1.0rc, 1.1.0.0
+        Parse version string.  Handles: 1.1.0, v1.1.0, 1.1.0a, 1.1.0b2, 1.1.0rc1
         Returns: (numeric_tuple, prerelease_type, prerelease_number)
         """
         import re
-        
-        # Remove 'v' prefix if present
         version_str = version_str.lstrip('v').strip()
-        
-        # Pattern to match version with optional prerelease suffix
-        # Examples: 1.1.0, 1.1.0a, 1.1.0alpha, 1.1.0b2, 1.1.0rc1, 1.1.0.0
-        pattern = r'^(\d+(?:\.\d+)*)\.?(\d*)\s*([a-zA-Z]+)?\s*(\d*)$'
+        # Primary pattern: match dotted numbers, optional prerelease suffix
+        pattern = r'^(\d+(?:\.\d+)*)([a-zA-Z]+)?(\d*)$'
         match = re.match(pattern, version_str)
-        
+
         if not match:
-            # Fallback: just extract numbers
             parts = re.findall(r'\d+', version_str)
-            numeric_tuple = tuple(int(p) for p in parts[:4]) + (0,) * (4 - len(parts))
-            return numeric_tuple, '', ''
-        
-        base_version, patch, prerelease_type, prerelease_num = match.groups()
-        
-        # Build numeric tuple from base version and optional patch
+            padded = tuple(int(p) for p in parts[:8]) + (0,) * max(0, 8 - len(parts))
+            return padded, '', ''
+
+        base_version, pre_type, pre_num = match.groups()
         base_parts = [int(p) for p in base_version.split('.')]
-        if patch:
-            base_parts.append(int(patch))
-        
-        # Pad to 4 elements
-        numeric_tuple = tuple(base_parts[:4]) + (0,) * (4 - len(base_parts))
-        
-        # Normalize prerelease type
-        prerelease_type = (prerelease_type or '').lower().strip()
-        prerelease_num = (prerelease_num or '0').strip()
-        
-        # Map common aliases
+        numeric_tuple = tuple(base_parts[:8]) + (0,) * max(0, 8 - len(base_parts))
+
+        pre_type = (pre_type or '').lower().strip()
+        pre_num = (pre_num or '0').strip()
         type_map = {
             'a': 'alpha', 'alpha': 'alpha',
             'b': 'beta', 'beta': 'beta',
@@ -162,358 +90,238 @@ class AutoUpdater:
             'dev': 'dev', 'development': 'dev',
             'post': 'post',
         }
-        prerelease_type = type_map.get(prerelease_type, prerelease_type)
-        
-        return numeric_tuple, prerelease_type, prerelease_num
-    
+        pre_type = type_map.get(pre_type, pre_type)
+        return numeric_tuple, pre_type, pre_num
+
     def _is_newer_version(self, latest: str, current: str) -> bool:
-        """
-        Check if latest version is newer than current version.
-        Supports semantic versioning with prerelease suffixes (alpha, beta, rc).
-        
-        Version order: dev < alpha < beta < rc < (no suffix/stable) < post
-        Within same prerelease type, higher number is newer.
-        Same base version with no suffix is newer than any prerelease.
-        
-        Args:
-            latest: Latest version from GitHub (e.g., "v1.1.0", "1.1.0b2")
-            current: Current local version (e.g., "1.1.0a", "1.1.0")
-            
-        Returns:
-            True if latest is newer, False otherwise
-        """
+        """Check if *latest* is strictly newer than *current*."""
         try:
-            latest_nums, latest_pre_type, latest_pre_num = self._parse_version(latest)
-            current_nums, current_pre_type, current_pre_num = self._parse_version(current)
-            
-            # First compare numeric parts
-            if latest_nums > current_nums:
+            l_nums, l_pre, l_pn = self._parse_version(latest)
+            c_nums, c_pre, c_pn = self._parse_version(current)
+
+            if l_nums > c_nums:
                 return True
-            if latest_nums < current_nums:
+            if l_nums < c_nums:
                 return False
-            
-            # Numeric parts are equal, check prerelease status
-            # Priority order: dev < alpha < beta < rc < '' (stable) < post
-            priority = {'dev': 0, 'alpha': 1, 'a': 1, 'beta': 2, 'b': 2, 'rc': 3, '': 4, 'post': 5}
-            
-            latest_priority = priority.get(latest_pre_type, 4)  # Default to stable if unknown
-            current_priority = priority.get(current_pre_type, 4)
-            
-            # If both have same prerelease type, compare prerelease numbers
-            if latest_pre_type == current_pre_type:
+
+            priority = {'dev': 0, 'alpha': 1, 'a': 1, 'beta': 2, 'b': 2,
+                        'rc': 3, '': 4, 'post': 5}
+            l_pri = priority.get(l_pre, 4)
+            c_pri = priority.get(c_pre, 4)
+
+            if l_pre == c_pre:
                 try:
-                    latest_num = int(latest_pre_num) if latest_pre_num else 0
-                    current_num = int(current_pre_num) if current_pre_num else 0
-                    return latest_num > current_num
+                    return int(l_pn or 0) > int(c_pn or 0)
                 except ValueError:
                     return False
-            
-            # Stable release (no suffix) is newer than any prerelease
-            # post is newer than stable
-            return latest_priority > current_priority
-            
-        except Exception as e:
-            print(f"[Обновление] Ошибка сравнения версий: {e}")
-            # If parsing fails, fall back to simple string comparison
+            return l_pri > c_pri
+        except Exception:
             return latest != current and latest > current
-    
-    def download_and_extract(self, zip_url: str, latest_version: str) -> bool:
+
+    # ── Check for updates (read-only, never blocks) ────────────────────────
+
+    def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
         """
-        Download and extract the update to a temporary folder, then restart.
-        
-        Args:
-            zip_url: URL to download the zip file from
-            latest_version: Version string of the latest release
-            
-        Returns:
-            True if successful, False otherwise
+        Non-blocking check.  Returns (has_update, latest_version, download_url).
+        Never raises, never calls input/sys.exit.
         """
-        import subprocess
-        
+        import re
+
+        release_info = self._api_get(f"{self.api_url}/releases/latest")
+        if release_info:
+            latest_version = release_info.get('tag_name', 'unknown')
+            zip_url = None
+            for asset in release_info.get('assets', []):
+                if (asset.get('name', '') or '').endswith('.zip'):
+                    zip_url = asset.get('browser_download_url')
+                    break
+            if not zip_url:
+                zip_url = release_info.get('zipball_url')
+
+            if zip_url and self._is_newer_version(latest_version, self.current_version):
+                logger.info("New version available: %s", latest_version)
+                return True, latest_version, zip_url
+            return False, latest_version, None
+
+        # Fallback: check latest commit
+        commit_info = self._api_get(f"{self.api_url}/commits/main")
+        if commit_info:
+            latest_sha = commit_info.get('sha', '')[:7]
+            zip_url = f"{self.api_url}/zipball/main"
+            if (self.current_version != "unknown"
+                    and latest_sha != self.current_version[:7]
+                    and not re.match(r'^v?\d+\.\d+', self.current_version)):
+                return True, latest_sha, zip_url
+
+        return False, None, None
+
+    # ── Download & apply update ───────────────────────────────────────────
+
+    def download_update(self, zip_url: str, latest_version: str) -> bool:
+        """
+        Download zip to a temp dir and apply file-by-file.
+        Cross-platform — no .bat dependency.
+        Returns True on success, False on failure (never raises to caller).
+        """
+        temp_dir = None
         try:
-            print("[Обновление] Скачивание обновлений...")
-            
-            # Create temporary directory for extraction
             temp_base = Path(tempfile.gettempdir()) / "task_manager_update"
             temp_dir = temp_base / f"update_{latest_version.replace('.', '_')}_{os.getpid()}"
             temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            print(f"[Обновление] Временная папка: {temp_dir}")
-            
-            # Download archive to temp folder
+
             zip_path = temp_dir / "update.zip"
+            logger.info("Downloading update from %s", zip_url)
+
             req = self._create_request(zip_url)
-            with urlopen(req, timeout=30) as response, open(zip_path, 'wb') as out_file:
-                shutil.copyfileobj(response, out_file)
-            
-            print("[Обновление] Распаковка обновлений во временную папку...")
-            
-            # Extract to temporary directory
+            with urlopen(req, timeout=self.TIMEOUT_DOWNLOAD) as resp, open(zip_path, 'wb') as f:
+                shutil.copyfileobj(resp, f)
+
             extracted_dir = temp_dir / "extracted"
             extracted_dir.mkdir(parents=True, exist_ok=True)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extracted_dir)
-            
-            # Find the extracted folder (GitHub adds a prefix like username-repo-hash/)
-            extracted_folders = [f for f in extracted_dir.iterdir() if f.is_dir()]
-            if not extracted_folders:
-                print("[Обновление] Ошибка: не найдено распакованных файлов")
-                shutil.rmtree(temp_dir, ignore_errors=True)
+
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(extracted_dir)
+
+            # GitHub zips have a single root folder like owner-repo-hash/
+            folders = [p for p in extracted_dir.iterdir() if p.is_dir()]
+            if not folders:
+                logger.error("No extracted folder found")
                 return False
-            
-            source_folder = extracted_folders[0]
-            print(f"[Обновление] Источник: {source_folder}")
-            
-            # Prepare restart script path
-            app_dir = self.app_dir
-            start_bat = app_dir / "start.bat"
-            update_bat = app_dir / "update.bat"
-            
-            print("[Обновление] Подготовка перезапуска...")
-            
-            # Save update info for batch script
-            update_info = {
-                'source_folder': str(source_folder),
-                'app_dir': str(app_dir),
-                'version': latest_version,
-                'temp_dir': str(temp_dir)
-            }
-            update_info_file = temp_dir / "update_info.json"
-            with open(update_info_file, 'w', encoding='utf-8') as f:
-                json.dump(update_info, f, ensure_ascii=False, indent=2)
-            
-            # Stop current application gracefully
-            print("[Обновление] Остановка приложения...")
-            
-            # If running from start.bat, we'll let the batch script handle the copy
-            if update_bat.exists():
-                print("[Обновление] Запуск внешнего скрипта обновления...")
-                
-                # Close current GUI if exists
-                try:
-                    import tkinter as tk
-                    root = tk.Tk()
-                    root.withdraw()
-                    root.destroy()
-                except Exception:
-                    pass
-                
-                # Start update.bat with parameters
-                subprocess.Popen([
-                    'cmd.exe', '/c',
-                    str(update_bat),
-                    zip_url,
-                    latest_version
-                ], cwd=str(app_dir))
-                
-                # Exit current process
-                sys.exit(0)
-            else:
-                # Fallback: copy files directly then restart
-                print("[Обновление] Копирование файлов из временной папки...")
-                
-                files_copied = 0
-                errors = []
-                for item in source_folder.rglob('*'):
-                    if item.is_file():
-                        # Skip hidden files and directories
-                        if any(part.startswith('.') for part in item.relative_to(source_folder).parts):
-                            continue
-                        
-                        relative_path = item.relative_to(source_folder)
-                        dest_path = app_dir / relative_path
-                        
-                        # Skip currently running script files that might be locked
-                        if dest_path.exists() and self._is_file_locked(dest_path):
-                            errors.append(f"Пропущен заблокированный файл: {relative_path}")
-                            continue
-                        
-                        # Create parent directories if needed
-                        dest_path.parent.mkdir(parents=True, exist_ok=True)
-                        
-                        # Copy file
-                        try:
-                            shutil.copy2(item, dest_path)
-                            files_copied += 1
-                        except PermissionError as e:
-                            errors.append(f"Не удалось скопировать {relative_path}: {e}")
-                
-                if errors:
-                    print("[Обновление] Предупреждения:")
-                    for err in errors[:5]:
-                        print(f"  - {err}")
-                    if len(errors) > 5:
-                        print(f"  ... и ещё {len(errors) - 5} ошибок")
-                
-                print(f"[Обновление] Обновлено файлов: {files_copied}")
-                
-                # Update version file after successful extraction
-                self._update_version_file(latest_version)
-                
-                # Clean up temp directory
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                
-                print("[Обновление] Обновление успешно установлено!")
-                
-                # Restart application
-                print("[Обновление] Перезапуск приложения...")
-                if start_bat.exists():
-                    subprocess.Popen(['cmd.exe', '/c', str(start_bat)], cwd=str(app_dir))
-                else:
-                    subprocess.Popen([sys.executable, 'main.py'], cwd=str(app_dir))
-                
-                sys.exit(0)
-            
+            source_folder = folders[0]
+
+            # Copy files
+            files_copied = self._copy_update_files(source_folder)
+            logger.info("Updated %d files", files_copied)
+
+            # Update version file
+            self._update_version_file(latest_version)
+
+            # Cleanup
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
-            
+
         except Exception as e:
-            print(f"[Обновление] Ошибка при установке обновлений: {e}")
-            # Cleanup on error
-            if 'temp_dir' in locals() and temp_dir.exists():
+            logger.error("Update download/apply failed: %s", e)
+            if temp_dir and temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return False
-    
-    def _is_file_locked(self, filepath: Path) -> bool:
-        """Check if a file is locked by another process."""
-        try:
-            with open(filepath, 'r+b') as f:
-                if sys.platform == 'win32':
-                    import msvcrt
-                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-            return False
-        except (IOError, OSError, ImportError):
-            return True
-    
+
+    def _copy_update_files(self, source_folder: Path) -> int:
+        """Copy files from extracted update, skipping venv/.git/__pycache__/tasks.json."""
+        app_dir = self.app_dir
+        files_copied = 0
+
+        for item in source_folder.rglob('*'):
+            if not item.is_file():
+                continue
+            rel = item.relative_to(source_folder)
+            parts = rel.parts
+
+            # Skip hidden dirs/files, venv, __pycache__, etc.
+            if any(p.startswith('.') for p in parts):
+                continue
+            if any(p in SKIP_PATTERNS for p in parts):
+                continue
+            if item.suffix in SKIP_EXTENSIONS:
+                continue
+
+            dest = app_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(item, dest)
+                files_copied += 1
+            except PermissionError:
+                logger.warning("Skipping locked file: %s", rel)
+
+        return files_copied
+
     def _update_version_file(self, new_version: str) -> None:
-        """Update the version.txt file with the new version."""
-        # Update version.txt in project root
         version_file = self.app_dir / "version.txt"
-        
         try:
-            with open(version_file, 'w', encoding='utf-8') as f:
-                f.write(new_version.strip())
-            print(f"[Обновление] Версия обновлена: {new_version}")
+            version_file.write_text(new_version.strip(), encoding='utf-8')
+            logger.info("Version updated to %s", new_version)
         except Exception as e:
-            print(f"[Обновление] Не удалось обновить файл версии: {e}")
-    
-    def prompt_update(self, latest_version: str) -> bool:
-        """
-        Prompt user to confirm update.
-        
-        Args:
-            latest_version: Version string of the latest release
-            
-        Returns:
-            True if user wants to update, False otherwise
-        """
-        print("\n" + "="*50)
-        print(f"Доступна новая версия: {latest_version}")
-        print(f"Текущая версия: {self.current_version}")
-        print("="*50)
-        
-        try:
-            response = input("Скачать и установить обновление? (y/n): ").strip().lower()
-            return response in ('y', 'yes', 'д', 'да')
-        except (EOFError, KeyboardInterrupt):
-            print("\n[Обновление] Отменено пользователем")
-            return False
-    
+            logger.warning("Could not update version.txt: %s", e)
+
+    # ── Public entry point ─────────────────────────────────────────────────
+
     def run_update_check(self, auto: bool = False) -> bool:
         """
-        Run the update check process.
-        
+        Check and optionally apply updates.
+
         Args:
-            auto: If True, skip user prompt and auto-update if available
-            
+            auto: if True, download+apply without prompting (for CI/background).
+                  if False, just print a notice (never calls input()).
+
         Returns:
-            True if update was performed, False otherwise
+            True if an update was applied, False otherwise.
         """
-        print("[Обновление] Проверка доступности обновлений...")
-        
+        logger.info("Checking for updates (current: %s)", self.current_version)
         has_update, latest_version, download_url = self.check_for_updates()
-        
+
         if not has_update:
-            print("[Обновление] Установлена актуальная версия")
+            logger.info("Already up to date")
             return False
-        
-        if auto or self.prompt_update(latest_version):
-            if download_url:
-                return self.download_and_extract(download_url, latest_version)
+
+        if auto and download_url:
+            print(f"[Обновление] Новая версия: {latest_version}. Автообновление...")
+            ok = self.download_update(download_url, latest_version)
+            if ok:
+                print("[Обновление] Обновление установлено. Перезапустите приложение.")
             else:
-                print("[Обновление] Не найдено ссылки для скачивания")
-                return False
-        
+                print("[Обновление] Не удалось установить обновление.")
+            return ok
+
+        # Non-auto: just inform, do NOT block with input()
+        print(f"[Обновление] Доступна новая версия: {latest_version}")
+        print(f"[Обновление] Текущая версия: {self.current_version}")
+        print("[Обновление] Для обновления перезапустите с флагом --update")
         return False
 
 
 def get_current_version() -> str:
-    """Get current version from version.txt file."""
-    # Try to get from version.txt in project root
+    """Get current version from version.txt, _version.py, or git."""
     version_file = Path(__file__).parent.parent.parent / 'version.txt'
     if version_file.exists():
         try:
-            with open(version_file, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+            return version_file.read_text(encoding='utf-8').strip()
         except Exception:
             pass
-    
-    # Fallback to _version.py module
+
     try:
         from ._version import get_version
         return get_version()
     except Exception:
         pass
-    
-    # Try to get from git if available (fallback)
+
     try:
-        import subprocess
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=5
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent.parent.parent),
         )
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
         pass
-    
+
     return "unknown"
 
 
 def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
     """
-    Convenience function to check and install updates.
-    
-    Args:
-        repo_owner: GitHub repository owner
-        repo_name: GitHub repository name
-        auto: If True, skip user prompt
-        
-    Returns:
-        True if update was performed
+    Convenience function — non-blocking, never calls input() or sys.exit.
     """
     current_version = get_current_version()
-    print(f"[Обновление] Текущая версия: {current_version}")
+    logger.info("Current version: %s", current_version)
     updater = AutoUpdater(repo_owner, repo_name, current_version)
     return updater.run_update_check(auto=auto)
 
 
 if __name__ == "__main__":
-    # Production settings for Task Manager
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     REPO_OWNER = "LgbtBsod"
     REPO_NAME = "task_manager"
-    
-    print("Task Manager - Автообновление")
+    print("Task Manager - Проверка обновлений")
     print("=" * 50)
-    
-    updated = check_updates(REPO_OWNER, REPO_NAME, auto=False)
-    
-    if updated:
-        print("\n[Обновление] Приложение будет перезапущено для применения обновлений...")
-        # Optionally restart the application here
-        # os.execv(sys.executable, [sys.executable] + sys.argv)
-    else:
-        print("\nПроект актуален")
+    check_updates(REPO_OWNER, REPO_NAME, auto=False)

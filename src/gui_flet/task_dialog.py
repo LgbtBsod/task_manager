@@ -1,0 +1,185 @@
+"""Task create/edit dialog with all Jira fields."""
+import flet as ft
+from typing import Optional, Callable
+from .app import COLORS
+
+
+def show_task_dialog(page: ft.Page, title: str = "Новая задача",
+                      task=None, on_save: Optional[Callable] = None):
+    title_field = ft.TextField(
+        label="Название", value=task.title if task else "",
+        text_size=14, autofocus=True, border_radius=8,
+    )
+    desc_field = ft.TextField(
+        label="Описание", value=task.description if task else "",
+        text_size=14, multiline=True, min_lines=2, max_lines=4, border_radius=8,
+    )
+    priority_var = task.priority.value if task else "Medium"
+    priority_field = ft.Dropdown(
+        label="Приоритет", value=priority_var,
+        options=[
+            ft.dropdown.Option("Low", text="Low"),
+            ft.dropdown.Option("Medium", text="Medium"),
+            ft.dropdown.Option("High", text="High"),
+            ft.dropdown.Option("Critical", text="Critical"),
+        ], text_size=14, border_radius=8, width=200,
+    )
+
+    # Task type (Jira)
+    task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
+    task_type_field = ft.Dropdown(
+        label="Тип", value=task_type_var,
+        options=[
+            ft.dropdown.Option("Task", text="Task"),
+            ft.dropdown.Option("Bug", text="Bug"),
+            ft.dropdown.Option("Story", text="Story"),
+            ft.dropdown.Option("Epic", text="Epic"),
+            ft.dropdown.Option("Sub-task", text="Sub-task"),
+        ], text_size=14, border_radius=8, width=200,
+    )
+
+    start_field = ft.TextField(
+        label="Дата начала (YYYY-MM-DD)",
+        value=task.start_date if task else "", text_size=14, border_radius=8,
+    )
+    due_field = ft.TextField(
+        label="Дедлайн (YYYY-MM-DD)",
+        value=task.due_date if task else "", text_size=14, border_radius=8,
+    )
+    time_field = ft.TextField(
+        label="Затрачено (часы)",
+        value=str(task.time_spent) if task and task.time_spent > 0 else "0",
+        text_size=14, border_radius=8, width=200,
+    )
+    tags_field = ft.TextField(
+        label="Теги (через запятую)",
+        value=", ".join(task.tags) if task and task.tags else "",
+        text_size=14, border_radius=8, hint_text="frontend, bug, feature",
+    )
+    assignee_field = ft.TextField(
+        label="Исполнитель",
+        value=getattr(task, 'assignee', None) or "",
+        text_size=14, border_radius=8, width=200,
+    )
+    story_points_field = ft.TextField(
+        label="Story Points",
+        value=str(task.story_points) if task and task.story_points else "",
+        text_size=14, border_radius=8, width=200,
+    )
+
+    urgency_field = ft.Dropdown(
+        label="Срочность", value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
+        options=[
+            ft.dropdown.Option("Low", text="Low"),
+            ft.dropdown.Option("Normal", text="Normal"),
+            ft.dropdown.Option("High", text="High"),
+            ft.dropdown.Option("Urgent", text="Urgent"),
+        ], text_size=14, border_radius=8, width=200,
+    )
+    watchers_field = ft.TextField(
+        label="Наблюдатели (через запятую)",
+        value=", ".join(getattr(task, 'watchers', []) or []) if task and getattr(task, 'watchers', None) else "",
+        text_size=14, border_radius=8, hint_text="alice, bob",
+    )
+    error_label = ft.Text("", size=12, color=COLORS["accent_red"])
+
+    def _validate_date(date_str: str) -> bool:
+        if not date_str:
+            return True
+        from datetime import datetime
+        try:
+            datetime.strptime(date_str.strip(), "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
+
+    def on_save_click(e):
+        from core.models import Priority
+
+        t = title_field.value.strip()
+        if not t:
+            error_label.value = "Название обязательно"
+            error_label.update()
+            return
+
+        start_val = start_field.value.strip() or None
+        due_val = due_field.value.strip() or None
+        if start_val and not _validate_date(start_val):
+            error_label.value = "Формат даты: YYYY-MM-DD"
+            error_label.update()
+            return
+        if due_val and not _validate_date(due_val):
+            error_label.value = "Формат даты: YYYY-MM-DD"
+            error_label.update()
+            return
+
+        try:
+            time_val = float(time_field.value.strip() or "0")
+        except ValueError:
+            time_val = 0.0
+
+        try:
+            sp_val = story_points_field.value.strip()
+            sp = int(sp_val) if sp_val else None
+        except ValueError:
+            sp = None
+
+        priority = Priority(priority_field.value)
+        raw_tags = tags_field.value.strip() if tags_field.value else ""
+        tags = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
+        assignee = assignee_field.value.strip() or None
+
+        urgency_val = urgency_field.value
+        raw_watchers = watchers_field.value.strip() if watchers_field.value else ""
+        watcher_list = [w.strip() for w in raw_watchers.split(",") if w.strip()] if raw_watchers else []
+
+        if on_save:
+            try:
+                on_save(
+                    title=t, description=desc_field.value.strip(),
+                    priority=priority, due_date=due_val, start_date=start_val,
+                    time_spent=time_val, tags=tags, assignee=assignee,
+                    story_points=sp, task_type=task_type_field.value,
+                    urgency=urgency_val, watchers=watcher_list,
+                )
+            except ValueError as ex:
+                error_label.value = str(ex)
+                error_label.update()
+                return
+
+        dlg.open = False
+        page.update()
+
+    def on_cancel(e):
+        dlg.open = False
+        page.update()
+
+    dates_row = ft.Row([start_field, ft.Container(width=16), due_field], spacing=0)
+    prio_type_row = ft.Row([priority_field, ft.Container(width=16), task_type_field], spacing=0)
+    time_sp_row = ft.Row([time_field, ft.Container(width=16), story_points_field], spacing=0)
+
+    dlg = ft.AlertDialog(
+        title=ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
+        content=ft.Column([
+            title_field, desc_field, tags_field,
+            ft.Container(height=4),
+            prio_type_row, ft.Container(height=4),
+            time_sp_row, ft.Container(height=4),
+            dates_row, ft.Container(height=4),
+            assignee_field, ft.Container(height=4),
+            urgency_field, ft.Container(height=4),
+            watchers_field, ft.Container(height=4),
+            error_label,
+        ], spacing=6, width=560, tight=True, scroll=ft.ScrollMode.AUTO),
+        actions=[
+            ft.TextButton("Отмена", on_click=on_cancel),
+            ft.Button("Сохранить", on_click=on_save_click,
+                     style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff",
+                                        padding=ft.padding.symmetric(horizontal=20, vertical=8))),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
