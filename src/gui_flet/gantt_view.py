@@ -42,7 +42,7 @@ class GanttView:
                 style=ft.ButtonStyle(
                     bgcolor=COLORS["accent_blue"] if val == self._range_var else ft.Colors.TRANSPARENT,
                     color="#ffffff" if val == self._range_var else COLORS["text_primary"],
-                    padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                     text_style=ft.TextStyle(size=12),
                 ),
             )
@@ -56,7 +56,7 @@ class GanttView:
                 ft.Container(expand=True),
                 ft.Row(btns, spacing=4),
             ]),
-            padding=ft.padding.only(left=20, right=20, top=15, bottom=5),
+            padding=ft.Padding.only(left=20, right=20, top=15, bottom=5),
         )
 
         self._scroll = ft.Column(spacing=0, expand=True, scroll=ft.ScrollMode.AUTO)
@@ -156,7 +156,7 @@ class GanttView:
 
         controls.append(ft.Container(
             content=ft.Row(header_cells, spacing=0),
-            padding=ft.padding.only(left=10, right=10, top=8, bottom=4),
+            padding=ft.Padding.only(left=10, right=10, top=8, bottom=4),
         ))
         controls.append(ft.Divider(color=GRID_LINE_COLOR, height=1))
 
@@ -188,7 +188,7 @@ class GanttView:
 
             bar_inner = ft.Container(
                 content=bar_text, height=BAR_HEIGHT, bgcolor=bar_color, border_radius=6,
-                padding=ft.padding.only(left=8, right=8), alignment=ft.Alignment(-1, 0),
+                padding=ft.Padding.only(left=8, right=8), alignment=ft.Alignment(-1, 0),
                 opacity=0.55 if is_done else 1.0,
                 on_click=lambda e, t=task: self.app.show_edit_dialog(t),
                 tooltip=f"{task.title} | {task.priority.value} | {task.status.value} | {task.get_gantt_start()} - {task.get_gantt_end()}",
@@ -221,7 +221,7 @@ class GanttView:
 
             row = ft.Container(
                 content=ft.Row(row_children, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                height=ROW_HEIGHT, padding=ft.padding.only(left=10, right=10),
+                height=ROW_HEIGHT, padding=ft.Padding.only(left=10, right=10),
                 bgcolor=WEEKEND_COLOR if (i % 2 == 1) else None,
             )
 

@@ -71,13 +71,13 @@ class TaskCard(ft.Draggable):
         if task.task_type != "Task":
             header_right.append(ft.Container(
                 content=ft.Text(task.task_type, size=9, color=type_color, weight=ft.FontWeight.W_600),
-                padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=f"{type_color}20", border_radius=4,
             ))
         if task.story_points is not None:
             header_right.append(ft.Container(
                 content=ft.Text(f"SP:{task.story_points}", size=9, color="#86868b"),
-                padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=COLORS["bg_button"], border_radius=4,
             ))
 
@@ -86,7 +86,7 @@ class TaskCard(ft.Draggable):
             tag_chips.append(
                 ft.Container(
                     content=ft.Text(tag, size=9, color=COLORS["accent_blue"]),
-                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                     bgcolor="#0a84ff20", border_radius=6,
                 )
             )
@@ -207,14 +207,14 @@ class DropColumn:
                         color=COLORS["text_primary"]),
                 ft.Container(expand=True),
                 ft.Container(content=self._badge,
-                             padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                             padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                              bgcolor=COLORS["bg_button"], border_radius=10),
             ], spacing=8),
-            padding=ft.padding.only(left=8, right=8, top=12, bottom=8),
+            padding=ft.Padding.only(left=8, right=8, top=12, bottom=8),
         )
 
         self._list_view = ft.ListView(expand=True, spacing=4,
-                                         padding=ft.padding.only(left=8, right=8, bottom=8),
+                                         padding=ft.Padding.only(left=8, right=8, bottom=8),
                                          auto_scroll=True)
 
         self._border_container = ft.Container(

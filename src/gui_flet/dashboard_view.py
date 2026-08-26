@@ -136,14 +136,14 @@ class DashboardView:
 
         prio_section = []
         for prio, color in [("Low", "#4CAF50"), ("Medium", "#FF9800"), ("High", "#F44336"), ("Critical", "#FF1744")]:
-            bar = PriorityBar(prio, color, 0, 1, padding=ft.padding.only(bottom=12))
+            bar = PriorityBar(prio, color, 0, 1, padding=ft.Padding.only(bottom=12))
             self.prio_bars[prio] = bar
             prio_section.append(bar)
 
         type_section = []
         type_config = [("Task", "#86868b"), ("Bug", "#ff453a"), ("Story", "#bf5af2"), ("Epic", "#ff9f0a"), ("Sub-task", "#30d158")]
         for ttype, color in type_config:
-            bar = TypeBar(ttype, color, 0, 1, padding=ft.padding.only(bottom=12))
+            bar = TypeBar(ttype, color, 0, 1, padding=ft.Padding.only(bottom=12))
             self.type_bars[ttype] = bar
             type_section.append(bar)
 
@@ -169,7 +169,7 @@ class DashboardView:
         self.container = ft.Column([
             ft.Container(content=ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD,
                                               color=COLORS["text_primary"]),
-                           padding=ft.padding.only(left=20, top=15, bottom=20)),
+                           padding=ft.Padding.only(left=20, top=15, bottom=20)),
             ft.Container(content=ft.Row([
                 ft.Container(expand=1, content=self.stat_total),
                 ft.Container(width=8),
@@ -178,7 +178,7 @@ class DashboardView:
                 ft.Container(expand=1, content=self.stat_progress),
                 ft.Container(width=8),
                 ft.Container(expand=1, content=self.stat_overdue),
-            ], spacing=0), padding=ft.padding.symmetric(horizontal=20)),
+            ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Row([
                 ft.Container(content=ft.Column([
@@ -190,7 +190,7 @@ class DashboardView:
                     ft.Text("По типу", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
                     ft.Container(height=8), *type_section,
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
-            ], spacing=0), padding=ft.padding.symmetric(horizontal=20)),
+            ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Row([
                 ft.Container(content=ft.Column([
@@ -202,7 +202,7 @@ class DashboardView:
                     ft.Text("Нагрузка на команду", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
                     ft.Container(height=8),
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
-            ], spacing=0), padding=ft.padding.symmetric(horizontal=20)),
+            ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Column([
                 ft.Row([
@@ -212,7 +212,7 @@ class DashboardView:
                 ]),
                 ft.Container(height=8), self._build_progress_bar(),
             ]), padding=20, bgcolor=COLORS["bg_card"], border_radius=16,
-            margin=ft.margin.only(left=20, right=20)),
+            margin=ft.Margin.only(left=20, right=20)),
             ft.Container(height=16),
         ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
 

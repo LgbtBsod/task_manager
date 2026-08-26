@@ -138,7 +138,7 @@ class TaskManagerApp:
                 on_click=lambda e, v=view_id: self.switch_view(v),
                 style=ft.ButtonStyle(
                     color=ft.Colors.TRANSPARENT,
-                    padding=ft.padding.symmetric(horizontal=16, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                     text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
                 ),
             )
@@ -153,7 +153,7 @@ class TaskManagerApp:
             focused_fill_color=COLORS["bg_card_hover"],
             border_color=ft.Colors.TRANSPARENT,
             on_change=self._on_search,
-            content_padding=ft.padding.only(left=36, top=4, bottom=4),
+            content_padding=ft.Padding.only(left=36, top=4, bottom=4),
         )
 
         self.sort_dropdown = ft.Dropdown(
@@ -167,7 +167,7 @@ class TaskManagerApp:
             fill_color=COLORS["bg_button"],
             border_color=ft.Colors.TRANSPARENT, border_radius=8,
             on_change=self._on_sort,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=4),
         )
 
         self.add_button = ft.Button(
@@ -176,7 +176,7 @@ class TaskManagerApp:
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
                 bgcolor=COLORS["accent_green"], color="#000000",
-                padding=ft.padding.symmetric(horizontal=16, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                 text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             ),
         )
@@ -196,7 +196,7 @@ class TaskManagerApp:
                 spacing=4, alignment=ft.MainAxisAlignment.START,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             bgcolor=COLORS["bg_card"],
         )
         page.add(top_bar)
@@ -207,7 +207,7 @@ class TaskManagerApp:
             content=ft.Row(
                 controls=[self.status_text, ft.Container(expand=True)], spacing=0,
             ),
-            padding=ft.padding.symmetric(horizontal=16, vertical=6),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=6),
             bgcolor=COLORS["bg_card"],
         )
         page.add(status_bar)
@@ -219,13 +219,13 @@ class TaskManagerApp:
             if vid == view_name:
                 btn.style = ft.ButtonStyle(
                     bgcolor=COLORS["accent_blue"], color="#ffffff",
-                    padding=ft.padding.symmetric(horizontal=16, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                     text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
                 )
             else:
                 btn.style = ft.ButtonStyle(
                     color=ft.Colors.TRANSPARENT,
-                    padding=ft.padding.symmetric(horizontal=16, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                     text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
                 )
             btn.update()

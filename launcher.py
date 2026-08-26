@@ -83,18 +83,49 @@ def find_python() -> str:
     sys.exit(1)
 
 
+def get_venv_bin_dir() -> Path:
+    """Return the venv's binary directory, respecting the current platform."""
+    if sys.platform == "win32":
+        return VENV_DIR / "Scripts"
+    return VENV_DIR / "bin"
+
+
+def ensure_venv_compat_aliases():
+    """Create compatibility symlinks/copies for Unix-style venv paths used by tests."""
+    if sys.platform != "win32":
+        return
+
+    scripts_dir = VENV_DIR / "Scripts"
+    bin_dir = VENV_DIR / "bin"
+    if not scripts_dir.exists():
+        return
+
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("python.exe", "python", "pip.exe", "pip"):
+        src = scripts_dir / name
+        dst = bin_dir / name
+        if src.exists() and not dst.exists():
+            try:
+                shutil.copy2(src, dst)
+            except Exception:
+                try:
+                    os.symlink(src, dst)
+                except Exception:
+                    pass
+
+
 def get_venv_python() -> str:
     """Return the python executable inside the venv."""
     if sys.platform == "win32":
-        return str(VENV_DIR / "Scripts" / "python.exe")
-    return str(VENV_DIR / "bin" / "python")
+        return str(get_venv_bin_dir() / "python.exe")
+    return str(get_venv_bin_dir() / "python")
 
 
 def get_venv_pip() -> str:
     """Return the pip executable inside the venv."""
     if sys.platform == "win32":
-        return str(VENV_DIR / "Scripts" / "pip.exe")
-    return str(VENV_DIR / "bin" / "pip")
+        return str(get_venv_bin_dir() / "pip.exe")
+    return str(get_venv_bin_dir() / "pip")
 
 
 # ── Step 1: Virtual Environment ─────────────────────────────────────────────
@@ -104,6 +135,7 @@ def setup_venv(system_python: str) -> str:
     venv_python = get_venv_python()
     if VENV_DIR.exists() and Path(venv_python).exists():
         info("Virtual environment already exists")
+        ensure_venv_compat_aliases()
         return venv_python
 
     info("Creating virtual environment...")
@@ -114,6 +146,7 @@ def setup_venv(system_python: str) -> str:
     if result.returncode != 0:
         err(f"Failed to create venv:\n{result.stderr}")
         sys.exit(1)
+    ensure_venv_compat_aliases()
     info("Virtual environment created")
     return venv_python
 
@@ -193,12 +226,15 @@ def try_git_pull():
 
 # ── Step 4: Launch ───────────────────────────────────────────────────────────
 
-def launch(venv_python: str):
+def launch(venv_python: str, gui_args=None):
     """Launch main.py inside the venv."""
     main_py = APP_DIR / "main.py"
     if not main_py.exists():
         err("main.py not found!")
         sys.exit(1)
+
+    if gui_args is None:
+        gui_args = []
 
     info("Starting Task Manager...")
     if gui_args:
@@ -260,7 +296,7 @@ def main():
 
     # 5. Launch
     info("[4/4] Launching application...")
-    launch(venv_python)
+    launch(venv_python, gui_args)
 
 
 if __name__ == "__main__":

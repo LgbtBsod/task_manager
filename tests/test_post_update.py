@@ -2,7 +2,8 @@ import sys, os, json, shutil, subprocess, tempfile
 from pathlib import Path
 
 APP_DIR = Path(__file__).parent.parent
-VENV_PYTHON = APP_DIR / 'venv' / 'bin' / 'python'
+sys.path.insert(0, str(APP_DIR / 'src'))
+VENV_PYTHON = APP_DIR / 'venv' / ('Scripts' if os.name == 'nt' else 'bin') / ('python.exe' if os.name == 'nt' else 'python')
 TASKS_JSON = APP_DIR / 'tasks.json'
 VERSION_FILE = APP_DIR / 'version.txt'
 

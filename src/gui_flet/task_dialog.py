@@ -175,7 +175,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             ft.TextButton("Отмена", on_click=on_cancel),
             ft.Button("Сохранить", on_click=on_save_click,
                      style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff",
-                                        padding=ft.padding.symmetric(horizontal=20, vertical=8))),
+                                        padding=ft.Padding.symmetric(horizontal=20, vertical=8))),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )

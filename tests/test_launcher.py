@@ -4,6 +4,7 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).parent.parent
 VENV_DIR = APP_DIR / 'venv'
+VENV_PYTHON = VENV_DIR / ('Scripts' if os.name == 'nt' else 'bin') / ('python.exe' if os.name == 'nt' else 'python')
 
 passed = 0
 failed = 0
@@ -103,7 +104,7 @@ def test_launcher_no_update_skip_deps():
 def test_main_py_imports_clean():
     print('--- main.py imports clean ---')
     r = subprocess.run(
-        [str(VENV_DIR / 'bin' / 'python'), '-c',
+        [str(VENV_PYTHON), '-c',
          'import sys; sys.path.insert(0,"src"); '
          'sys.path.insert(0,"src/gui_flet"); '
          'from app import TaskManagerApp, run_app; '
