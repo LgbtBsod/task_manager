@@ -43,12 +43,37 @@ def _format_time(hours: float) -> str:
     return f"{h}h {m}m"
 
 
-class TaskCard(ft.Draggable):
+class TaskCard:
     """A draggable task card with tags and subtask progress."""
 
-    def __init__(self, task_id: str, task, app: 'TaskManagerApp', **kwargs):
-        super().__init__(data=task_id, content=self._build_card(task, app), **kwargs)
+    def __init__(self, task_id: str, task, app: 'TaskManagerApp', group: str = "tasks"):
+        self.task_id = task_id
         self.task = task
+        self.app = app
+        self.group = group
+        self.control = self._build_draggable(task, app)
+
+    def _build_draggable(self, task, app) -> ft.Draggable:
+        """Build the draggable wrapper around the card content."""
+        return ft.Draggable(
+            group=self.group,
+            data=self.task_id,
+            content=self._build_card(task, app),
+            content_when_dragging=ft.Container(
+                content=self._build_card(task, app),
+                opacity=0.7,
+                bgcolor=COLORS["bg_card"],
+                border_radius=12,
+                padding=12,
+            ),
+            content_feedback=ft.Container(
+                content=self._build_card(task, app),
+                bgcolor=COLORS["bg_card"],
+                border_radius=12,
+                padding=12,
+                width=280,
+            ),
+        )
 
     def _build_card(self, task, app) -> ft.Control:
         priority_color = PRIORITY_COLORS.get(task.priority.value, "#FF9800")
@@ -216,13 +241,21 @@ class DropColumn:
         )
 
         self._list_view = ft.Column(spacing=8)
-        self._border_container = ft.Container(
-            content=self._list_view,
-            padding=ft.Padding.only(left=8, right=8, bottom=8),
-            height=450,
-            border=ft.Border.all(1, COLORS["border_color"]),
-            border_radius=12,
-            bgcolor=COLORS["bg_card"],
+        
+        # Обёртываем список в DragTarget
+        self._border_container = ft.DragTarget(
+            group="tasks",
+            content=ft.Container(
+                content=self._list_view,
+                padding=ft.Padding.only(left=8, right=8, bottom=8),
+                height=450,
+                border=ft.Border.all(1, COLORS["border_color"]),
+                border_radius=12,
+                bgcolor=COLORS["bg_card"],
+            ),
+            on_accept=lambda e: self._on_drop(e),
+            on_will_accept=lambda e: self._on_will_accept(e),
+            on_leave=lambda e: self._on_leave(e),
         )
 
         return ft.Container(
@@ -235,8 +268,29 @@ class DropColumn:
             border_radius=12,
         )
 
+    def _on_will_accept(self, e):
+        """Called when draggable enters the target."""
+        e.accept = True  # Разрешаем drop
+        e.control.content.border = ft.Border.all(2, self.color)
+        e.control.update()
+
+    def _on_leave(self, e):
+        """Called when draggable leaves the target."""
+        e.control.content.border = ft.Border.all(1, COLORS["border_color"])
+        e.control.update()
+
+    def _on_drop(self, e):
+        """Called when draggable is dropped on the target."""
+        e.control.content.border = ft.Border.all(1, COLORS["border_color"])
+        task_id = e.data
+        if task_id:
+            task = self.app.service.get_task(task_id)
+            if task:
+                self.app.handle_drop(task, self.status_value)
+        e.control.update()
+
     def set_cards(self, cards: list):
-        self._list_view.controls = [c for c in cards]
+        self._list_view.controls = [c.control for c in cards]
         self._badge.value = str(len(cards))
 
 
@@ -270,6 +324,6 @@ class KanbanView:
     def update_tasks(self, todo, in_progress, done):
         if self.todo_col is None:
             return
-        self.todo_col.set_cards([TaskCard(t.id, t, self.app).content for t in todo])
-        self.progress_col.set_cards([TaskCard(t.id, t, self.app).content for t in in_progress])
-        self.done_col.set_cards([TaskCard(t.id, t, self.app).content for t in done])
+        self.todo_col.set_cards([TaskCard(t.id, t, self.app) for t in todo])
+        self.progress_col.set_cards([TaskCard(t.id, t, self.app) for t in in_progress])
+        self.done_col.set_cards([TaskCard(t.id, t, self.app) for t in done])
