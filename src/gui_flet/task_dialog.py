@@ -1,6 +1,7 @@
 """Task create/edit dialog with all Jira fields."""
 import flet as ft
 from typing import Optional, Callable
+from datetime import datetime
 from .app import COLORS
 
 
@@ -38,14 +39,61 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         ], text_size=14, border_radius=8, width=200,
     )
 
-    start_field = ft.TextField(
-        label="Дата начала (YYYY-MM-DD)",
-        value=task.start_date if task else "", text_size=14, border_radius=8,
+    # Date pickers with calendar
+    start_date_value = task.start_date if task else ""
+    due_date_value = task.due_date if task else ""
+    
+    start_display = ft.TextField(
+        label="Дата начала",
+        value=start_date_value if start_date_value else "",
+        text_size=14, border_radius=8, read_only=True,
+        suffix_icon="calendar_today",
+        width=200,
     )
-    due_field = ft.TextField(
-        label="Дедлайн (YYYY-MM-DD)",
-        value=task.due_date if task else "", text_size=14, border_radius=8,
+    
+    due_display = ft.TextField(
+        label="Дедлайн",
+        value=due_date_value if due_date_value else "",
+        text_size=14, border_radius=8, read_only=True,
+        suffix_icon="calendar_today",
+        width=200,
     )
+    
+    def pick_start_date(e):
+        async def date_changed(e):
+            nonlocal start_date_value
+            start_date_value = e.control.value.strftime("%Y-%m-%d") if e.control.value else ""
+            start_display.value = start_date_value
+            page.update()
+        
+        page.dialog = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2035, 12, 31),
+            initial_date=datetime.strptime(start_date_value, "%Y-%m-%d") if start_date_value else datetime.now(),
+            on_change=date_changed,
+        )
+        page.dialog.open = True
+        page.update()
+    
+    def pick_due_date(e):
+        async def date_changed(e):
+            nonlocal due_date_value
+            due_date_value = e.control.value.strftime("%Y-%m-%d") if e.control.value else ""
+            due_display.value = due_date_value
+            page.update()
+        
+        page.dialog = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2035, 12, 31),
+            initial_date=datetime.strptime(due_date_value, "%Y-%m-%d") if due_date_value else datetime.now(),
+            on_change=date_changed,
+        )
+        page.dialog.open = True
+        page.update()
+    
+    start_display.on_click = pick_start_date
+    due_display.on_click = pick_due_date
+    
     time_field = ft.TextField(
         label="Затрачено (часы)",
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
@@ -102,8 +150,8 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             error_label.update()
             return
 
-        start_val = start_field.value.strip() or None
-        due_val = due_field.value.strip() or None
+        start_val = start_date_value.strip() or None
+        due_val = due_date_value.strip() or None
         if start_val and not _validate_date(start_val):
             error_label.value = "Формат даты: YYYY-MM-DD"
             error_label.update()
@@ -154,7 +202,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         dlg.open = False
         page.update()
 
-    dates_row = ft.Row([start_field, ft.Container(width=16), due_field], spacing=0)
+    dates_row = ft.Row([start_display, ft.Container(width=16), due_display], spacing=0)
     prio_type_row = ft.Row([priority_field, ft.Container(width=16), task_type_field], spacing=0)
     time_sp_row = ft.Row([time_field, ft.Container(width=16), story_points_field], spacing=0)
 

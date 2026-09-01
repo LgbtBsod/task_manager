@@ -219,8 +219,12 @@ class AutoUpdater:
         if staged_exe.exists():
             try:
                 if target.exists():
-                    target.unlink()
-                shutil.move(str(staged_exe), str(target))
+                    try:
+                        target.unlink()
+                    except PermissionError:
+                        pass
+                if not target.exists():
+                    shutil.move(str(staged_exe), str(target))
             except Exception:
                 pass
 
@@ -228,17 +232,19 @@ class AutoUpdater:
         launcher.write_text(
             "@echo off\n"
             "setlocal\n"
-            "ping -n 4 127.0.0.1 >nul\n"
+            "echo [Updater] Waiting...\n"
+            "ping -n 3 127.0.0.1 >nul\n"
             f"if exist \"{staged_exe}\" (\n"
-            f"  copy /Y \"{staged_exe}\" \"{target}\" >nul\n"
-            "  if errorlevel 1 exit /b 1\n"
-            "  del /f /q \"{staged_exe}\"\n"
+            f"  copy /Y \"{staged_exe}\" \"{target}\" >nul 2>&1\n"
+            f"  if errorlevel 1 ping -n 2 127.0.0.1 >nul & copy /Y \"{staged_exe}\" \"{target}\" >nul 2>&1\n"
+            f"  if not errorlevel 1 del /f /q \"{staged_exe}\" 2>nul\n"
             ")\n"
-            f"start \"\" \"{target}\"\n"
-            f"del /f /q \"{launcher}\"\n",
+            f"if exist \"{target}\" start \"\" \"{target}\"\n"
+            "del /f /q \"{launcher}\" 2>nul\n",
             encoding="utf-8",
         )
-        subprocess.Popen(["cmd.exe", "/c", str(launcher)], shell=False, creationflags=0)
+        import subprocess as sp
+        sp.Popen([str(launcher)], shell=True, creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0))
 
     def _install_frozen_update(self, source_folder: Path, latest_version: str) -> bool:
         if not self.current_exe:
