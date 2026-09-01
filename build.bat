@@ -13,27 +13,21 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Install/upgrade PyInstaller
-echo [1/4] Installing PyInstaller...
-pip install --upgrade pyinstaller
+:: Install/upgrade PyInstaller and dependencies
+echo [1/4] Installing PyInstaller and dependencies...
+pip install --upgrade pyinstaller flet pydantic workalendar
 if errorlevel 1 (
-    echo [ERROR] Failed to install PyInstaller.
+    echo [ERROR] Failed to install dependencies.
     pause
     exit /b 1
 )
 
-:: Install project dependencies
-echo [2/4] Installing project dependencies...
-pip install -r requirements.txt
-if errorlevel 1 (
-    echo [WARN] Some dependencies failed. Continuing anyway...
-)
-
-:: Build EXE
-echo [3/4] Building EXE (this may take a minute)...
+:: Build EXE with improved options for Flet
+echo [2/4] Building EXE (this may take a minute)...
 pyinstaller --noconfirm --onefile --windowed --name "TaskManager" ^
     --icon "NONE" ^
     --add-data "src;src" ^
+    --add-data "tasks.json;." ^
     --hidden-import "core" ^
     --hidden-import "core.models" ^
     --hidden-import "core.repository" ^
@@ -57,10 +51,13 @@ pyinstaller --noconfirm --onefile --windowed --name "TaskManager" ^
     --hidden-import "utils.updater" ^
     --hidden-import "utils._version" ^
     --hidden-import "flet" ^
+    --hidden-import "flet.web" ^
     --hidden-import "pydantic" ^
     --hidden-import "workalendar" ^
     --collect-all "flet" ^
+    --collect-all "flet_web" ^
     --collect-all "workalendar" ^
+    --collect-all "pydantic" ^
     main.py
 
 if errorlevel 1 (
@@ -71,15 +68,37 @@ if errorlevel 1 (
 )
 
 :: Copy version file next to EXE
-echo [4/4] Finalizing...
+echo [3/4] Copying version file...
 if exist "dist\TaskManager.exe" (
     if exist "version.txt" copy "version.txt" "dist\version.txt" >nul
+)
+
+:: Create launcher batch file for updates
+echo [4/4] Creating update launcher...
+if exist "dist\TaskManager.exe" (
+    (
+        echo @echo off
+        echo chcp 65001 ^>nul
+        echo setlocal
+        echo set "APP_DIR=%%~dp0"
+        echo cd /d "%%APP_DIR%%"
+        echo.
+        echo REM Check for updates on startup
+        echo if exist "TaskManager.exe" (
+        echo     start "" "TaskManager.exe" --no-update
+        echo ) else (
+        echo     echo TaskManager.exe not found!
+        echo     pause
+        echo )
+    ) > "dist\run.bat"
+    
     echo.
     echo ============================================
     echo   BUILD SUCCESS!
     echo ============================================
     echo.
     echo   Output: dist\TaskManager.exe
+    echo   Launcher: dist\run.bat
     echo.
     echo   Data storage:
     echo     When you run TaskManager.exe, it creates

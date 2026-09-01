@@ -1,5 +1,5 @@
 ```
-# Python cache
+# Python compiled files
 __pycache__/
 *.pyc
 *.pyo
@@ -7,37 +7,41 @@ __pycache__/
 
 # Virtual environment
 venv/
-.venv/
+
+# Build artifacts
+build/
 
 # Logs
 *.log
-logs/
 
-# Dependencies
-node_modules/
+# Temporary files
+*.tmp
 
-# IDE
+# Environment files
+.env
+.env.local
+*.env.*
+
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # System files
 .DS_Store
 Thumbs.db
-
-# Environment variables
-.env
-.env.local
-.env.*
 
 # Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# Build artifacts
-dist/
-build/
-*.egg-info/
+# MyPy cache
+.mypy_cache/
+
+# Pytest cache
+.pytest_cache/
 
 # Compressed files
 *.zip
@@ -62,5 +66,4 @@ build/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-
 ```
