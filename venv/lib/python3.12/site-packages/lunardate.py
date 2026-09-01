@@ -1,0 +1,493 @@
+# this file is derived from lunar project.
+#
+# lunar project:
+#   Copyright (C) 1988,1989,1991,1992,2001 Fung F. Lee and Ricky Yeung
+#   Licensed under GPLv2.
+#
+# Copyright (C) 2008 LI Daobing <lidaobing@gmail.com>
+
+'''
+A Chinese Calendar Library in Pure Python
+=========================================
+
+Chinese Calendar: http://en.wikipedia.org/wiki/Chinese_calendar
+
+Usage
+-----
+        >>> LunarDate.from_solar_date(1976, 10, 1)
+        LunarDate(1976, 8, 8, 1)
+        >>> LunarDate(1976, 8, 8, 1).to_solar_date()
+        datetime.date(1976, 10, 1)
+        >>> LunarDate(1976, 8, 8, 1).year
+        1976
+        >>> LunarDate(1976, 8, 8, 1).month
+        8
+        >>> LunarDate(1976, 8, 8, 1).day
+        8
+        >>> LunarDate(1976, 8, 8, 1).is_leap_month
+        True
+
+        >>> today = LunarDate.today()
+        >>> type(today).__name__
+        'LunarDate'
+
+        >>> # support '+' and '-' between datetime.date and datetime.timedelta
+        >>> ld = LunarDate(1976,8,8)
+        >>> sd = datetime.date(2008,1,1)
+        >>> td = datetime.timedelta(days=10)
+        >>> ld-ld
+        datetime.timedelta(0)
+        >>> (ld-sd).days
+        -11444
+        >>> ld-td
+        LunarDate(1976, 7, 27, 0)
+        >>> (sd-ld).days
+        11444
+        >>> ld+td
+        LunarDate(1976, 8, 18, 0)
+        >>> td+ld
+        LunarDate(1976, 8, 18, 0)
+        >>> ld2 = LunarDate.today()
+        >>> ld < ld2
+        True
+        >>> ld <= ld2
+        True
+        >>> ld > ld2
+        False
+        >>> ld >= ld2
+        False
+        >>> ld == ld2
+        False
+        >>> ld != ld2
+        True
+        >>> ld == ld
+        True
+        >>> LunarDate.today() == LunarDate.today()
+        True
+        >>> before_leap_month = LunarDate.from_solar_date(2088, 5, 17)
+        >>> before_leap_month.year
+        2088
+        >>> before_leap_month.month
+        4
+        >>> before_leap_month.day
+        27
+        >>> before_leap_month.is_leap_month
+        False
+        >>> leap_month = LunarDate.from_solar_date(2088, 6, 17)
+        >>> leap_month.year
+        2088
+        >>> leap_month.month
+        4
+        >>> leap_month.day
+        28
+        >>> leap_month.is_leap_month
+        True
+        >>> after_leap_month = LunarDate.from_solar_date(2088, 7, 17)
+        >>> after_leap_month.year
+        2088
+        >>> after_leap_month.month
+        5
+        >>> after_leap_month.day
+        29
+        >>> after_leap_month.is_leap_month
+        False
+
+        >>> LunarDate.leap_month_for_year(2023)
+        2
+        >>> LunarDate.leap_month_for_year(2022) # will return None
+
+Limits
+------
+
+this library can only deal with year from 1900 to 2099 (in chinese calendar).
+
+See also
+--------
+
+* lunar: http://packages.qa.debian.org/l/lunar.html,
+  A converter written in C, this program is derived from it.
+* python-lunar: http://code.google.com/p/liblunar/
+  Another library written in C, including a python binding.
+'''
+
+from __future__ import annotations
+
+import datetime
+import warnings
+from typing import ClassVar, Iterator, Optional, Union, overload
+
+__version__ = "0.3.0"
+__all__ = ['LunarDate']
+
+class LunarDate:
+    _start_date: ClassVar[datetime.date] = datetime.date(1900, 1, 31)
+
+    year: int
+    month: int
+    day: int
+    is_leap_month: bool
+
+    def __init__(self, year: int, month: int, day: int, is_leap_month: bool = False) -> None:
+        self.year = year
+        self.month = month
+        self.day = day
+        self.is_leap_month = bool(is_leap_month)
+
+    def __str__(self) -> str:
+        return 'LunarDate(%d, %d, %d, %d)' % (self.year, self.month, self.day, self.is_leap_month)
+
+    __repr__ = __str__
+
+    @property
+    def isLeapMonth(self) -> bool:
+        warnings.warn("use is_leap_month", DeprecationWarning)
+        return self.is_leap_month
+
+    @staticmethod
+    def leapMonthForYear(year: int) -> Optional[int]:
+        warnings.warn(
+            "leapMonthForYear is deprecated, use leap_month_for_year instead",
+            DeprecationWarning,
+            stacklevel=2 
+        )
+        return LunarDate.leap_month_for_year(year)
+
+    @staticmethod
+    def leap_month_for_year(year: int) -> Optional[int]:
+        '''
+        return None if no leap month, otherwise return the leap month of the year.
+        return 1 for the first month, and return 12 for the last month.
+
+        >>> LunarDate.leap_month_for_year(1976)
+        8
+        >>> LunarDate.leap_month_for_year(2023)
+        2
+        >>> LunarDate.leap_month_for_year(2022)
+        '''
+        start_year = 1900
+        end_year = start_year + len(YEAR_INFOS)
+        if year < start_year or year >= end_year:
+            raise ValueError('year out of range [{}, {})'.format(start_year, end_year))
+        year_idx = year - start_year
+        year_info = YEAR_INFOS[year_idx]
+        leap_month = year_info % 16
+        if leap_month == 0:
+            return None
+        elif leap_month <= 12:
+            return leap_month
+        else:
+            raise ValueError("yearInfo %r mod 16 should in [0, 12]" % year_info)
+        
+    @staticmethod
+    def fromSolarDate(year: int, month: int, day: int) -> LunarDate:
+        warnings.warn(
+            "fromSolarDate is deprecated, use from_solar_date instead",
+            DeprecationWarning,
+            stacklevel=2 
+        )
+        return LunarDate.from_solar_date(year, month, day)
+
+    @staticmethod
+    def from_solar_date(year: int, month: int, day: int) -> LunarDate:
+        '''
+        >>> LunarDate.from_solar_date(1900, 1, 31)
+        LunarDate(1900, 1, 1, 0)
+        >>> LunarDate.from_solar_date(2008, 10, 2)
+        LunarDate(2008, 9, 4, 0)
+        >>> LunarDate.from_solar_date(1976, 10, 1)
+        LunarDate(1976, 8, 8, 1)
+        >>> LunarDate.from_solar_date(2033, 10, 23)
+        LunarDate(2033, 10, 1, 0)
+        >>> LunarDate.from_solar_date(1956, 12, 2)
+        LunarDate(1956, 11, 1, 0)
+        '''
+        solar_date = datetime.date(year, month, day)
+        offset = (solar_date - LunarDate._start_date).days
+        return LunarDate._from_offset(offset)
+    
+    def toSolarDate(self) -> datetime.date:
+        warnings.warn(
+            "toSolarDate is deprecated, use to_solar_date instead",
+            DeprecationWarning,
+            stacklevel=2 
+        )
+        return self.to_solar_date()
+
+
+    def to_solar_date(self) -> datetime.date:
+        '''
+        >>> LunarDate(1900, 1, 1).to_solar_date()
+        datetime.date(1900, 1, 31)
+        >>> LunarDate(2008, 9, 4).to_solar_date()
+        datetime.date(2008, 10, 2)
+        >>> LunarDate(1976, 8, 8, 1).to_solar_date()
+        datetime.date(1976, 10, 1)
+        >>> LunarDate(1976, 7, 8, 1).to_solar_date()
+        Traceback (most recent call last):
+        ...
+        ValueError: month out of range
+        >>> LunarDate(1899, 1, 1).to_solar_date()
+        Traceback (most recent call last):
+        ...
+        ValueError: year out of range [1900, 2100)
+        >>> LunarDate(2004, 1, 30).to_solar_date()
+        Traceback (most recent call last):
+        ...
+        ValueError: day out of range
+        >>> LunarDate(2004, 13, 1).to_solar_date()
+        Traceback (most recent call last):
+        ...
+        ValueError: month out of range
+        >>> LunarDate(2100, 1, 1).to_solar_date()
+        Traceback (most recent call last):
+        ...
+        ValueError: year out of range [1900, 2100)
+        >>>
+        '''
+        def _calc_days(year_info: int, month: int, day: int, is_leap_month: int) -> int:
+            res = 0
+            for m, d, is_leap in self._enum_month(year_info):
+                if (m, is_leap) == (month, is_leap_month):
+                    if 1 <= day <= d:
+                        res += day - 1
+                        return res
+                    else:
+                        raise ValueError("day out of range")
+                res += d
+
+            raise ValueError("month out of range")
+
+        offset = 0
+        start_year = 1900
+        end_year = start_year + len(YEAR_INFOS)
+        if self.year < start_year or self.year >= end_year:
+            raise ValueError('year out of range [{}, {})'.format(start_year, end_year))
+        year_idx = self.year - start_year
+        for i in range(year_idx):
+            offset += YEAR_DAYS[i]
+
+        offset += _calc_days(YEAR_INFOS[year_idx], self.month, self.day, self.is_leap_month)
+        return self._start_date + datetime.timedelta(days=offset)
+
+    @overload
+    def __sub__(self, other: LunarDate) -> datetime.timedelta: ...
+    @overload
+    def __sub__(self, other: datetime.date) -> datetime.timedelta: ...
+    @overload
+    def __sub__(self, other: datetime.timedelta) -> LunarDate: ...
+    def __sub__(self, other: Union[LunarDate, datetime.date, datetime.timedelta]) -> Union[datetime.timedelta, LunarDate]:
+        if isinstance(other, LunarDate):
+            return self.to_solar_date() - other.to_solar_date()
+        elif isinstance(other, datetime.date):
+            return self.to_solar_date() - other
+        elif isinstance(other, datetime.timedelta):
+            res = self.to_solar_date() - other
+            return LunarDate.from_solar_date(res.year, res.month, res.day)
+        raise TypeError
+
+    def __rsub__(self, other: datetime.date) -> Union[datetime.timedelta, None]:
+        if isinstance(other, datetime.date):
+            return other - self.to_solar_date()
+        return None
+
+    def __add__(self, other: datetime.timedelta) -> LunarDate:
+        if isinstance(other, datetime.timedelta):
+            res = self.to_solar_date() + other
+            return LunarDate.from_solar_date(res.year, res.month, res.day)
+        raise TypeError
+
+    def __radd__(self, other: datetime.timedelta) -> LunarDate:
+        return self + other
+
+    def __eq__(self, other: object) -> bool:
+        '''
+        >>> LunarDate.today() == 5
+        False
+        '''
+        if not isinstance(other, LunarDate):
+            return False
+
+        return self - other == datetime.timedelta(0)
+
+    def __lt__(self, other: LunarDate) -> bool:
+        '''
+        >>> LunarDate.today() < LunarDate.today()
+        False
+        >>> LunarDate.today() < 5
+        Traceback (most recent call last):
+        ...
+        TypeError: can't compare LunarDate to int
+        '''
+        try:
+            return self - other < datetime.timedelta(0)
+        except TypeError:
+            raise TypeError("can't compare LunarDate to %s" % (type(other).__name__,))
+
+    def __le__(self, other: LunarDate) -> bool:
+        # needed because the default implementation tries equality first,
+        # and that does not throw a type error
+        return self < other or self == other
+
+    def __gt__(self, other: LunarDate) -> bool:
+        '''
+        >>> LunarDate.today() > LunarDate.today()
+        False
+        >>> LunarDate.today() > 5
+        Traceback (most recent call last):
+        ...
+        TypeError: can't compare LunarDate to int
+        '''
+        return not self <= other
+
+    def __ge__(self, other: LunarDate) -> bool:
+        '''
+        >>> LunarDate.today() >= LunarDate.today()
+        True
+        >>> LunarDate.today() >= 5
+        Traceback (most recent call last):
+        ...
+        TypeError: can't compare LunarDate to int
+        '''
+        return not self < other
+
+    @classmethod
+    def today(cls) -> LunarDate:
+        res = datetime.date.today()
+        return cls.from_solar_date(res.year, res.month, res.day)
+
+    @staticmethod
+    def _enum_month(year_info: int) -> Iterator[tuple[int, int, int]]:
+        months = [(i, 0) for i in range(1, 13)]
+        leap_month = year_info % 16
+        if leap_month == 0:
+            pass
+        elif leap_month <= 12:
+            months.insert(leap_month, (leap_month, 1))
+        else:
+            raise ValueError("yearInfo %r mod 16 should in [0, 12]" % year_info)
+
+        for month, is_leap_month in months:
+            if is_leap_month:
+                days = (year_info >> 16) % 2 + 29
+            else:
+                days = (year_info >> (16 - month)) % 2 + 29
+            yield month, days, is_leap_month
+
+    @classmethod
+    def _from_offset(cls, offset: int) -> LunarDate:
+        def _calc_month_day(year_info: int, offset: int) -> tuple[int, int, int]:
+            for month, days, is_leap_month in cls._enum_month(year_info):
+                if offset < days:
+                    break
+                offset -= days
+            return (month, offset + 1, is_leap_month)
+
+        offset = int(offset)
+
+        for idx, year_day in enumerate(YEAR_DAYS):
+            if offset < year_day:
+                break
+            offset -= year_day
+        year = 1900 + idx
+
+        year_info = YEAR_INFOS[idx]
+        month, day, is_leap_month = _calc_month_day(year_info, offset)
+        return LunarDate(year, month, day, bool(is_leap_month))
+
+YEAR_INFOS: list[int] = [
+        #    /* encoding:
+        #               b bbbbbbbbbbbb bbbb
+        #       bit#    1 111111000000 0000
+        #               6 543210987654 3210
+        #               . ............ ....
+        #       month#    000000000111
+        #               M 123456789012   L
+        #
+        #    b_j = 1 for long month, b_j = 0 for short month
+        #    L is the leap month of the year if 1<=L<=12; NO leap month if L = 0.
+        #    The leap month (if exists) is long one iff M = 1.
+        #    */
+        0x04bd8,                                    #   /* 1900 */
+        0x04ae0, 0x0a570, 0x054d5, 0x0d260, 0x0d950,#   /* 1905 */
+        0x16554, 0x056a0, 0x09ad0, 0x055d2, 0x04ae0,#   /* 1910 */
+        0x0a5b6, 0x0a4d0, 0x0d250, 0x1d255, 0x0b540,#   /* 1915 */
+        0x0d6a0, 0x0ada2, 0x095b0, 0x14977, 0x04970,#   /* 1920 */
+        0x0a4b0, 0x0b4b5, 0x06a50, 0x06d40, 0x1ab54,#   /* 1925 */
+        0x02b60, 0x09570, 0x052f2, 0x04970, 0x06566,#   /* 1930 */
+        0x0d4a0, 0x0ea50, 0x06e95, 0x05ad0, 0x02b60,#   /* 1935 */
+        0x186e3, 0x092e0, 0x1c8d7, 0x0c950, 0x0d4a0,#   /* 1940 */
+        0x1d8a6, 0x0b550, 0x056a0, 0x1a5b4, 0x025d0,#   /* 1945 */
+        0x092d0, 0x0d2b2, 0x0a950, 0x0b557, 0x06ca0,#   /* 1950 */
+        0x0b550, 0x15355, 0x04da0, 0x0a5d0, 0x14573,#   /* 1955 */
+        0x052b0, 0x0a9a8, 0x0e950, 0x06aa0, 0x0aea6,#   /* 1960 */
+        0x0ab50, 0x04b60, 0x0aae4, 0x0a570, 0x05260,#   /* 1965 */
+        0x0f263, 0x0d950, 0x05b57, 0x056a0, 0x096d0,#   /* 1970 */
+        0x04dd5, 0x04ad0, 0x0a4d0, 0x0d4d4, 0x0d250,#   /* 1975 */
+        0x0d558, 0x0b540, 0x0b5a0, 0x195a6, 0x095b0,#   /* 1980 */
+        0x049b0, 0x0a974, 0x0a4b0, 0x0b27a, 0x06a50,#   /* 1985 */
+        0x06d40, 0x0af46, 0x0ab60, 0x09570, 0x04af5,#   /* 1990 */
+        0x04970, 0x064b0, 0x074a3, 0x0ea50, 0x06b58,#   /* 1995 */
+        0x05ac0, 0x0ab60, 0x096d5, 0x092e0, 0x0c960,#   /* 2000 */
+        0x0d954, 0x0d4a0, 0x0da50, 0x07552, 0x056a0,#   /* 2005 */
+        0x0abb7, 0x025d0, 0x092d0, 0x0cab5, 0x0a950,#   /* 2010 */
+        0x0b4a0, 0x0baa4, 0x0ad50, 0x055d9, 0x04ba0,#   /* 2015 */
+        0x0a5b0, 0x15176, 0x052b0, 0x0a930, 0x07954,#   /* 2020 */
+        0x06aa0, 0x0ad50, 0x05b52, 0x04b60, 0x0a6e6,#   /* 2025 */
+        0x0a4e0, 0x0d260, 0x0ea65, 0x0d530, 0x05aa0,#   /* 2030 */
+        0x076a3, 0x096d0, 0x04afb, 0x04ad0, 0x0a4d0,#   /* 2035 */
+        0x1d0b6, 0x0d250, 0x0d520, 0x0dd45, 0x0b5a0,#   /* 2040 */
+        0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0,#   /* 2045 */
+        0x0aa50, 0x1b255, 0x06d20, 0x0ada0, 0x14b63,#   /* 2050 */
+        0x09370, 0x049f8, 0x04970, 0x064b0, 0x168a6,#   /* 2055 */
+        0x0ea50, 0x06aa0, 0x1a6c4, 0x0aae0, 0x092e0,#   /* 2060 */
+        0x0d2e3, 0x0c960, 0x0d557, 0x0d4a0, 0x0da50,#   /* 2065 */
+        0x05d55, 0x056a0, 0x0a6d0, 0x055d4, 0x052d0,#   /* 2070 */
+        0x0a9b8, 0x0a950, 0x0b4a0, 0x0b6a6, 0x0ad50,#   /* 2075 */
+        0x055a0, 0x0aba4, 0x0a5b0, 0x052b0, 0x0b273,#   /* 2080 */
+        0x06930, 0x07337, 0x06aa0, 0x0ad50, 0x14b55,#   /* 2085 */
+        0x04b60, 0x0a570, 0x054e4, 0x0d160, 0x0e968,#   /* 2090 */
+        0x0d520, 0x0daa0, 0x16aa6, 0x056d0, 0x04ae0,#   /* 2095 */
+        0x0a9d4, 0x0a2d0, 0x0d150, 0x0f252,         #   /* 2099 */
+]
+
+def year_info_to_year_day(year_info: int) -> int:
+    '''calculate the days in a lunar year from the lunar year's info
+
+    >>> year_info_to_year_day(0) # no leap month, and every month has 29 days.
+    348
+    >>> year_info_to_year_day(1) # 1 leap month, and every month has 29 days.
+    377
+    >>> year_info_to_year_day((2**12-1)*16) # no leap month, and every month has 30 days.
+    360
+    >>> year_info_to_year_day((2**13-1)*16+1) # 1 leap month, and every month has 30 days.
+    390
+    >>> # 1 leap month, and every normal month has 30 days, and leap month has 29 days.
+    >>> year_info_to_year_day((2**12-1)*16+1)
+    389
+    '''
+    res = 29 * 12
+
+    leap = False
+    if year_info % 16 != 0:
+        leap = True
+        res += 29
+
+    year_info //= 16
+
+    for i in range(12 + leap):
+        if year_info % 2 == 1:
+            res += 1
+        year_info //= 2
+    return res
+
+YEAR_DAYS: list[int] = [year_info_to_year_day(x) for x in YEAR_INFOS]
+
+def day_to_lunar_date(offset: int) -> LunarDate:
+    return LunarDate._from_offset(offset)
+
+if __name__ == '__main__':
+    import doctest
+    failure_count, test_count = doctest.testmod()
+    if failure_count > 0:
+        import sys
+        sys.exit(1)

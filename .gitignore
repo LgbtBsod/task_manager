@@ -1,10 +1,66 @@
-venv/
+```
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
-.git/
-.idea/
-.vscode/
-*.zip
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+
+# Logs
+*.log
 logs/
-/data/db
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+
+```
