@@ -211,13 +211,15 @@ class DropColumn:
                              bgcolor=COLORS["bg_button"], border_radius=10),
             ], spacing=8),
             padding=ft.Padding.only(left=8, right=8, top=12, bottom=8),
+            bgcolor=COLORS["bg_dark"],
+            border_radius=8,
         )
 
         self._list_view = ft.Column(spacing=8)
         self._border_container = ft.Container(
             content=self._list_view,
             padding=ft.Padding.only(left=8, right=8, bottom=8),
-            expand=True,
+            height=450,
             border=ft.Border.all(1, COLORS["border_color"]),
             border_radius=12,
             bgcolor=COLORS["bg_card"],
