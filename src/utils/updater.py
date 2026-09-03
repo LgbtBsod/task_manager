@@ -155,19 +155,26 @@ class AutoUpdater:
         self.backup_dir: Optional[Path] = None
         self.progress_callback: Optional[Callable[[DownloadProgress], None]] = None
         self._network_reachable: bool = True
+        self._rate_limited: bool = False
 
     def _create_request(self, url: str) -> Request:
         req = Request(url)
         req.add_header("User-Agent", f"TaskManager/{self.current_version}")
         return req
 
-    def _api_get(self, url: str) -> Optional[Dict[str, Any]]:
+    def _api_get(self, url: str) -> Optional[Any]:
         try:
             with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except HTTPError as exc:
-            # Server answered (e.g. 404 "no releases yet") -> network is fine.
-            logger.debug("API request failed: %s", exc)
+            # Server answered -> network is fine. 403 + rate-limit header means
+            # GitHub is throttling this IP; make that visible rather than
+            # silently reporting "up to date".
+            if exc.code in (403, 429) and exc.headers.get("X-RateLimit-Remaining") == "0":
+                self._rate_limited = True
+                logger.warning("GitHub API rate limit hit — update check skipped this run")
+            else:
+                logger.debug("API request failed: %s", exc)
             return None
         except (URLError, TimeoutError) as exc:
             logger.debug("Network unreachable: %s", exc)
@@ -377,7 +384,44 @@ class AutoUpdater:
             return release_info.get("zipball_url")
         return None
 
+    def _pick_release(self, releases: list) -> Optional[Dict[str, Any]]:
+        """From a list of releases, the newest one that beats the current
+        version *and* ships an asset for this platform.
+
+        We don't trust GitHub's ``/releases/latest`` pointer: with a non-semver
+        tag scheme (``v.1.0.0.0.0.0.2.1.9.b``) GitHub often keeps an older tag
+        flagged as "latest".
+        """
+        best: Optional[Dict[str, Any]] = None
+        best_tag: Optional[str] = None
+        for rel in releases:
+            if rel.get("draft"):
+                continue
+            tag = str(rel.get("tag_name") or "").strip()
+            if not tag or not self._is_newer_version(tag, self.current_version):
+                continue
+            if not self._resolve_download_url(rel):
+                logger.info("Release %s has no asset for this platform yet — skipping", tag)
+                continue
+            if best is None or self._is_newer_version(tag, best_tag or ""):
+                best, best_tag = rel, tag
+        return best
+
     def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
+        # Prefer the full list (newest-first) over /releases/latest — see
+        # _pick_release for why the "latest" pointer can't be trusted here.
+        releases = self._api_get(f"{self.api_url}/releases?per_page=20")
+        if isinstance(releases, list) and releases:
+            chosen = self._pick_release(releases)
+            if chosen:
+                tag = str(chosen.get("tag_name") or "").strip()
+                url = self._resolve_download_url(chosen)
+                logger.info("New version available: %s", tag)
+                return True, tag, url
+            newest = str(releases[0].get("tag_name") or "unknown").strip()
+            logger.info("Up to date (newest release: %s, current: %s)", newest, self.current_version)
+            return False, newest, None
+
         release_info = self._api_get(f"{self.api_url}/releases/latest")
         if release_info:
             latest_version = str(release_info.get("tag_name") or "unknown").strip()
@@ -719,7 +763,16 @@ class AutoUpdater:
         has_update, latest_version, download_url = self.check_for_updates()
 
         if not has_update:
-            logger.info("Already up to date")
+            if self._rate_limited:
+                self._say("[Update] GitHub is rate-limiting this network — will retry next launch.")
+            elif not self._network_reachable:
+                logger.info("No network — skipped update check")
+            elif download_url is None and latest_version and latest_version != "unknown" \
+                    and self._is_newer_version(latest_version, self.current_version):
+                self._say(f"[Update] {latest_version} is published but its download "
+                          f"isn't ready yet — will retry next launch.")
+            else:
+                logger.info("Already up to date (current: %s)", self.current_version)
             return False
 
         if auto and download_url:

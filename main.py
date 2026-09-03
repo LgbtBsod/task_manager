@@ -13,6 +13,35 @@ import os
 from pathlib import Path
 
 
+def _ensure_std_streams() -> None:
+    """A PyInstaller ``--windowed`` build has no console, so ``sys.stdout`` and
+    ``sys.stderr`` are ``None`` — the first ``print()`` (ours, uvicorn's, Flet's)
+    would then crash the app. Point them at a log file next to the executable,
+    falling back to the null device.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is not None:
+            continue
+        stream = None
+        try:
+            log_path = Path(sys.executable).parent / "logs" / "console.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            stream = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")
+        except OSError:
+            try:
+                stream = open(os.devnull, "w")
+            except OSError:
+                stream = None
+        if stream is not None:
+            setattr(sys, name, stream)
+            setattr(sys, f"__{name}__", stream)
+
+
+_ensure_std_streams()
+
+
 def get_app_dir() -> Path:
     """Return the application directory.
 

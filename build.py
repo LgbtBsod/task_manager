@@ -102,9 +102,10 @@ def main() -> None:
     ]
 
     if sys.platform == "win32":
-        # A console window that is hidden at startup: no visual clutter, but the
-        # server process is still killable and can print update/errors.
-        cmd += ["--console", "--hide-console", "hide-early"]
+        # No console window at all — regular users found the black cmd window
+        # confusing. main.py redirects stdout/stderr to logs/console.log so the
+        # server and updater output is still captured for debugging.
+        cmd += ["--windowed"]
     # macOS / Linux: a plain --onefile console binary (dist/TaskManager). Not a
     # .app bundle — keeps the CI asset path simple and the self-updater's
     # single-file swap working the same on every OS.
