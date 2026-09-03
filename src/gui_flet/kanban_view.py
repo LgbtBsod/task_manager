@@ -58,10 +58,15 @@ def _deadline_badge(task, app):
     except Exception:
         window = 24 * 3600
     if secs < 0:
-        text, bg = "Просрочено", "#F44336"
+        text, bg = "просрочено", "#F44336"
     elif secs <= window:
         hrs = secs / 3600
-        text = "< 1 ч" if hrs < 1 else f"через {int(hrs)} ч" if hrs < 48 else f"через {int(hrs // 24)} дн."
+        if hrs < 1:
+            text = f"{int(secs // 60)} мин"
+        elif hrs < 36:
+            text = f"{int(hrs)} ч"
+        else:
+            text = f"{int(hrs // 24)} дн."
         bg = "#ff9f0a"
     else:
         return None
@@ -69,7 +74,7 @@ def _deadline_badge(task, app):
         content=ft.Row([ft.Icon(ic("schedule"), size=10, color="#000000"),
                         ft.Text(text, size=9, color="#000000", weight=ft.FontWeight.BOLD)],
                        spacing=3, tight=True),
-        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+        padding=ft.Padding.symmetric(horizontal=5, vertical=2),
         bgcolor=bg, border_radius=4,
     )
 
@@ -137,7 +142,7 @@ class TaskCard:
             header_right.append(ft.Container(
                 content=ft.Text(L.task_type(task.task_type), size=9, color=type_color, weight=ft.FontWeight.W_600),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                bgcolor=f"{type_color}20", border_radius=4,
+                bgcolor=ft.Colors.with_opacity(0.15, type_color), border_radius=4,
             ))
         if task.story_points is not None:
             header_right.append(ft.Container(
@@ -152,7 +157,7 @@ class TaskCard:
                 ft.Container(
                     content=ft.Text(tag, size=9, color=COLORS["accent_blue"]),
                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                    bgcolor="#0a84ff20", border_radius=6,
+                    bgcolor=ft.Colors.with_opacity(0.15, COLORS["accent_blue"]), border_radius=6,
                 )
             )
         if len(task.tags) > 4:
