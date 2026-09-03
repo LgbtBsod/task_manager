@@ -396,9 +396,33 @@ def run_app(db_path: str = None, port: int = 8550):
         db_path: Path to the tasks JSON file. If None, uses default.
         port: TCP port for the local web server.
     """
+    import socket
+    import webbrowser
     import flet as ft
+
     global DB_PATH
     if db_path:
         DB_PATH = Path(db_path)
+
+    def _port_free(p: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("127.0.0.1", p)) != 0
+
+    # If the preferred port is already serving, a previous instance is up —
+    # just open the browser at it instead of failing to bind.
+    if not _port_free(port):
+        try:
+            import urllib.request
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read(1)
+            webbrowser.open(f"http://127.0.0.1:{port}/")
+            print(f"Task Manager is already running at http://127.0.0.1:{port}/")
+            return
+        except Exception:
+            # Something else holds the port — fall back to an ephemeral one.
+            for cand in range(port + 1, port + 20):
+                if _port_free(cand):
+                    port = cand
+                    break
+
     app = TaskManagerApp()
     ft.run(app.main, view=ft.AppView.WEB_BROWSER, port=port)
