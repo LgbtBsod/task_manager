@@ -29,9 +29,16 @@ class TaskService:
         self.repo = repository or TaskRepository()
         from .service_sprints import SprintService
         from .service_versions import VersionService
+        from .service_catalog import TemplateService, CategoryService, RecurringService
+        from .service_notifications import NotificationService
         self.sprints = SprintService(self.repo)
         self.versions = VersionService(self.repo)
-        self._collaborators = (self.sprints, self.versions)
+        self.templates = TemplateService(self.repo)
+        self.categories = CategoryService(self.repo)
+        self.recurring = RecurringService(self.repo)
+        self.notifications = NotificationService(self.repo)
+        self._collaborators = (self.sprints, self.versions, self.templates,
+                               self.categories, self.recurring, self.notifications)
 
     def __getattr__(self, name: str):
         # Delegate sprint/version/… calls to the composed services without a
@@ -1081,49 +1088,7 @@ class TaskService:
             "categories_count": len(self.repo.get_all_categories()),
         }
 
-    # ── Task Templates ──
-
-    def create_template(self, name: str, description: str = "",
-                         task_type: str = TaskType.TASK.value,
-                         priority: str = Priority.MEDIUM.value,
-                         tags: Optional[List[str]] = None,
-                         labels: Optional[List[str]] = None,
-                         components: Optional[List[str]] = None,
-                         story_points: Optional[int] = None,
-                         original_estimate: float = 0.0) -> TaskTemplate:
-        """Create a reusable task template."""
-        tpl = TaskTemplate(
-            name=name.strip(), description=description.strip(),
-            task_type=task_type, priority=priority,
-            tags=tags or [], labels=labels or [], components=components or [],
-            story_points=story_points, original_estimate=original_estimate,
-        )
-        self.repo.add_template(tpl)
-        log.info(f"Template created: {tpl.id} - {name.strip()}")
-        return tpl
-
-    def get_all_templates(self) -> List[TaskTemplate]:
-        return self.repo.get_all_templates()
-
-    def get_template(self, template_id: str) -> Optional[TaskTemplate]:
-        return self.repo.get_template_by_id(template_id)
-
-    def update_template(self, template_id: str, **kwargs) -> Optional[TaskTemplate]:
-        tpl = self.repo.get_template_by_id(template_id)
-        if not tpl:
-            return None
-        for key, val in kwargs.items():
-            if hasattr(tpl, key) and val is not None:
-                setattr(tpl, key, val)
-        updated = self.repo.update_template(tpl)
-        log.info(f"Template updated: {template_id}")
-        return updated
-
-    def delete_template(self, template_id: str) -> bool:
-        result = self.repo.delete_template(template_id)
-        if result:
-            log.info(f"Template deleted: {template_id}")
-        return result
+    # ── task-creating orchestrations (need self.create_task) ──
 
     def create_task_from_template(self, template_id: str, title_override: Optional[str] = None) -> Task:
         """Create a task from a template. Optionally override the title."""
@@ -1141,131 +1106,6 @@ class TaskService:
             story_points=tpl.story_points,
             original_estimate=tpl.original_estimate,
         )
-
-    # ── Categories ──
-
-    def create_category(self, name: str, description: str = "", color: str = "#0a84ff") -> Category:
-        """Create a project/category."""
-        cat = Category(name=name.strip(), description=description.strip(), color=color)
-        self.repo.add_category(cat)
-        log.info(f"Category created: {cat.id} - {name.strip()}")
-        return cat
-
-    def get_all_categories(self) -> List[Category]:
-        return self.repo.get_all_categories()
-
-    def get_category(self, category_id: str) -> Optional[Category]:
-        return self.repo.get_category_by_id(category_id)
-
-    def update_category(self, category_id: str, **kwargs) -> Optional[Category]:
-        cat = self.repo.get_category_by_id(category_id)
-        if not cat:
-            return None
-        for key, val in kwargs.items():
-            if hasattr(cat, key) and val is not None:
-                setattr(cat, key, val)
-        updated = self.repo.update_category(cat)
-        log.info(f"Category updated: {category_id}")
-        return updated
-
-    def delete_category(self, category_id: str) -> bool:
-        result = self.repo.delete_category(category_id)
-        if result:
-            for t in self.get_all_tasks():
-                if t.category_id == category_id:
-                    t.category_id = None
-                    t.update_timestamp()
-                    self.repo.update(t)
-            log.info(f"Category deleted: {category_id}")
-        return result
-
-    def get_category_tasks(self, category_id: str) -> List[Task]:
-        return [t for t in self.get_all_tasks() if t.category_id == category_id]
-
-    def assign_task_to_category(self, task_id: str, category_id: Optional[str]) -> Optional[Task]:
-        """Assign or unassign a task from a category."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if category_id and not self.repo.get_category_by_id(category_id):
-            raise ValueError(f"Category {category_id} not found")
-        old_cat = task.category_id or ""
-        task.category_id = category_id
-        task.record_change("category_id", old_cat, category_id or "")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        return updated
-
-    def get_category_report(self, category_id: str) -> dict:
-        cat = self.repo.get_category_by_id(category_id)
-        if not cat:
-            return {}
-        tasks = self.get_category_tasks(category_id)
-        total = len(tasks)
-        done = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-        return {
-            "category_id": category_id,
-            "category_name": cat.name,
-            "color": cat.color,
-            "total_tasks": total,
-            "done_tasks": done,
-            "completion_rate": round(done / total * 100, 1) if total > 0 else 0,
-        }
-
-    # ── Recurring Tasks ──
-
-    def create_recurring_task(self, title: str, frequency: str = RecurrenceFrequency.WEEKLY.value,
-                                base_due_date: Optional[str] = None, description: str = "",
-                                task_type: str = TaskType.TASK.value,
-                                priority: str = Priority.MEDIUM.value,
-                                tags: Optional[List[str]] = None,
-                                labels: Optional[List[str]] = None,
-                                estimate_hours: float = 0.0) -> RecurringTask:
-        valid_freq = {f.value for f in RecurrenceFrequency}
-        if frequency not in valid_freq:
-            raise ValueError(f"Invalid frequency. Must be one of: {valid_freq}")
-        rec = RecurringTask(
-            title=title.strip(), description=description.strip(),
-            frequency=frequency, base_due_date=base_due_date,
-            task_type=task_type, priority=priority,
-            tags=tags or [], labels=labels or [],
-            estimate_hours=estimate_hours,
-        )
-        self.repo.add_recurring(rec)
-        log.info(f"Recurring task created: {rec.id} - {title.strip()}")
-        return rec
-
-    def get_all_recurring(self) -> List[RecurringTask]:
-        return self.repo.get_all_recurring()
-
-    def get_recurring(self, rec_id: str) -> Optional[RecurringTask]:
-        return self.repo.get_recurring_by_id(rec_id)
-
-    def update_recurring(self, rec_id: str, **kwargs) -> Optional[RecurringTask]:
-        rec = self.repo.get_recurring_by_id(rec_id)
-        if not rec:
-            return None
-        for key, val in kwargs.items():
-            if hasattr(rec, key) and val is not None:
-                setattr(rec, key, val)
-        updated = self.repo.update_recurring(rec)
-        log.info(f"Recurring task updated: {rec_id}")
-        return updated
-
-    def delete_recurring(self, rec_id: str) -> bool:
-        result = self.repo.delete_recurring(rec_id)
-        if result:
-            log.info(f"Recurring task deleted: {rec_id}")
-        return result
-
-    def toggle_recurring_active(self, rec_id: str) -> Optional[RecurringTask]:
-        rec = self.repo.get_recurring_by_id(rec_id)
-        if not rec:
-            return None
-        rec.is_active = not rec.is_active
-        updated = self.repo.update_recurring(rec)
-        log.info(f"Recurring task {rec_id} active={rec.is_active}")
-        return updated
 
     def generate_recurring_tasks(self) -> List[Task]:
         """Generate tasks from all active recurring definitions that are due.
@@ -1303,49 +1143,3 @@ class TaskService:
                 created_tasks.append(task)
                 log.info(f"Generated recurring task: {task.id} from {rec.id}")
         return created_tasks
-
-    # ── Notifications ──
-
-    def get_notifications(self, unread_only: bool = False) -> List[Notification]:
-        if unread_only:
-            return self.repo.get_unread_notifications()
-        return self.repo.get_all_notifications()
-
-    def add_notification(self, ntype: str, title: str, message: str,
-                         task_id: Optional[str] = None) -> Notification:
-        notif = Notification(ntype=ntype, title=title.strip(), message=message.strip(), task_id=task_id)
-        self.repo.add_notification(notif)
-        return notif
-
-    def mark_notification_read(self, notif_id: str) -> bool:
-        return self.repo.mark_notification_read(notif_id)
-
-    def mark_all_notifications_read(self) -> int:
-        return self.repo.mark_all_notifications_read()
-
-    def delete_notification(self, notif_id: str) -> bool:
-        return self.repo.delete_notification(notif_id)
-
-    def generate_overdue_notifications(self) -> List[Notification]:
-        """Create notifications for overdue and due-soon tasks."""
-        created = []
-        for t in self.get_all_tasks():
-            if t.status == TaskStatus.DONE:
-                continue
-            if t.is_overdue():
-                n = self.add_notification(
-                    'warning', 'Просрочено',
-                    f'{t.title} просрочена ({t.due_date})',
-                    task_id=t.id,
-                )
-                created.append(n)
-            elif t.days_until_due() is not None and 0 <= t.days_until_due() <= 2:
-                n = self.add_notification(
-                    'info', 'Скоро дедлайн',
-                    f'{t.title} — через {t.days_until_due()} дн.',
-                    task_id=t.id,
-                )
-                created.append(n)
-        # Trim old notifications
-        self.repo.clear_old_notifications(100)
-        return created
