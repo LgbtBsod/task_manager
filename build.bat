@@ -1,120 +1,140 @@
 @echo off
-chcp 65001 >nul 2>&1
-echo ============================================
-echo   Task Manager - EXE Builder (PyInstaller)
-echo ============================================
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+REM ============================================
+REM Task Manager - Build EXE Script
+REM ============================================
+REM Этот скрипт создает исполняемый файл (.exe)
+REM из проекта Task Manager с использованием PyInstaller.
+REM 
+REM Особенности:
+REM - Данные хранятся в папке data/db рядом с exe
+REM - При первом запуске автоматически создается tasks.json
+REM - Пользовательские данные не теряются при обновлении
+REM ============================================
+
+echo ╔════════════════════════════════════════════╗
+echo ║   Task Manager - Создание EXE файла       ║
+echo ╚════════════════════════════════════════════╝
 echo.
 
-:: Check Python
+REM Проверка наличия Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found. Install Python 3.11+ and add to PATH.
+    echo [ERROR] Python не найден! Установите Python 3.8+
     pause
     exit /b 1
 )
 
-:: Install/upgrade PyInstaller and dependencies
-echo [1/4] Installing PyInstaller and dependencies...
-pip install --upgrade pyinstaller flet pydantic workalendar
+echo [✓] Python найден
+python --version
+echo.
+
+REM Проверка наличия PyInstaller
+pip show pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Failed to install dependencies.
-    pause
-    exit /b 1
+    echo [INFO] Установка PyInstaller...
+    pip install pyinstaller --quiet
+    if errorlevel 1 (
+        echo [ERROR] Не удалось установить PyInstaller
+        pause
+        exit /b 1
+    )
+    echo [✓] PyInstaller установлен
+) else (
+    echo [✓] PyInstaller найден
+)
+echo.
+
+REM Очистка предыдущих сборок
+if exist "build" (
+    echo [INFO] Очистка временных файлов сборки...
+    rmdir /s /q build
 )
 
-:: Build EXE with improved options for Flet
-echo [2/4] Building EXE (this may take a minute)...
-pyinstaller --noconfirm --onefile --windowed --name "TaskManager" ^
-    --icon "NONE" ^
-    --add-data "src;src" ^
-    --add-data "tasks.json;." ^
-    --hidden-import "core" ^
-    --hidden-import "core.models" ^
-    --hidden-import "core.repository" ^
-    --hidden-import "core.service" ^
-    --hidden-import "core.events" ^
-    --hidden-import "core.interfaces" ^
-    --hidden-import "gui_flet" ^
-    --hidden-import "gui_flet.app" ^
-    --hidden-import "gui_flet.kanban_view" ^
-    --hidden-import "gui_flet.gantt_view" ^
-    --hidden-import "gui_flet.dashboard_view" ^
-    --hidden-import "gui_flet.task_dialog" ^
-    --hidden-import "gui" ^
-    --hidden-import "gui.main_window" ^
-    --hidden-import "gui.components" ^
-    --hidden-import "gui.gantt_view" ^
-    --hidden-import "utils" ^
-    --hidden-import "utils.logger" ^
-    --hidden-import "utils.error_handler" ^
-    --hidden-import "utils.helpers" ^
-    --hidden-import "utils.updater" ^
-    --hidden-import "utils._version" ^
-    --hidden-import "flet" ^
-    --hidden-import "flet.web" ^
-    --hidden-import "pydantic" ^
-    --hidden-import "workalendar" ^
-    --collect-all "flet" ^
-    --collect-all "flet_web" ^
-    --collect-all "workalendar" ^
-    --collect-all "pydantic" ^
+if exist "dist" (
+    echo [INFO] Очистка предыдущей версии dist...
+    rmdir /s /q dist
+)
+
+if exist "*.spec" (
+    echo [INFO] Удаление старых spec файлов...
+    del /q *.spec
+)
+
+echo.
+echo ╔════════════════════════════════════════════╗
+echo ║   Начало сборки...                        ║
+echo ╚════════════════════════════════════════════╝
+echo.
+
+REM Сборка EXE с помощью PyInstaller
+REM --onefile: один исполняемый файл
+REM --windowed: без консольного окна
+REM --icon: иконка приложения (если есть)
+REM --add-data: включаем дополнительные файлы
+REM --hidden-import: импорты которые не обнаруживаются автоматически
+
+echo [BUILD] Запуск PyInstaller...
+python -m PyInstaller ^
+    --onefile ^
+    --windowed ^
+    --name "TaskManager" ^
+    --hidden-import flet ^
+    --hidden-import customtkinter ^
+    --hidden-import packaging.version ^
+    --collect-all flet ^
     main.py
 
 if errorlevel 1 (
     echo.
-    echo [ERROR] Build failed! Check output above.
+    echo [ERROR] Ошибка сборки! Проверьте логи выше.
     pause
     exit /b 1
 )
 
-:: Copy version file next to EXE
-echo [3/4] Copying version file...
-if exist "dist\TaskManager.exe" (
-    if exist "version.txt" copy "version.txt" "dist\version.txt" >nul
-)
+echo.
+echo ╔════════════════════════════════════════════╗
+echo ║   Сборка завершена успешно!               ║
+echo ╚════════════════════════════════════════════╝
+echo.
 
-:: Create launcher batch file for updates
-echo [4/4] Creating update launcher...
+REM Проверка результата
 if exist "dist\TaskManager.exe" (
-    (
-        echo @echo off
-        echo chcp 65001 ^>nul
-        echo setlocal
-        echo set "APP_DIR=%%~dp0"
-        echo cd /d "%%APP_DIR%%"
-        echo.
-        echo REM Check for updates on startup
-        echo if exist "TaskManager.exe" (
-        echo     start "" "TaskManager.exe" --no-update
-        echo ) else (
-        echo     echo TaskManager.exe not found!
-        echo     pause
-        echo )
-    ) > "dist\run.bat"
+    echo [✓] EXE файл создан: dist\TaskManager.exe
+    
+    REM Создаем структуру папок для тестирования
+    echo.
+    echo [INFO] Создание тестовой структуры...
+    
+    if not exist "dist\data\db" (
+        mkdir "dist\data\db"
+        echo [✓] Создана папка: dist\data\db
+    )
     
     echo.
-    echo ============================================
-    echo   BUILD SUCCESS!
-    echo ============================================
+    echo ╔════════════════════════════════════════════╗
+    echo ║   Важно!                                  ║
+    echo ╚════════════════════════════════════════════╝
     echo.
-    echo   Output: dist\TaskManager.exe
-    echo   Launcher: dist\run.bat
+    echo При первом запуске TaskManager.exe:
+    echo 1. Автоматически создастся папка data\db
+    echo 2. В ней появится файл tasks.json с данными
+    echo 3. Все ваши задачи будут храниться там
     echo.
-    echo   Data storage:
-    echo     When you run TaskManager.exe, it creates
-    echo     a 'data\db' folder next to itself.
-    echo     All tasks are stored in:
-    echo       data\db\tasks.json
-    echo       data\db\tasks_sprints.json
-    echo       data\db\tasks_versions.json
+    echo Папка data НЕ удаляется при обновлении!
     echo.
-    echo   To update: replace TaskManager.exe only.
-    echo   The 'data' folder is NEVER touched.
-    echo ============================================
+    echo Готовый к распространению: dist\TaskManager.exe
+    echo.
 ) else (
-    echo.
-    echo [ERROR] TaskManager.exe not found in dist\
-    echo Check PyInstaller output above.
+    echo [ERROR] Файл TaskManager.exe не найден!
+    pause
+    exit /b 1
 )
 
+echo ════════════════════════════════════════════
+echo [SUCCESS] Все готово!
+echo ════════════════════════════════════════════
+echo.
 pause

@@ -132,3 +132,67 @@ ModuleNotFoundError: No module named 'flet'
   - zipfile._path.glob
   - zipimport
   - zlib
+
+======================================================================
+ERROR LOG — 2026-09-03T05:44:17.742066
+======================================================================
+Python:    3.12.10 (main, Apr  9 2025, 00:30:28) [GCC 12.2.0]
+Platform:  linux — Linux 4.19.91-c8dfc93.al7.x86_64 (x86_64)
+CWD:       /workspace
+argv:      ['main.py', '--help']
+
+--- APP CONTEXT ---
+  gui_mode: flet
+  app_dir: /workspace
+  db_path: /workspace/data/db/tasks.json
+
+--- EXTRA CONTEXT ---
+  gui_mode: flet
+  phase: gui_launch
+
+--- ERROR ---
+  Fatal error starting GUI (flet): No module named 'flet'
+
+--- TRACEBACK ---
+Traceback (most recent call last):
+  File "/workspace/main.py", line 137, in main
+    from gui_flet.app import run_app
+  File "/workspace/src/gui_flet/__init__.py", line 1, in <module>
+    from .app import TaskManagerApp
+  File "/workspace/src/gui_flet/app.py", line 4, in <module>
+    import flet as ft
+ModuleNotFoundError: No module named 'flet'
+
+
+--- INSTALLED MODULES ---
+  (129 modules loaded)
+  - subprocess
+  - sys
+  - tempfile
+  - textwrap
+  - threading
+  - time
+  - token
+  - tokenize
+  - traceback
+  - types
+  - typing
+  - typing.io
+  - typing.re
+  - urllib
+  - urllib.error
+  - urllib.parse
+  - urllib.request
+  - urllib.response
+  - utils
+  - utils.error_handler
+  - utils.helpers
+  - utils.logger
+  - utils.updater
+  - warnings
+  - weakref
+  - zipfile
+  - zipfile._path
+  - zipfile._path.glob
+  - zipimport
+  - zlib

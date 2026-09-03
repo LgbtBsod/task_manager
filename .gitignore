@@ -23,17 +23,13 @@ wheels/
 
 # Virtual Environment
 venv/
-env/
 ENV/
-.venv/
-.env/
+env.bak/
+venv.bak/
 
 # Logs
 logs/
 *.log
-
-# Backup files
-.update_backup/
 
 # IDE
 .vscode/
@@ -42,4 +38,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Backup
+.update_backup/
 ```
