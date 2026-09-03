@@ -13,12 +13,69 @@ Principles:
 - YAGNI: No unnecessary methods or complexity
 """
 import json
+import logging
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
 from .models import Task, TaskStatus, Sprint, VersionRelease, TaskTemplate, Category, RecurringTask, Notification
+
+log = logging.getLogger(__name__)
+
+
+def _coerce_list(raw) -> list:
+    """Normalize whatever json.load returned into a list of records.
+
+    Tolerates the legacy ``{"tasks": [...], "categories": [...], ...}`` shape
+    that older seed code wrote, and anything unexpected -> [].
+    """
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        inner = raw.get("tasks")
+        return inner if isinstance(inner, list) else []
+    return []
+
+
+def _read_json_list(path: Path) -> list:
+    """Read a JSON list from *path*, backing up and clearing a corrupt file."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return _coerce_list(json.load(f))
+    except FileNotFoundError:
+        return []
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        try:
+            backup = path.with_name(
+                f"{path.stem}.corrupt-{datetime.now():%Y%m%d_%H%M%S}{path.suffix}"
+            )
+            shutil.copy2(path, backup)
+            log.error("Corrupt JSON at %s (%s); backed up to %s", path, exc, backup.name)
+        except Exception:
+            log.error("Corrupt JSON at %s (%s); backup failed", path, exc)
+        return []
+
+
+def _write_json_list(path: Path, items: list) -> None:
+    """Atomically write *items* as pretty JSON to *path*."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _parse_each(records: list, factory, kind: str) -> list:
+    """Deserialize *records* one at a time, skipping (and logging) bad ones."""
+    out = []
+    for rec in records:
+        try:
+            out.append(factory(rec))
+        except Exception as exc:
+            log.warning("Skipping unparseable %s %r: %s", kind, rec, exc)
+    return out
 
 
 class TaskRepository:
@@ -53,44 +110,47 @@ class TaskRepository:
             db_path: Path to JSON file for task storage
         """
         self.db_path = Path(db_path)
+        self._task_cache: Optional[list[dict]] = None
         self._ensure_db_exists()
-    
+
     def _ensure_db_exists(self) -> None:
         """Create database file if it doesn't exist."""
         if not self.db_path.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.db_path, 'w', encoding='utf-8') as f:
                 json.dump([], f)
-    
+
     def _load_tasks(self) -> list[dict]:
-        """Load tasks from JSON file.
-        
+        """Load raw task dicts from the JSON file (cached in-memory).
+
         Returns:
             List of task dictionaries, empty list if file is invalid/missing
         """
-        try:
-            with open(self.db_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
-    
+        if self._task_cache is None:
+            self._task_cache = _read_json_list(self.db_path)
+        return self._task_cache
+
     def _save_tasks(self, tasks: list[dict]) -> None:
-        """Save tasks to JSON file.
-        
-        Args:
-            tasks: List of task dictionaries to save
-        """
-        with open(self.db_path, 'w', encoding='utf-8') as f:
-            json.dump(tasks, f, indent=2, ensure_ascii=False)
-    
+        """Persist task dicts atomically and refresh the cache."""
+        _write_json_list(self.db_path, tasks)
+        self._task_cache = tasks
+
     def get_all(self) -> list[Task]:
         """Retrieve all tasks from storage.
-        
+
+        A single unparseable record is skipped (and logged) rather than
+        aborting the whole load.
+
         Returns:
             List of Task domain objects
         """
-        data = self._load_tasks()
-        return [Task.from_dict(item) for item in data]
+        out: list[Task] = []
+        for item in self._load_tasks():
+            try:
+                out.append(Task.from_dict(item))
+            except Exception as exc:
+                log.warning("Skipping unparseable task %r: %s", item, exc)
+        return out
     
     def get_by_id(self, task_id: str) -> Optional[Task]:
         """Find task by unique identifier.
@@ -225,20 +285,13 @@ class TaskRepository:
 
     def _load_sprints(self) -> list[dict]:
         path = self._sprints_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_sprints(self, sprints: list[dict]) -> None:
-        with open(self._sprints_path(), 'w', encoding='utf-8') as f:
-            json.dump(sprints, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._sprints_path(), sprints)
 
     def get_all_sprints(self) -> list[Sprint]:
-        return [Sprint.from_dict(s) for s in self._load_sprints()]
+        return _parse_each(self._load_sprints(), Sprint.from_dict, "sprint")
 
     def get_sprint_by_id(self, sprint_id: str) -> Optional[Sprint]:
         for s in self.get_all_sprints():
@@ -277,20 +330,13 @@ class TaskRepository:
 
     def _load_versions(self) -> list[dict]:
         path = self._versions_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_versions(self, versions: list[dict]) -> None:
-        with open(self._versions_path(), 'w', encoding='utf-8') as f:
-            json.dump(versions, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._versions_path(), versions)
 
     def get_all_versions(self) -> list[VersionRelease]:
-        return [VersionRelease.from_dict(v) for v in self._load_versions()]
+        return _parse_each(self._load_versions(), VersionRelease.from_dict, "version")
 
     def get_version_by_id(self, version_id: str) -> Optional[VersionRelease]:
         for v in self.get_all_versions():
@@ -329,20 +375,13 @@ class TaskRepository:
 
     def _load_templates(self) -> list[dict]:
         path = self._templates_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_templates(self, items: list[dict]) -> None:
-        with open(self._templates_path(), 'w', encoding='utf-8') as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._templates_path(), items)
 
     def get_all_templates(self) -> list[TaskTemplate]:
-        return [TaskTemplate.from_dict(t) for t in self._load_templates()]
+        return _parse_each(self._load_templates(), TaskTemplate.from_dict, "template")
 
     def get_template_by_id(self, template_id: str) -> Optional[TaskTemplate]:
         for t in self.get_all_templates():
@@ -381,20 +420,13 @@ class TaskRepository:
 
     def _load_categories(self) -> list[dict]:
         path = self._categories_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_categories(self, items: list[dict]) -> None:
-        with open(self._categories_path(), 'w', encoding='utf-8') as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._categories_path(), items)
 
     def get_all_categories(self) -> list[Category]:
-        return [Category.from_dict(c) for c in self._load_categories()]
+        return _parse_each(self._load_categories(), Category.from_dict, "category")
 
     def get_category_by_id(self, category_id: str) -> Optional[Category]:
         for c in self.get_all_categories():
@@ -433,20 +465,13 @@ class TaskRepository:
 
     def _load_recurring(self) -> list[dict]:
         path = self._recurring_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_recurring(self, items: list[dict]) -> None:
-        with open(self._recurring_path(), 'w', encoding='utf-8') as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._recurring_path(), items)
 
     def get_all_recurring(self) -> list[RecurringTask]:
-        return [RecurringTask.from_dict(r) for r in self._load_recurring()]
+        return _parse_each(self._load_recurring(), RecurringTask.from_dict, "recurring task")
 
     def get_recurring_by_id(self, rec_id: str) -> Optional[RecurringTask]:
         for r in self.get_all_recurring():
@@ -485,20 +510,13 @@ class TaskRepository:
 
     def _load_notifications(self) -> list[dict]:
         path = self._notifications_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        return _read_json_list(path)
 
     def _save_notifications(self, items: list[dict]) -> None:
-        with open(self._notifications_path(), 'w', encoding='utf-8') as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
+        _write_json_list(self._notifications_path(), items)
 
     def get_all_notifications(self) -> list[Notification]:
-        return [Notification.from_dict(n) for n in self._load_notifications()]
+        return _parse_each(self._load_notifications(), Notification.from_dict, "notification")
 
     def get_unread_notifications(self) -> list[Notification]:
         return [n for n in self.get_all_notifications() if not n.is_read]

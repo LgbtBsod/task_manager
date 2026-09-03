@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from datetime import datetime, timedelta
 from enum import Enum
 import uuid
@@ -105,7 +105,7 @@ class Sprint:
             status=data.get("status", SprintStatus.PLANNING.value),
             start_date=data.get("start_date"),
             end_date=data.get("end_date"),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
     def is_active(self) -> bool:
@@ -160,7 +160,7 @@ class TaskComment:
             id=data.get("id", str(uuid.uuid4())[:8]),
             author=data.get("author", ""),
             text=data.get("text", ""),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
 
@@ -201,7 +201,7 @@ class HistoryEntry:
             field_name=data.get("field_name", ""),
             old_value=data.get("old_value", ""),
             new_value=data.get("new_value", ""),
-            timestamp=data.get("timestamp", datetime.now().isoformat()),
+            timestamp=(data.get("timestamp") or datetime.now().isoformat()),
         )
 
 
@@ -329,8 +329,12 @@ class Task:
     def __post_init__(self):
         if self.id is None:
             self.id = str(uuid.uuid4())[:8]
-        if self.updated_at is None:
-            self.updated_at = datetime.now().isoformat()
+        now = datetime.now().isoformat()
+        # Backfill timestamps that are missing or explicitly null (legacy data).
+        if not self.created_at:
+            self.created_at = now
+        if not self.updated_at:
+            self.updated_at = now
         # Normalize tags
         self.tags = _normalize_tags(self.tags)
         # Validate using Pydantic
@@ -347,21 +351,32 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Task':
-        data = data.copy()
-        data['status'] = TaskStatus(data['status'])
-        data['priority'] = Priority(data['priority'])
-        # Deserialize nested objects BEFORE validation
+        # Keep only keys the dataclass knows about (tolerate legacy / extra keys).
+        known = {f.name for f in fields(cls)}
+        data = {k: v for k, v in data.items() if k in known}
+
+        # Enums: tolerate a missing key or an unknown value by falling back.
+        try:
+            data['status'] = TaskStatus(data.get('status') or TaskStatus.TODO.value)
+        except ValueError:
+            data['status'] = TaskStatus.TODO
+        try:
+            data['priority'] = Priority(data.get('priority') or Priority.MEDIUM.value)
+        except ValueError:
+            data['priority'] = Priority.MEDIUM
+
+        # Deserialize nested objects
         data['subtasks'] = [SubTask.from_dict(s) for s in data.get('subtasks', [])]
         data['comments'] = [TaskComment.from_dict(c) for c in data.get('comments', [])]
         data['links'] = [TaskLink.from_dict(l) for l in data.get('links', [])]
         data['history'] = [HistoryEntry.from_dict(h) for h in data.get('history', [])]
-        # Validate basic fields using Pydantic (only pass fields TaskModel knows)
-        try:
-            model_fields = {k: v for k, v in data.items() if k in TaskModel.model_fields}
-            TaskModel(**model_fields)
-        except Exception as e:
-            raise ValueError(f"Task validation failed: {e}")
-        # Create Task directly with ALL fields (preserving nested objects)
+
+        # Drop explicit nulls so dataclass defaults / __post_init__ apply.
+        for key in ('id', 'created_at', 'updated_at'):
+            if data.get(key) is None:
+                data.pop(key, None)
+
+        # Validation runs once, in __post_init__ (TaskModel.from_task).
         return cls(**data)
 
     def is_overdue(self) -> bool:
@@ -387,7 +402,7 @@ class Task:
     def get_gantt_start(self) -> str:
         if self.start_date:
             return self.start_date
-        return self.created_at[:10]
+        return (self.created_at or datetime.now().isoformat())[:10]
 
     def get_gantt_end(self) -> str:
         if self.status == TaskStatus.DONE and self.updated_at:
@@ -470,7 +485,7 @@ class ActivityEntry:
     def from_dict(cls, data: dict) -> 'ActivityEntry':
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
-            timestamp=data.get("timestamp", datetime.now().isoformat()),
+            timestamp=(data.get("timestamp") or datetime.now().isoformat()),
             action=data.get("action", ""),
             task_id=data.get("task_id"),
             task_title=data.get("task_title", ""),
@@ -521,7 +536,7 @@ class VersionRelease:
             description=data.get("description", ""),
             status=data.get("status", "Unreleased"),
             release_date=data.get("release_date"),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
     def is_released(self) -> bool:
@@ -576,7 +591,7 @@ class TaskTemplate:
             original_estimate=data.get("original_estimate", 0.0),
             assignee=data.get("assignee"),
             urgency=data.get("urgency", Urgency.NORMAL.value),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
 
@@ -599,7 +614,7 @@ class Category:
             name=data.get("name", ""),
             description=data.get("description", ""),
             color=data.get("color", "#0a84ff"),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
 
@@ -621,7 +636,7 @@ class Notification:
     def from_dict(cls, data: dict) -> 'Notification':
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
             ntype=data.get("ntype", "info"),
             title=data.get("title", ""),
             message=data.get("message", ""),
@@ -669,7 +684,7 @@ class RecurringTask:
             estimate_hours=data.get("estimate_hours", 0.0),
             is_active=data.get("is_active", True),
             last_generated_date=data.get("last_generated_date"),
-            created_at=data.get("created_at", datetime.now().isoformat()),
+            created_at=(data.get("created_at") or datetime.now().isoformat()),
         )
 
     def next_due_date(self, after_date: Optional[str] = None) -> Optional[str]:

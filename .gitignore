@@ -1,19 +1,42 @@
-```
-# Python cache files
+# ── Python ──
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# Virtual environment
+# ── Virtual environments ──
 venv/
+.venv/
+env/
+ENV/
 
-# Dependencies in virtual environment
-venv/lib/python*/site-packages/__pycache__/
-venv/lib/python*/site-packages/*/__pycache__/
-venv/lib/python*/site-packages/*/*/__pycache__/
-venv/lib/python*/site-packages/*/*/*/__pycache__/
-venv/lib/python*/site-packages/*/*/*/*/__pycache__/
-venv/lib/python*/site-packages/*/*/*/*/*/__pycache__/
-```
-/logs
+# ── PyInstaller ──
+*.manifest
+# NOTE: TaskManager.spec is intentionally tracked
+
+# ── Test / tooling caches ──
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── App runtime data (must survive updates, never in VCS) ──
+/logs/
+/.update_backup/
+/data/db/*.json
+!/data/db/.gitkeep
+update.log
+update_restart.cmd
+*.updated
+
+# ── OS / editor ──
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
