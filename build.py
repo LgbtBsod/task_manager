@@ -102,8 +102,9 @@ def main() -> None:
         # A console window that is hidden at startup: no visual clutter, but the
         # server process is still killable and can print update/errors.
         cmd += ["--console", "--hide-console", "hide-early"]
-    elif sys.platform == "darwin":
-        cmd += ["--windowed"]
+    # macOS / Linux: a plain --onefile console binary (dist/TaskManager). Not a
+    # .app bundle — keeps the CI asset path simple and the self-updater's
+    # single-file swap working the same on every OS.
 
     cmd.append("main.py")
 

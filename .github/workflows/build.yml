@@ -25,7 +25,12 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-mock
       - name: Run tests
-        run: pytest tests/ test_integration_ux.py -q
+        run: >
+          pytest -q
+          tests/test_functional.py tests/test_jira_features.py
+          tests/test_new_features.py tests/test_extended.py
+          tests/test_updater.py tests/test_updater_download.py
+          tests/test_post_update.py test_integration_ux.py
 
   build:
     needs: test
