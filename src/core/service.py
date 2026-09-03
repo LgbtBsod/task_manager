@@ -4,14 +4,16 @@ Full Jira-like service: CRUD, tags, subtasks, comments, task links,
 audit history, bulk operations, search, clone, assignee management.
 """
 
+import json
 import logging
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Optional, List
-from datetime import datetime
 
 from .models import (
-    Task, TaskStatus, Priority, TaskModel, SubTask, TaskComment,
-    TaskLink, LinkType, TaskType, HistoryEntry, Urgency,
-    Resolution, Sprint, SprintStatus, ActivityEntry,
+    Task, TaskStatus, Priority, TaskModel, SubTask,
+    LinkType, TaskType, Urgency,
+    Resolution, Sprint, SprintStatus,
     VersionRelease, WORKFLOW_TRANSITIONS,
     TaskTemplate, Category, Notification, RecurringTask, RecurrenceFrequency,
 )
@@ -598,7 +600,6 @@ class TaskService:
 
         Returns list of dicts: {assignee, total, by_status, total_time, story_points_sum}
         """
-        from collections import defaultdict
         workload = defaultdict(lambda: {
             "total": 0, "todo": 0, "in_progress": 0, "done": 0,
             "total_time": 0.0, "story_points_sum": 0,
@@ -957,26 +958,23 @@ class TaskService:
 
     def export_data(self, file_path: str) -> str:
         """Export all tasks and sprints to a JSON file."""
-        import json as json_mod
         data = self.repo.export_all()
         with open(file_path, 'w', encoding='utf-8') as f:
-            json_mod.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         log.info(f"Data exported to {file_path}")
         return file_path
 
     def import_data(self, file_path: str, overwrite: bool = False) -> dict:
         """Import tasks and sprints from a JSON file."""
-        import json as json_mod
         with open(file_path, 'r', encoding='utf-8') as f:
-            data = json_mod.load(f)
+            data = json.load(f)
         result = self.repo.import_all(data, overwrite=overwrite)
         log.info(f"Import: {result}")
         return result
 
     def import_data_from_string(self, json_str: str, overwrite: bool = False) -> dict:
         """Import from a JSON string."""
-        import json as json_mod
-        data = json_mod.loads(json_str)
+        data = json.loads(json_str)
         result = self.repo.import_all(data, overwrite=overwrite)
         log.info(f"Import from string: {result}")
         return result
@@ -1259,7 +1257,6 @@ class TaskService:
         overdue_tasks = [t for t in all_tasks if t.is_overdue()]
 
         # Completion trend (last 7 days based on updated_at)
-        from datetime import timedelta
         now = datetime.now()
         last_7 = [0] * 7
         for t in all_tasks:
@@ -1574,196 +1571,3 @@ class TaskService:
         # Trim old notifications
         self.repo.clear_old_notifications(100)
         return created
-
-    # ── Dependency Enforcement ──
-
-    def get_blocking_tasks(self, task_id: str) -> List[Task]:
-        """Get tasks that block this task (their 'blocks' link points to task_id)."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return []
-        blockers = []
-        for t in self.get_all_tasks():
-            for link in t.links:
-                if link.link_type == LinkType.BLOCKS.value and link.target_task_id == task_id:
-                    blockers.append(t)
-                    break
-        return blockers
-
-    def get_blocked_by_tasks(self, task_id: str) -> List[Task]:
-        """Get tasks that this task blocks (this task's 'blocks' links)."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return []
-        blocked = []
-        for link in task.links:
-            if link.link_type == LinkType.BLOCKS.value:
-                target = self.repo.get_by_id(link.target_task_id)
-                if target:
-                    blocked.append(target)
-        return blocked
-
-    def check_dependencies(self, task_id: str) -> dict:
-        """Check if a task can be started (all blockers are Done).
-
-        Returns {"can_start": bool, "blockers": [Task]}
-        """
-        blockers = self.get_blocking_tasks(task_id)
-        open_blockers = [b for b in blockers if b.status != TaskStatus.DONE]
-        return {"can_start": len(open_blockers) == 0, "blockers": open_blockers}
-
-    def safe_transition(self, task_id: str, new_status: TaskStatus) -> Optional[Task]:
-        """Transition with dependency check.
-
-        Moving to In Progress or Done is blocked if open blockers exist.
-        """
-        if new_status in (TaskStatus.IN_PROGRESS, TaskStatus.DONE):
-            deps = self.check_dependencies(task_id)
-            if not deps["can_start"]:
-                blocker_names = [b.title for b in deps["blockers"]]
-                raise ValueError(
-                    f"Cannot start: blocked by {len(blocker_names)} task(s): "
-                    + ", ".join(blocker_names[:3])
-                )
-        return self.transition_task(task_id, new_status)
-
-    # ── JQL-like Advanced Search ──
-
-    def advanced_search(self, query: str) -> List[Task]:
-        """JQL-like query parser for advanced task search.
-
-        Supports:
-          status:Todo  priority:High  assignee:John  tag:backend
-          type:Bug  label:urgent  component:frontend  category:cat_id
-          overdue:true  has_epic:true  has_sprint:true  has_resolution:true
-          text:"search term"  due_before:2025-12-31  due_after:2025-01-01
-          points:>5  estimate:>10
-
-        Multiple clauses are ANDed. Unrecognized tokens fall back to text search.
-        """
-        results = self.get_all_tasks()
-        tokens = self._parse_jql(query)
-
-        for token in tokens:
-            field, op, value = token
-            if field == "status":
-                try:
-                    sv = TaskStatus(value)
-                    results = [t for t in results if t.status == sv]
-                except ValueError:
-                    pass
-            elif field == "priority":
-                try:
-                    pv = Priority(value)
-                    results = [t for t in results if t.priority == pv]
-                except ValueError:
-                    pass
-            elif field == "assignee":
-                results = [t for t in results if t.assignee and t.assignee.lower() == value.lower()]
-            elif field == "tag":
-                results = [t for t in results if value.lower() in t.tags]
-            elif field == "label":
-                results = [t for t in results if value.lower() in t.labels]
-            elif field == "type":
-                results = [t for t in results if t.task_type == value]
-            elif field == "component":
-                results = [t for t in results if value.lower() in [c.lower() for c in t.components]]
-            elif field == "category":
-                results = [t for t in results if t.category_id == value]
-            elif field == "overdue":
-                val_bool = value.lower() in ("true", "1", "yes")
-                results = [t for t in results if t.is_overdue() == val_bool]
-            elif field == "has_epic":
-                val_bool = value.lower() in ("true", "1", "yes")
-                results = [t for t in results if (t.epic_link is not None) == val_bool]
-            elif field == "has_sprint":
-                val_bool = value.lower() in ("true", "1", "yes")
-                results = [t for t in results if (t.sprint_id is not None) == val_bool]
-            elif field == "has_resolution":
-                val_bool = value.lower() in ("true", "1", "yes")
-                results = [t for t in results if (t.resolution is not None) == val_bool]
-            elif field == "due_before":
-                results = [t for t in results if t.due_date and t.due_date <= value]
-            elif field == "due_after":
-                results = [t for t in results if t.due_date and t.due_date >= value]
-            elif field == "points":
-                results = self._apply_numeric_filter(results, "story_points", op, value)
-            elif field == "estimate":
-                results = self._apply_numeric_filter(results, "original_estimate", op, value)
-            elif field == "text":
-                q = value.lower()
-                results = [t for t in results
-                           if q in t.title.lower() or q in t.description.lower()]
-
-        log.debug(f"advanced_search '{query}' returned {len(results)} tasks")
-        return results
-
-    @staticmethod
-    def _parse_jql(query: str) -> list:
-        """Parse JQL-like query into list of (field, op, value) tuples."""
-        import re
-        tokens = []
-        # Match field:value or field:>value or field:"quoted value"
-        pattern = r'(\w+)([:<>]=?)(?:"([^"]+)"|(\S+))'
-        for m in re.finditer(pattern, query):
-            field, op, quoted, unquoted = m.groups()
-            value = quoted if quoted is not None else unquoted
-            tokens.append((field, op, value))
-        return tokens
-
-    @staticmethod
-    def _apply_numeric_filter(tasks: list, attr: str, op: str, value: str) -> list:
-        try:
-            num = float(value)
-        except ValueError:
-            return tasks
-        result = []
-        for t in tasks:
-            val = getattr(t, attr, None)
-            if val is None:
-                continue
-            if op in (":", "="):
-                if val == num:
-                    result.append(t)
-            elif op == ">":
-                if val > num:
-                    result.append(t)
-            elif op == "<":
-                if val < num:
-                    result.append(t)
-            elif op == ">=":
-                if val >= num:
-                    result.append(t)
-            elif op == "<=":
-                if val <= num:
-                    result.append(t)
-        return result
-
-    # ── Auto Backup ──
-
-    def create_backup(self, backup_dir: Optional[str] = None) -> str:
-        """Create a timestamped backup of all data.
-
-        Returns path to the backup file.
-        """
-        import json as json_mod
-        from pathlib import Path as P
-        if backup_dir:
-            d = P(backup_dir)
-        else:
-            d = self.repo.db_path.parent / "backups"
-        d.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"backup_{timestamp}.json"
-        path = d / filename
-        data = self.repo.export_all()
-        with open(path, 'w', encoding='utf-8') as f:
-            json_mod.dump(data, f, indent=2, ensure_ascii=False)
-        log.info(f"Backup created: {path}")
-        return str(path)
-
-    # ── Data Repair ──
-
-    def repair_data(self) -> dict:
-        """Attempt to repair corrupted data. Returns repair report."""
-        return self.repo.repair_corrupted_tasks()

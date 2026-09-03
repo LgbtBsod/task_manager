@@ -510,37 +510,6 @@ class TaskRepository:
         self._notifications.save_raw(items)
         return len(items)
 
-    # ── Data Integrity ──
-
-    def repair_corrupted_tasks(self) -> dict:
-        """Attempt to repair corrupted task data.
-
-        Reads raw JSON, tries to deserialize each task.
-        Removes unparseable entries and re-saves.
-
-        Returns dict: {total, valid, removed}
-        """
-        self._task_cache = None  # force a fresh read from disk
-        try:
-            with open(self.db_path, 'r', encoding='utf-8') as f:
-                raw_items = _coerce_list(json.load(f))
-        except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
-            # File is completely corrupted — reset to empty
-            self._save_tasks([])
-            return {"total": 0, "valid": 0, "removed": 0, "reset": True}
-
-        valid = []
-        removed = 0
-        for item in raw_items:
-            try:
-                Task.from_dict(item)
-                valid.append(item)
-            except Exception:
-                removed += 1
-
-        self._save_tasks(valid)
-        return {"total": len(raw_items), "valid": len(valid), "removed": removed}
-
     # ── Export / Import ──
 
     def _collections(self) -> dict[str, "_JsonCollection"]:
