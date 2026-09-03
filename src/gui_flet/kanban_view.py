@@ -3,7 +3,7 @@
 import flet as ft
 from typing import Optional, TYPE_CHECKING
 
-from .app import COLORS, PRIORITY_COLORS, ic
+from .app import COLORS, ic
 from . import labels as L
 
 if TYPE_CHECKING:
@@ -28,14 +28,6 @@ def _format_due_info(task) -> tuple:
     return shown, "#86868b"
 
 
-def _format_time(hours: float) -> str:
-    if hours < 1:
-        return f"{int(hours * 60)}{L.UNIT_MINUTES}"
-    h = int(hours)
-    m = int((hours - h) * 60)
-    if m == 0:
-        return f"{h}{L.UNIT_HOURS}"
-    return f"{h}{L.UNIT_HOURS} {m}{L.UNIT_MINUTES}"
 
 
 def _deadline_badge(task, app):
@@ -89,7 +81,7 @@ class TaskCard:
         "feedback" (what follows the cursor) are cheap stand-ins so a board
         with dozens of tasks doesn't serialize the full card tree 3x each.
         """
-        priority_color = PRIORITY_COLORS.get(task.priority.value, "#FF9800")
+        priority_color = task.priority.color
         return ft.Draggable(
             group=self.group,
             data=self.task_id,
@@ -111,12 +103,12 @@ class TaskCard:
         )
 
     def _build_card(self, task, app) -> ft.Control:
-        priority_color = PRIORITY_COLORS.get(task.priority.value, "#FF9800")
+        priority_color = task.priority.color
         due_text, due_color = _format_due_info(task)
 
         time_text = ""
         if task.time_spent > 0:
-            time_text = _format_time(task.time_spent)
+            time_text = L.format_duration(task.time_spent)
 
         desc_preview = ""
         if task.description:

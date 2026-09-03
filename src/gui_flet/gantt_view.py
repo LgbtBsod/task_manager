@@ -2,7 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from .app import COLORS, PRIORITY_COLORS, ic
+from .app import COLORS, ic
 from . import labels as L
 
 if TYPE_CHECKING:
@@ -113,12 +113,9 @@ class GanttView:
             ]
             return
 
-        status_order = {"In Progress": 0, "Todo": 1, "Done": 2}
-        prio_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         self._tasks_data = sorted(
             tasks_with_dates,
-            key=lambda t: (status_order.get(t.status.value, 99),
-                          prio_order.get(t.priority.value, 99), t.title),
+            key=lambda t: (t.status.order, t.priority.sort_index, t.title),
         )
 
         self._min_date, self._max_date = self._get_date_range(self._tasks_data)
@@ -169,7 +166,7 @@ class GanttView:
             duration = max((end_dt - start_dt).days, 1)
             start_offset = max((start_dt - self._min_date).days, 0)
             remaining = max(td - start_offset - duration, 0)
-            bar_color = PRIORITY_COLORS.get(task.priority.value, "#FF9800")
+            bar_color = task.priority.color
             is_done = task.status.value == "Done"
 
             status_icons = {"Todo": "radio_button_unchecked", "In Progress": "pending", "Done": "check_circle"}

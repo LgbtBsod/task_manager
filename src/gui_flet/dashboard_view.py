@@ -264,7 +264,7 @@ class DashboardView:
             rate = stats['completion_rate']
             self._progress_bar.value = rate / 100
             self._progress_label.value = f"{rate}%"
-            self._time_label.value = _format_time(stats['total_time_spent'])
+            self._time_label.value = L.format_duration(stats['total_time_spent'])
 
     def _update_workload(self):
         """Update team workload section."""
@@ -292,18 +292,10 @@ class DashboardView:
                     ft.Container(width=12),
                     ft.Text(f"{L.STORY_POINTS}:{sp}" if sp else "", size=12, color=COLORS["accent_purple"]),
                     ft.Container(width=12),
-                    ft.Text(_format_time(time_s) if time_s > 0 else "", size=12, color=COLORS["text_secondary"]),
+                    ft.Text(L.format_duration(time_s) if time_s > 0 else "", size=12, color=COLORS["text_secondary"]),
                 ], spacing=4)
                 self._workload_column.controls.append(row)
         except Exception:
             pass
 
 
-def _format_time(hours: float) -> str:
-    if hours < 1:
-        return f"{int(hours * 60)}{L.UNIT_MINUTES}"
-    h = int(hours)
-    m = int((hours - h) * 60)
-    if m == 0:
-        return f"{h}{L.UNIT_HOURS}"
-    return f"{h}{L.UNIT_HOURS} {m}{L.UNIT_MINUTES}"

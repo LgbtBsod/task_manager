@@ -47,6 +47,15 @@ UNIT_HOURS = "ч"
 UNIT_MINUTES = "мин"
 STORY_POINTS = "ОИ"  # очки истории (Story Points)
 
+
+def format_duration(hours: float) -> str:
+    """A span of hours as a short RU label: ``45мин`` / ``2ч`` / ``1ч 30мин``."""
+    if hours < 1:
+        return f"{int(hours * 60)}{UNIT_MINUTES}"
+    h = int(hours)
+    m = int((hours - h) * 60)
+    return f"{h}{UNIT_HOURS}" if m == 0 else f"{h}{UNIT_HOURS} {m}{UNIT_MINUTES}"
+
 def status(value: str) -> str:
     return STATUS.get(value, value)
 

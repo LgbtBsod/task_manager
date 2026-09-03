@@ -89,7 +89,6 @@ COLORS = {
     "border_color": "#38383a",
 }
 
-PRIORITY_COLORS = {"Low": "#4CAF50", "Medium": "#FF9800", "High": "#F44336", "Critical": "#FF1744"}
 
 _NAV_PAD = ft.Padding.symmetric(horizontal=16, vertical=8)
 _NAV_TEXT = ft.TextStyle(size=13, weight=ft.FontWeight.W_500)
@@ -381,8 +380,7 @@ class TaskManagerApp:
                      or q in t.description.lower()
                      or any(q in tag for tag in t.tags)]
         if self._sort_mode == "priority":
-            prio_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
-            tasks = sorted(tasks, key=lambda t: prio_order.get(t.priority.value, 99))
+            tasks = sorted(tasks, key=lambda t: t.priority.sort_index)
         elif self._sort_mode == "due_date":
             tasks = sorted(tasks, key=lambda t: t.due_date or "9999-12-31")
         return tasks

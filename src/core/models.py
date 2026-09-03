@@ -47,9 +47,14 @@ class TaskStatus(Enum):
     IN_PROGRESS = "In Progress"
     DONE = "Done"
 
+    @property
+    def order(self) -> int:
+        """Sort rank for board / Gantt listings: active work first."""
+        return {"In Progress": 0, "Todo": 1, "Done": 2}[self.value]
+
 
 class Priority(Enum):
-    """Task priorities with color coding."""
+    """Task priorities with colour and sort rank."""
     LOW = "Low"
     MEDIUM = "Medium"
     HIGH = "High"
@@ -57,13 +62,15 @@ class Priority(Enum):
 
     @property
     def color(self) -> str:
-        colors: dict[Priority, str] = {
-            Priority.LOW: "#4CAF50",
-            Priority.MEDIUM: "#FF9800",
-            Priority.HIGH: "#F44336",
-            Priority.CRITICAL: "#FF1744",
-        }
-        return colors[self]
+        return {
+            "Low": "#4CAF50", "Medium": "#FF9800",
+            "High": "#F44336", "Critical": "#FF1744",
+        }[self.value]
+
+    @property
+    def sort_index(self) -> int:
+        """Sort rank: most urgent first (Critical=0 … Low=3)."""
+        return {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}[self.value]
 
 
 class TaskType(Enum):
