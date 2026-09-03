@@ -37,8 +37,11 @@ class TaskService:
         self.categories = CategoryService(self.repo)
         self.recurring = RecurringService(self.repo)
         self.notifications = NotificationService(self.repo)
+        from .analytics import BoardAnalytics
+        self.analytics = BoardAnalytics(self.repo, self.sprints)
         self._collaborators = (self.sprints, self.versions, self.templates,
-                               self.categories, self.recurring, self.notifications)
+                               self.categories, self.recurring, self.notifications,
+                               self.analytics)
 
     def __getattr__(self, name: str):
         # Delegate sprint/version/… calls to the composed services without a
@@ -230,9 +233,6 @@ class TaskService:
 
     def get_tasks_by_status(self, status: TaskStatus) -> List[Task]:
         return self.repo.get_by_status(status)
-
-    def get_statistics(self) -> dict:
-        return self.repo.get_statistics()
 
     def get_overdue_tasks(self) -> List[Task]:
         return [t for t in self.get_all_tasks() if t.is_overdue()]
@@ -574,36 +574,6 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    # ── Team Workload ──
-
-    def get_team_workload(self) -> List[dict]:
-        """Get workload summary per assignee.
-
-        Returns list of dicts: {assignee, total, by_status, total_time, story_points_sum}
-        """
-        workload = defaultdict(lambda: {
-            "total": 0, "todo": 0, "in_progress": 0, "done": 0,
-            "total_time": 0.0, "story_points_sum": 0,
-        })
-        for t in self.get_all_tasks():
-            name = t.assignee or "Unassigned"
-            w = workload[name]
-            w["total"] += 1
-            if t.status == TaskStatus.TODO:
-                w["todo"] += 1
-            elif t.status == TaskStatus.IN_PROGRESS:
-                w["in_progress"] += 1
-            elif t.status == TaskStatus.DONE:
-                w["done"] += 1
-            w["total_time"] += t.time_spent
-            if t.story_points:
-                w["story_points_sum"] += t.story_points
-
-        result = []
-        for name, w in sorted(workload.items()):
-            result.append({"assignee": name, **w})
-        return result
-
     # ── Clone ──
 
     def clone_task(self, task_id: str, new_title: Optional[str] = None) -> Optional[Task]:
@@ -691,111 +661,6 @@ class TaskService:
             self.repo.update(task)
         log.info(f"Backlog reordered: {len(task_ids)} tasks")
         return True
-
-    # ── Swimlanes ──
-
-    def get_swimlanes(self, group_by: str = "assignee") -> dict:
-        """Group tasks into swimlanes.
-
-        Args:
-            group_by: 'assignee', 'priority', 'task_type', or 'urgency'.
-
-        Returns:
-            Dict mapping lane_key -> {"todo": [...], "in_progress": [...], "done": [...]}
-        """
-        lanes: dict = {}
-        for t in self.get_all_tasks():
-            if group_by == "assignee":
-                key = t.assignee or "Unassigned"
-            elif group_by == "priority":
-                key = t.priority.value
-            elif group_by == "task_type":
-                key = t.task_type
-            elif group_by == "urgency":
-                key = t.urgency
-            else:
-                key = t.assignee or "Unassigned"
-
-            if key not in lanes:
-                lanes[key] = {"todo": [], "in_progress": [], "done": []}
-
-            if t.status == TaskStatus.TODO:
-                lanes[key]["todo"].append(t)
-            elif t.status == TaskStatus.IN_PROGRESS:
-                lanes[key]["in_progress"].append(t)
-            elif t.status == TaskStatus.DONE:
-                lanes[key]["done"].append(t)
-
-        return lanes
-
-    # ── Sprint Velocity ──
-
-    def get_sprint_velocity(self, last_n: int = 5) -> List[dict]:
-        """Calculate velocity from completed sprints.
-
-        Returns list of dicts sorted by completion, each with:
-        - sprint_id, sprint_name
-        - completed_points, completed_tasks
-        - total_time_spent
-        """
-        completed = [s for s in self.repo.get_all_sprints()
-                      if s.status == SprintStatus.COMPLETED.value]
-        # Sort by created_at descending, take last N
-        completed.sort(key=lambda s: s.created_at, reverse=True)
-        completed = completed[:last_n]
-
-        velocities = []
-        for sprint in completed:
-            tasks = self.get_sprint_tasks(sprint.id)
-            done_tasks = [t for t in tasks if t.status == TaskStatus.DONE]
-            velocities.append({
-                "sprint_id": sprint.id,
-                "sprint_name": sprint.name,
-                "completed_points": sum(t.story_points or 0 for t in done_tasks),
-                "completed_tasks": len(done_tasks),
-                "total_time_spent": round(sum(t.time_spent for t in tasks), 2),
-            })
-        return velocities
-
-    def get_average_velocity(self, last_n: int = 5) -> float:
-        """Get average story points completed per sprint."""
-        velocities = self.get_sprint_velocity(last_n)
-        if not velocities:
-            return 0.0
-        points = [v["completed_points"] for v in velocities]
-        return round(sum(points) / len(points), 1)
-
-    # ── Activity Feed ──
-
-    def get_activity_feed(self, limit: int = 50) -> List[dict]:
-        """Get global activity feed from all task histories.
-
-        Returns list of dicts sorted by timestamp descending.
-        """
-        feed = []
-        for t in self.get_all_tasks():
-            for h in t.history:
-                feed.append({
-                    "id": "",
-                    "timestamp": h.timestamp,
-                    "action": h.field_name,
-                    "task_id": t.id,
-                    "task_title": t.title,
-                    "author": "",
-                    "details": f"{h.old_value} -> {h.new_value}",
-                })
-            for c in t.comments:
-                feed.append({
-                    "id": c.id,
-                    "timestamp": c.created_at,
-                    "action": "comment_added",
-                    "task_id": t.id,
-                    "task_title": t.title,
-                    "author": c.author,
-                    "details": c.text[:100],
-                })
-        feed.sort(key=lambda x: x["timestamp"], reverse=True)
-        return feed[:limit]
 
     # ── Resolution ──
 
@@ -977,116 +842,6 @@ class TaskService:
             updated = self.repo.update(task)
             return updated
         return task
-
-    # ── Board Data (Kanban columns for GUI) ──
-
-    def get_board_data(self, sprint_id: Optional[str] = None) -> dict:
-        """Get board data organized by columns.
-
-        Returns dict: {"columns": [{"id": "todo", "title": "Todo", "tasks": [...]}, ...]}
-        Optionally filter by sprint_id.
-        """
-        tasks = self.get_all_tasks()
-        if sprint_id:
-            tasks = [t for t in tasks if t.sprint_id == sprint_id]
-
-        columns = [
-            {"id": "todo", "title": "Todo", "status": TaskStatus.TODO},
-            {"id": "in_progress", "title": "In Progress", "status": TaskStatus.IN_PROGRESS},
-            {"id": "done", "title": "Done", "status": TaskStatus.DONE},
-        ]
-
-        result = {"columns": []}
-        for col in columns:
-            col_tasks = [t for t in tasks if t.status == col["status"]]
-            result["columns"].append({
-                "id": col["id"],
-                "title": col["title"],
-                "tasks": [t.to_dict() for t in col_tasks],
-                "count": len(col_tasks),
-            })
-        return result
-
-    # ── Personal Dashboard ──
-
-    def get_personal_dashboard(self) -> dict:
-        """Get personal dashboard data for a single-user app.
-
-        Returns comprehensive stats: task counts, time tracking,
-        recent activity, overdue, priority breakdown, etc.
-        """
-        all_tasks = self.get_all_tasks()
-        total = len(all_tasks)
-        todo = sum(1 for t in all_tasks if t.status == TaskStatus.TODO)
-        in_progress = sum(1 for t in all_tasks if t.status == TaskStatus.IN_PROGRESS)
-        done = sum(1 for t in all_tasks if t.status == TaskStatus.DONE)
-        overdue = sum(1 for t in all_tasks if t.is_overdue())
-
-        # Time tracking
-        total_time_spent = sum(t.time_spent for t in all_tasks)
-        total_original_estimate = sum(t.original_estimate for t in all_tasks)
-        total_remaining = sum(
-            max(0, t.original_estimate - t.time_spent) for t in all_tasks
-        )
-
-        # Priority breakdown
-        priority_breakdown = {}
-        for p in Priority:
-            count = sum(1 for t in all_tasks if t.priority == p)
-            if count > 0:
-                priority_breakdown[p.value] = count
-
-        # Recent tasks (by updated_at)
-        recent = sorted(all_tasks, key=lambda t: t.updated_at or "", reverse=True)[:10]
-
-        # Overdue tasks
-        overdue_tasks = [t for t in all_tasks if t.is_overdue()]
-
-        # Completion trend (last 7 days based on updated_at)
-        now = datetime.now()
-        last_7 = [0] * 7
-        for t in all_tasks:
-            if t.status == TaskStatus.DONE and t.updated_at:
-                try:
-                    updated = datetime.fromisoformat(t.updated_at)
-                    days_ago = (now - updated).days
-                    if 0 <= days_ago < 7:
-                        last_7[days_ago] += 1
-                except (ValueError, TypeError):
-                    pass
-
-        # Story points stats
-        total_points = sum(t.story_points or 0 for t in all_tasks)
-        done_points = sum(t.story_points or 0 for t in all_tasks if t.status == TaskStatus.DONE)
-
-        # Active sprint info
-        active_sprints = [s for s in self.repo.get_all_sprints() if s.is_active()]
-        active_sprint_data = None
-        if active_sprints:
-            sp = active_sprints[0]
-            active_sprint_data = self.get_sprint_report(sp.id)
-
-        return {
-            "total_tasks": total,
-            "todo": todo,
-            "in_progress": in_progress,
-            "done": done,
-            "overdue": overdue,
-            "completion_rate": round(done / total * 100, 1) if total > 0 else 0,
-            "total_time_spent": round(total_time_spent, 2),
-            "total_original_estimate": round(total_original_estimate, 2),
-            "total_remaining_estimate": round(total_remaining, 2),
-            "priority_breakdown": priority_breakdown,
-            "recent_tasks": [t.to_dict() for t in recent],
-            "overdue_tasks": [t.to_dict() for t in overdue_tasks],
-            "completion_last_7_days": last_7,
-            "total_story_points": total_points,
-            "completed_story_points": done_points,
-            "active_sprint": active_sprint_data,
-            "labels_count": len(self.get_all_labels()),
-            "versions_count": len(self.repo.get_all_versions()),
-            "categories_count": len(self.repo.get_all_categories()),
-        }
 
     # ── task-creating orchestrations (need self.create_task) ──
 
