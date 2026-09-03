@@ -4,6 +4,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .app import COLORS, ic
 from . import labels as L
+from core.datetimeutil import to_date
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -80,16 +81,8 @@ class GanttView:
         elif self._range_var == "quarter":
             return today - timedelta(days=7), today + timedelta(days=90)
         else:
-            starts, ends = [], []
-            for t in tasks:
-                try:
-                    starts.append(datetime.strptime(t.get_gantt_start(), "%Y-%m-%d").date())
-                except (ValueError, TypeError):
-                    pass
-                try:
-                    ends.append(datetime.strptime(t.get_gantt_end(), "%Y-%m-%d").date())
-                except (ValueError, TypeError):
-                    pass
+            starts = [d for t in tasks if (d := to_date(t.get_gantt_start()))]
+            ends = [d for t in tasks if (d := to_date(t.get_gantt_end()))]
             if not starts or not ends:
                 return today - timedelta(days=7), today + timedelta(days=21)
             return min(starts) - timedelta(days=2), max(ends) + timedelta(days=3)
@@ -157,10 +150,9 @@ class GanttView:
         controls.append(ft.Divider(color=GRID_LINE_COLOR, height=1))
 
         for i, task in enumerate(self._tasks_data):
-            try:
-                start_dt = datetime.strptime(task.get_gantt_start(), "%Y-%m-%d").date()
-                end_dt = datetime.strptime(task.get_gantt_end(), "%Y-%m-%d").date()
-            except (ValueError, TypeError):
+            start_dt = to_date(task.get_gantt_start())
+            end_dt = to_date(task.get_gantt_end())
+            if start_dt is None or end_dt is None:
                 continue
 
             duration = max((end_dt - start_dt).days, 1)

@@ -4,7 +4,7 @@
 date ("2026-09-18") or a date with time ("2026-09-18 14:30" / ISO
 "2026-09-18T14:30"). Everything that reads those fields goes through here.
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 _DATE_FMT = "%Y-%m-%d"
@@ -26,6 +26,12 @@ def parse_dt(value: Optional[str]) -> Optional[datetime]:
         return datetime.strptime(value, _DATE_FMT)
     except ValueError:
         return None
+
+
+def to_date(value: Optional[str]) -> Optional[date]:
+    """Parse to a plain ``date`` (drops any time component). None if invalid."""
+    dt = parse_dt(value)
+    return dt.date() if dt else None
 
 
 def has_time(value: Optional[str]) -> bool:
