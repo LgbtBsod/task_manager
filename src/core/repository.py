@@ -46,22 +46,38 @@ def _coerce_list(raw) -> list:
 
 
 def _read_json_list(path: Path) -> list:
-    """Read a JSON list from *path*, backing up and clearing a corrupt file."""
+    """Read a JSON list from *path*.
+
+    Recovers a file saved in a legacy 8-bit encoding (re-saving it as UTF-8),
+    and only as a last resort backs up an unrecoverable file and returns [].
+    """
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return _coerce_list(json.load(f))
+        raw_bytes = path.read_bytes()
     except FileNotFoundError:
         return []
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+
+    for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
-            backup = path.with_name(
-                f"{path.stem}.corrupt-{datetime.now():%Y%m%d_%H%M%S}{path.suffix}"
-            )
-            shutil.copy2(path, backup)
-            log.error("Corrupt JSON at %s (%s); backed up to %s", path, exc, backup.name)
-        except Exception:
-            log.error("Corrupt JSON at %s (%s); backup failed", path, exc)
-        return []
+            data = _coerce_list(json.loads(raw_bytes.decode(enc)))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if enc != "utf-8":
+            log.warning("Re-saving %s from %s to UTF-8", path.name, enc)
+            try:
+                _write_json_list(path, data)
+            except Exception:
+                pass
+        return data
+
+    try:
+        backup = path.with_name(
+            f"{path.stem}.corrupt-{datetime.now():%Y%m%d_%H%M%S}{path.suffix}"
+        )
+        shutil.copy2(path, backup)
+        log.error("Unrecoverable JSON at %s; backed up to %s", path, backup.name)
+    except Exception:
+        log.error("Unrecoverable JSON at %s; backup failed", path)
+    return []
 
 
 def _write_json_list(path: Path, items: list) -> None:
