@@ -33,6 +33,16 @@ SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data", "logs"}
 SKIP_EXTENSIONS = {".pyc", ".pyo", ".tmp"}
 
 
+def normalize_version(raw: str) -> str:
+    """Strip a release-tag prefix (``v``, ``v.``, ``V.``) and surrounding
+    punctuation so ``v.1.0.0.0.0.0.2.1.10.b`` becomes ``1.0.0.0.0.0.2.1.10.b``.
+
+    Used both when writing ``version.txt`` and when reading it back, so the two
+    always agree.
+    """
+    return str(raw).strip().lstrip("vV").strip(". \t\r\n")
+
+
 @dataclass(frozen=True)
 class UpdateJob:
     has_update: bool
@@ -567,7 +577,7 @@ class AutoUpdater:
 
     def _update_version_file(self, new_version: str) -> None:
         version_file = self.app_dir / "version.txt"
-        clean = str(new_version).strip().lstrip("vV").strip()
+        clean = normalize_version(new_version)
         try:
             version_file.write_text(clean + "\n", encoding="utf-8")
             logger.info("Version updated to %s", clean)
@@ -809,7 +819,7 @@ def get_current_version() -> str:
     for version_file in _version_file_candidates():
         try:
             if version_file.is_file():
-                text = version_file.read_text(encoding="utf-8").strip()
+                text = normalize_version(version_file.read_text(encoding="utf-8"))
                 if text:
                     return text
         except Exception:
@@ -838,11 +848,51 @@ def get_current_version() -> str:
     return "unknown"
 
 
-def check_updates(repo_owner: str, repo_name: str, auto: bool = False) -> bool:
+_CHECK_INTERVAL_SECONDS = 30 * 60
+
+
+def _check_stamp_path() -> Path:
+    base = (Path(sys.executable).resolve().parent
+            if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent.parent.parent)
+    return base / "logs" / ".last_update_check"
+
+
+def _recently_checked() -> bool:
+    """True if an update check already ran in the last _CHECK_INTERVAL_SECONDS.
+
+    Keeps a machine (and, on a shared IP, a whole office) from hammering the
+    GitHub API — the unauthenticated limit is 60 requests/hour for the IP.
+    """
+    try:
+        import time
+        age = time.time() - _check_stamp_path().stat().st_mtime
+        return 0 <= age < _CHECK_INTERVAL_SECONDS
+    except OSError:
+        return False
+
+
+def _mark_checked() -> None:
+    try:
+        p = _check_stamp_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def check_updates(repo_owner: str, repo_name: str, auto: bool = False,
+                  force: bool = False) -> bool:
+    if auto and not force and _recently_checked():
+        logger.info("Update check skipped (ran within the last 30 min)")
+        return False
     current_version = get_current_version()
     logger.info("Current version: %s", current_version)
     updater = AutoUpdater(repo_owner, repo_name, current_version)
-    return updater.run_update_check(auto=auto)
+    result = updater.run_update_check(auto=auto)
+    if not updater._rate_limited and updater._network_reachable:
+        _mark_checked()
+    return result
 
 
 if __name__ == "__main__":

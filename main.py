@@ -128,9 +128,11 @@ def main():
         # Self-update: if a newer GitHub release exists, download it, swap the
         # binary and relaunch (we return so this old process exits). Any
         # failure here must never block the app from starting.
+        # --force-update bypasses the 30-min "already checked" throttle.
         try:
             from utils.updater import check_updates
-            if check_updates("LgbtBsod", "task_manager", auto=True):
+            if check_updates("LgbtBsod", "task_manager", auto=True,
+                             force="--force-update" in args):
                 log.info("Update staged; exiting for relaunch.")
                 return
         except Exception as e:

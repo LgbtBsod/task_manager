@@ -23,11 +23,15 @@ def _candidates() -> list:
 
 
 def get_version() -> str:
-    """Return the current version string, or ``"unknown"``."""
+    """Return the current version string, or ``"unknown"``.
+
+    Trims a release-tag prefix (``v``, ``v.``) so a version.txt written by an
+    older updater build (which left a leading dot) still displays cleanly.
+    """
     for path in _candidates():
         try:
             if path.is_file():
-                text = path.read_text(encoding="utf-8").strip()
+                text = path.read_text(encoding="utf-8").strip().lstrip("vV").strip(". \t\r\n")
                 if text:
                     return text
         except Exception:
