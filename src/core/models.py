@@ -14,6 +14,33 @@ TaskID = str
 DateStr = str  # YYYY-MM-DD format
 
 
+def _short_id() -> str:
+    """8-char id used as the default primary key for every entity."""
+    return str(uuid.uuid4())[:8]
+
+
+def _now_iso() -> str:
+    """Current timestamp in ISO format — the default for every ``created_at``."""
+    return datetime.now().isoformat()
+
+
+class _DataclassJSON:
+    """``to_dict`` / ``from_dict`` for a flat dataclass of JSON-native fields.
+
+    ``from_dict`` ignores unknown keys and drops ``None`` values so the
+    dataclass's own defaults / ``default_factory`` fill them in (ids, timestamps).
+    Entities with enums or nested dataclasses (``Task``) override this.
+    """
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Self:
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known and v is not None})
+
+
 class TaskStatus(Enum):
     """Task statuses for Kanban board."""
     TODO = "Todo"
@@ -85,30 +112,15 @@ class SprintStatus(Enum):
 
 
 @dataclass
-class Sprint:
+class Sprint(_DataclassJSON):
     """Jira-style Sprint: a time-boxed iteration for a set of tasks."""
     name: str = ""
     goal: str = ""
     status: str = SprintStatus.PLANNING.value
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'Sprint':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            name=data.get("name", ""),
-            goal=data.get("goal", ""),
-            status=data.get("status", SprintStatus.PLANNING.value),
-            start_date=data.get("start_date"),
-            end_date=data.get("end_date"),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
 
     def is_active(self) -> bool:
         return self.status == SprintStatus.ACTIVE.value
@@ -124,87 +136,36 @@ class Sprint:
 
 
 @dataclass
-class SubTask:
+class SubTask(_DataclassJSON):
     """A checklist item within a task."""
     title: str = ""
     done: bool = False
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return {"id": self.id, "title": self.title, "done": self.done}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'SubTask':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            title=data.get("title", ""),
-            done=data.get("done", False),
-        )
+    id: str = field(default_factory=_short_id)
 
 
 @dataclass
-class TaskComment:
+class TaskComment(_DataclassJSON):
     """A comment on a task (Jira-style)."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    id: str = field(default_factory=_short_id)
     author: str = ""
     text: str = ""
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id, "author": self.author,
-            "text": self.text, "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'TaskComment':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            author=data.get("author", ""),
-            text=data.get("text", ""),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
 
 
 @dataclass
-class TaskLink:
+class TaskLink(_DataclassJSON):
     """A relationship between two tasks."""
     target_task_id: str = ""
     link_type: str = LinkType.RELATES_TO.value
 
-    def to_dict(self) -> dict:
-        return {"target_task_id": self.target_task_id, "link_type": self.link_type}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'TaskLink':
-        return cls(
-            target_task_id=data.get("target_task_id", ""),
-            link_type=data.get("link_type", LinkType.RELATES_TO.value),
-        )
-
 
 @dataclass
-class HistoryEntry:
+class HistoryEntry(_DataclassJSON):
     """A single change record in the task audit log."""
     field_name: str = ""
     old_value: str = ""
     new_value: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-
-    def to_dict(self) -> dict:
-        return {
-            "field_name": self.field_name, "old_value": self.old_value,
-            "new_value": self.new_value, "timestamp": self.timestamp,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'HistoryEntry':
-        return cls(
-            field_name=data.get("field_name", ""),
-            old_value=data.get("old_value", ""),
-            new_value=data.get("new_value", ""),
-            timestamp=(data.get("timestamp") or datetime.now().isoformat()),
-        )
+    timestamp: str = field(default_factory=_now_iso)
 
 
 class TaskModel(BaseModel):
@@ -300,7 +261,7 @@ class Task:
     status: TaskStatus = TaskStatus.TODO
     priority: Priority = Priority.MEDIUM
     due_date: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    created_at: str = field(default_factory=_now_iso)
     updated_at: Optional[str] = None
     id: Optional[str] = None
     time_spent: float = 0.0
@@ -328,8 +289,8 @@ class Task:
 
     def __post_init__(self):
         if self.id is None:
-            self.id = str(uuid.uuid4())[:8]
-        now = datetime.now().isoformat()
+            self.id = _short_id()
+        now = _now_iso()
         # Backfill timestamps that are missing or explicitly null (legacy data).
         if not self.created_at:
             self.created_at = now
@@ -478,30 +439,15 @@ class Task:
 
 
 @dataclass
-class ActivityEntry:
+class ActivityEntry(_DataclassJSON):
     """A single entry in the global activity feed."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    id: str = field(default_factory=_short_id)
+    timestamp: str = field(default_factory=_now_iso)
     action: str = ""  # e.g. "created", "status_changed", "comment_added"
     task_id: Optional[str] = None
     task_title: str = ""
     author: str = ""
     details: str = ""
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'ActivityEntry':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            timestamp=(data.get("timestamp") or datetime.now().isoformat()),
-            action=data.get("action", ""),
-            task_id=data.get("task_id"),
-            task_title=data.get("task_title", ""),
-            author=data.get("author", ""),
-            details=data.get("details", ""),
-        )
 
 
 # ── Workflow Transitions ──
@@ -526,28 +472,14 @@ WORKFLOW_TRANSITIONS: dict[str, dict[str, list[str]]] = {
 
 
 @dataclass
-class VersionRelease:
+class VersionRelease(_DataclassJSON):
     """Jira-style Version / Release: groups tasks that ship together."""
     name: str = ""
     description: str = ""
     status: str = "Unreleased"  # Unreleased | Released | Archived
     release_date: Optional[str] = None  # YYYY-MM-DD
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'VersionRelease':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            status=data.get("status", "Unreleased"),
-            release_date=data.get("release_date"),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
 
     def is_released(self) -> bool:
         return self.status == "Released"
@@ -563,7 +495,7 @@ class RecurrenceFrequency(Enum):
 
 
 @dataclass
-class TaskTemplate:
+class TaskTemplate(_DataclassJSON):
     """Reusable task template for quick task creation.
 
     Stores default field values. When creating a task from a template,
@@ -580,83 +512,34 @@ class TaskTemplate:
     original_estimate: float = 0.0
     assignee: Optional[str] = None
     urgency: str = Urgency.NORMAL.value
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'TaskTemplate':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            task_type=data.get("task_type", TaskType.TASK.value),
-            priority=data.get("priority", Priority.MEDIUM.value),
-            tags=data.get("tags", []),
-            labels=data.get("labels", []),
-            components=data.get("components", []),
-            story_points=data.get("story_points"),
-            original_estimate=data.get("original_estimate", 0.0),
-            assignee=data.get("assignee"),
-            urgency=data.get("urgency", Urgency.NORMAL.value),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
 
 
 @dataclass
-class Category:
+class Category(_DataclassJSON):
     """A project/category for grouping tasks (higher-level than epics)."""
     name: str = ""
     description: str = ""
     color: str = "#0a84ff"  # hex color
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'Category':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            color=data.get("color", "#0a84ff"),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
 
 
 @dataclass
-class Notification:
+class Notification(_DataclassJSON):
     """A notification/alert for the user (overdue, due soon, etc.)."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    id: str = field(default_factory=_short_id)
+    created_at: str = field(default_factory=_now_iso)
     ntype: str = "info"  # info | warning | error | success
     title: str = ""
     message: str = ""
     task_id: Optional[str] = None
     is_read: bool = False
 
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'Notification':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-            ntype=data.get("ntype", "info"),
-            title=data.get("title", ""),
-            message=data.get("message", ""),
-            task_id=data.get("task_id"),
-            is_read=data.get("is_read", False),
-        )
-
 
 @dataclass
-class RecurringTask:
+class RecurringTask(_DataclassJSON):
     """A recurring task that auto-generates child tasks on a schedule.
 
     When the generated task is marked Done, the next occurrence is
@@ -673,29 +556,8 @@ class RecurringTask:
     estimate_hours: float = 0.0
     is_active: bool = True
     last_generated_date: Optional[str] = None  # YYYY-MM-DD of last auto-gen
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'RecurringTask':
-        return cls(
-            id=data.get("id", str(uuid.uuid4())[:8]),
-            title=data.get("title", ""),
-            description=data.get("description", ""),
-            frequency=data.get("frequency", RecurrenceFrequency.WEEKLY.value),
-            base_due_date=data.get("base_due_date"),
-            task_type=data.get("task_type", TaskType.TASK.value),
-            priority=data.get("priority", Priority.MEDIUM.value),
-            tags=data.get("tags", []),
-            labels=data.get("labels", []),
-            estimate_hours=data.get("estimate_hours", 0.0),
-            is_active=data.get("is_active", True),
-            last_generated_date=data.get("last_generated_date"),
-            created_at=(data.get("created_at") or datetime.now().isoformat()),
-        )
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
 
     def next_due_date(self, after_date: Optional[str] = None) -> Optional[str]:
         """Calculate the next due date on or after after_date.
