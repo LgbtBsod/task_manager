@@ -1,37 +1,23 @@
-# 📋 Task Manager — Kanban Board
+# 📋 Менеджер задач — Kanban
 
-Менеджер задач с Kanban-доской, диаграммой Ганта и дашбордом аналитики.
-GUI построен на **[Flet](https://flet.dev)** (Flutter) и работает в браузере.
+Kanban-доска, диаграмма Ганта и дашборд аналитики.
+Интерфейс на **[Flet](https://flet.dev)** (Flutter), открывается в браузере.
 
 ## ✨ Возможности
 
-- **Kanban-доска** — Todo → In Progress → Done, drag-and-drop
-- **Приоритеты** — Low / Medium / High / Critical
-- **Дедлайны и учёт времени**
+- **Доска** — К выполнению → В работе → Готово, drag-and-drop (вся колонка — зона)
+- **Приоритеты** — Низкий / Средний / Высокий / Критический
+- **Дедлайны с временем** — «ГГГГ-ММ-ДД» или «ГГГГ-ММ-ДД ЧЧ:ММ»
+- **Уведомления о сроках** — плашка на карточке за N часов (настройка) + окно при наступлении
 - **Диаграмма Ганта** — задачи во времени
 - **Дашборд** — статистика, разбивка по приоритету/типу/статусу, нагрузка на команду
-- **Jira-подобные поля** — тип задачи, story points, исполнитель, наблюдатели, теги
-- **Offline** — данные лежат локально в `data/db/tasks.json`
-- **Авто-обновление** — собранный `.exe` сам проверяет GitHub Releases и обновляется
-
-## 🚀 Запуск из исходников
-
-```bash
-pip install -r requirements.txt
-python main.py
-```
-
-Откроется вкладка браузера на `http://localhost:8550`.
-
-Кросс-платформенный лаунчер (создаёт venv, ставит зависимости, чинит сломанный venv):
-
-```bash
-python launcher.py          # или start.bat / start.sh
-```
+- **Jira-поля** — тип, очки истории, исполнитель, наблюдатели, теги
+- **Offline** — данные локально в `data/db/tasks.json`
+- **Авто-обновление** — бинарник сам проверяет GitHub Releases и обновляется
 
 ## 📦 Готовый бинарник
 
-Скачайте с [Releases](https://github.com/LgbtBsod/task_manager/releases):
+Скачайте под свою ОС с [Releases](https://github.com/LgbtBsod/task_manager/releases):
 
 | ОС | Файл |
 |----|------|
@@ -39,47 +25,65 @@ python launcher.py          # или start.bat / start.sh
 | Linux | `TaskManager-linux` |
 | macOS | `TaskManager-macos` |
 
-Просто запустите — Python не нужен. Данные создаются в папке `data/db/` рядом
-с исполняемым файлом и **не затрагиваются обновлениями**.
+Python не нужен. Запуск открывает вкладку браузера на `http://localhost:8550`.
+Задачи создаются в `data/db/` рядом с бинарником и **не трогаются обновлениями**.
 
-## 🔧 Собрать самому
+## 🚀 Запуск из исходников
 
 ```bash
-python build.py            # onefile для текущей ОС -> dist/
-python build.py --onedir   # папка (быстрее холодный старт)
+pip install -r requirements.txt
+python main.py                 # или:  python launcher.py  (сам поднимет venv)
 ```
 
-Мульти-платформенная сборка и публикация в Releases происходит автоматически
-в GitHub Actions при пуше тега `vX.Y.Z` (`.github/workflows/build.yml`).
+Опции: `--port N`, `--no-update` (для собранной версии).
+
+## 🔧 Сборка
+
+```bash
+python build.py                # onefile для текущей ОС -> dist/
+python build.py --onedir       # папка (быстрее холодный старт)
+```
+
+Мульти-платформенная сборка + публикация в Releases — автоматически в GitHub
+Actions по пушу тега `vX.Y.Z` (`.github/workflows/build.yml`).
+
+### Как выпустить обновление
+
+```bash
+echo 1.0.1 > version.txt
+git commit -am "v1.0.1" && git push
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+CI соберёт бинарники и создаст релиз `v1.0.1`. Установленные `v1.0.0`
+обновятся до него при следующем запуске.
 
 ## 🏗️ Архитектура
 
 ```
 task_manager/
-├── main.py                 # точка входа
-├── launcher.py             # venv + зависимости + запуск
-├── build.py                # сборка .exe (PyInstaller)
-├── requirements.txt        # рантайм-зависимости (Flet, web)
-├── requirements-ctk.txt    # опционально: старый CustomTkinter GUI
-├── version.txt             # текущая версия (читается апдейтером)
+├── main.py              # точка входа (self-update -> запуск Flet)
+├── launcher.py          # venv + зависимости + запуск (для исходников)
+├── build.py             # PyInstaller
+├── version.txt          # текущая версия (её читает апдейтер)
 ├── src/
-│   ├── core/               # модели, репозиторий (JSON), сервис, события
-│   ├── gui_flet/           # Flet UI: app, kanban_view, gantt_view, dashboard_view, task_dialog
-│   ├── gui/                # легаси CustomTkinter UI (--gui ctk)
-│   └── utils/              # logger, error_handler, updater, helpers
-└── data/db/                # хранилище задач (не в git)
+│   ├── core/            # models, repository (JSON), service, settings, events, datetimeutil
+│   ├── gui_flet/        # app, kanban_view, gantt_view, dashboard_view, task_dialog, labels
+│   └── utils/           # logger, error_handler, updater, helpers, _version
+└── data/db/             # задачи + настройки (не в git)
 ```
 
-- **Core** не знает про GUI; **GUI** зависит от `TaskService` через конструктор.
-- Репозиторий — единственный владелец формата данных (`tasks.json` — JSON-список).
-- Запись атомарная (`temp + os.replace`), битый JSON бэкапится, а не молча теряется.
+- **core** ничего не знает про GUI; **gui_flet** получает `TaskService` в конструкторе.
+- `TaskRepository` — единственный владелец формата (`tasks.json` — JSON-список).
+  Запись атомарная, битый / не в той кодировке JSON восстанавливается, а не теряется.
+- Каждая вкладка браузера — свой `TaskManagerApp`; общий только слой данных.
 
-## 🛠️ Технологии
+## 🛠️ Стек
 
-- **flet** `~=0.86` — GUI (Flutter web)
+- **flet** `~=0.86` — GUI (Flutter web, рендерер CanvasKit)
 - **pydantic** `v2` — валидация моделей
 - **workalendar** — праздники РФ (опционально)
-- **pyinstaller** — сборка бинарников
+- **pyinstaller** — бинарники
 
 ---
-*Python 3.11+ (тестируется на 3.14) · License: MIT*
+*Python 3.10+ (тестируется на 3.14) · MIT*
