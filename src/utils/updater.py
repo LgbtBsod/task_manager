@@ -61,9 +61,8 @@ class DownloadProgress:
     eta_seconds: float = 0.0  # Estimated time remaining
     
     def __post_init__(self):
-        """Calculate percent if total_bytes is known."""
         if self.total_bytes > 0:
-            object.__setattr__(self, 'percent', (self.bytes_downloaded / self.total_bytes) * 100)
+            self.percent = (self.bytes_downloaded / self.total_bytes) * 100
     
     @property
     def is_complete(self) -> bool:
@@ -100,34 +99,6 @@ class DownloadProgress:
         else:
             return f"{self.speed_mbps:.2f} MB/s"
     
-    def update_progress(self, bytes_downloaded: int, elapsed_time: float, total_bytes: Optional[int] = None):
-        """Update progress metrics and recalculate derived values.
-        
-        Args:
-            bytes_downloaded: Total bytes downloaded so far
-            elapsed_time: Time elapsed since download started (seconds)
-            total_bytes: Optional new total bytes value
-        """
-        object.__setattr__(self, 'bytes_downloaded', bytes_downloaded)
-        object.__setattr__(self, 'elapsed_time', elapsed_time)
-        
-        if total_bytes is not None:
-            object.__setattr__(self, 'total_bytes', total_bytes)
-        
-        # Recalculate speed
-        if elapsed_time > 0:
-            object.__setattr__(self, 'speed_bps', bytes_downloaded / elapsed_time)
-        
-        # Recalculate percent
-        if self.total_bytes > 0:
-            object.__setattr__(self, 'percent', (bytes_downloaded / self.total_bytes) * 100)
-        
-        # Recalculate ETA
-        if self.speed_bps > 0 and self.total_bytes > 0:
-            remaining_bytes = max(0, self.total_bytes - bytes_downloaded)
-            object.__setattr__(self, 'eta_seconds', remaining_bytes / self.speed_bps)
-        else:
-            object.__setattr__(self, 'eta_seconds', 0.0)
 
 
 class UpdateError(Exception):

@@ -10,13 +10,6 @@ if TYPE_CHECKING:
     from .app import TaskManagerApp
 
 
-STATUS_CONFIG = {
-    "Todo": {"color": "#0a84ff", "icon": "radio_button_unchecked"},
-    "In Progress": {"color": "#ff9f0a", "icon": "pending"},
-    "Done": {"color": "#30d158", "icon": "check_circle"},
-}
-
-
 def _format_due_info(task) -> tuple:
     if not task.due_date:
         return "", ""

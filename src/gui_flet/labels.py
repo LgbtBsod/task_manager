@@ -2,7 +2,7 @@
 
 The domain layer stores enum *values* in English ("Todo", "High", "Bug", …)
 so the data schema and every status/priority map keep working. The GUI shows
-these labels instead. `tr()` falls back to the raw value for anything unknown.
+these labels instead; each accessor falls back to the raw value when unknown.
 """
 
 APP_TITLE = "Менеджер задач"
@@ -46,16 +46,6 @@ UNIT_DAYS = "дн."
 UNIT_HOURS = "ч"
 UNIT_MINUTES = "мин"
 STORY_POINTS = "ОИ"  # очки истории (Story Points)
-
-_ALL = {}
-for _m in (STATUS, PRIORITY, TASK_TYPE, URGENCY):
-    _ALL.update(_m)
-
-
-def tr(value: str) -> str:
-    """Translate a single enum value; unknown values pass through unchanged."""
-    return _ALL.get(value, value)
-
 
 def status(value: str) -> str:
     return STATUS.get(value, value)
