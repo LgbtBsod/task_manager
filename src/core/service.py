@@ -8,7 +8,7 @@ import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Callable, Optional, List
 
 from .models import (
     Task, TaskStatus, Priority, TaskModel, SubTask,
@@ -27,6 +27,20 @@ class TaskService:
 
     def __init__(self, repository: Optional[TaskRepository] = None):
         self.repo = repository or TaskRepository()
+
+    def _edit(self, task_id: str, mutate: Callable[[Task], object]) -> Optional[Task]:
+        """load task → apply ``mutate`` → bump timestamp → save.
+
+        ``mutate`` records its own audit entry and returns ``False`` to abort
+        (task not found still returns ``None``).
+        """
+        task = self.repo.get_by_id(task_id)
+        if task is None:
+            return None
+        if mutate(task) is False:
+            return None
+        task.update_timestamp()
+        return self.repo.update(task)
 
     # ── Basic CRUD ──
 
@@ -222,69 +236,53 @@ class TaskService:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
-        sub = SubTask(title=title.strip())
-        task.subtasks.append(sub)
-        task.record_change("subtask_added", "", title.strip())
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Subtask added to {task_id}: {title.strip()}")
-        return updated
+        title = title.strip()
+
+        def m(task: Task):
+            task.subtasks.append(SubTask(title=title))
+            task.record_change("subtask_added", "", title)
+
+        return self._edit(task_id, m)
 
     def toggle_subtask(self, task_id: str, index: int) -> Optional[Task]:
         """Toggle subtask completion."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if not task.toggle_subtask(index):
-            log.warning(f"toggle_subtask: invalid index {index} for task {task_id}")
-            return None
-        sub = task.subtasks[index]
-        task.record_change("subtask_toggled", sub.title, "done" if sub.done else "undone")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        return updated
+        def m(task: Task):
+            if not task.toggle_subtask(index):
+                return False
+            sub = task.subtasks[index]
+            task.record_change("subtask_toggled", sub.title, "done" if sub.done else "undone")
+
+        return self._edit(task_id, m)
 
     def delete_subtask(self, task_id: str, index: int) -> Optional[Task]:
         """Delete a subtask by index."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if not (0 <= index < len(task.subtasks)):
-            log.warning(f"delete_subtask: invalid index {index} for task {task_id}")
-            return None
-        removed_title = task.subtasks[index].title
-        task.subtasks.pop(index)
-        task.record_change("subtask_deleted", removed_title, "")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        return updated
+        def m(task: Task):
+            if not (0 <= index < len(task.subtasks)):
+                return False
+            task.record_change("subtask_deleted", task.subtasks.pop(index).title, "")
+
+        return self._edit(task_id, m)
 
     # ── Comments ──
 
     def add_comment(self, task_id: str, author: str, text: str) -> Optional[Task]:
         """Add a comment to a task."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        comment = task.add_comment(author.strip(), text.strip())
-        task.record_change("comment_added", "", f"by {author.strip()}: {text.strip()[:50]}")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Comment added to {task_id} by {author.strip()}")
-        return updated
+        author, text = author.strip(), text.strip()
+
+        def m(task: Task):
+            task.add_comment(author, text)
+            task.record_change("comment_added", "", f"by {author}: {text[:50]}")
+
+        return self._edit(task_id, m)
 
     def delete_comment(self, task_id: str, comment_id: str) -> Optional[Task]:
         """Delete a comment from a task."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if not task.delete_comment(comment_id):
-            log.warning(f"delete_comment: comment {comment_id} not found in task {task_id}")
-            return None
-        task.record_change("comment_deleted", comment_id, "")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        return updated
+        def m(task: Task):
+            if not task.delete_comment(comment_id):
+                return False
+            task.record_change("comment_deleted", comment_id, "")
+
+        return self._edit(task_id, m)
 
     # ── Task Links ──
 
@@ -524,22 +522,17 @@ class TaskService:
 
     def set_epic_link(self, task_id: str, epic_task_id: Optional[str]) -> Optional[Task]:
         """Set or clear the epic link for a task."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if epic_task_id and epic_task_id != task.epic_link:
-            epic = self.repo.get_by_id(epic_task_id)
-            if not epic:
-                raise ValueError(f"Epic task {epic_task_id} not found")
-            if epic.task_type != TaskType.EPIC.value:
-                raise ValueError(f"Task {epic_task_id} is not an Epic")
-        old_epic = task.epic_link or ""
-        task.record_change("epic_link", old_epic, epic_task_id or "")
-        task.epic_link = epic_task_id
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Epic link for {task_id}: {old_epic} -> {epic_task_id}")
-        return updated
+        def m(task: Task):
+            if epic_task_id and epic_task_id != task.epic_link:
+                epic = self.repo.get_by_id(epic_task_id)
+                if not epic:
+                    raise ValueError(f"Epic task {epic_task_id} not found")
+                if epic.task_type != TaskType.EPIC.value:
+                    raise ValueError(f"Task {epic_task_id} is not an Epic")
+            task.record_change("epic_link", task.epic_link or "", epic_task_id or "")
+            task.epic_link = epic_task_id
+
+        return self._edit(task_id, m)
 
     def get_epic_children(self, epic_id: str) -> List[Task]:
         """Get all tasks linked to an epic."""
@@ -551,16 +544,13 @@ class TaskService:
         """Add time spent to a task."""
         if hours <= 0:
             raise ValueError("Hours must be positive")
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        old_time = task.time_spent
-        task.time_spent = round(old_time + hours, 2)
-        task.record_change("time_spent", str(old_time), str(task.time_spent))
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Logged {hours}h to {task_id} (total: {task.time_spent}h)")
-        return updated
+
+        def m(task: Task):
+            old = task.time_spent
+            task.time_spent = round(old + hours, 2)
+            task.record_change("time_spent", str(old), str(task.time_spent))
+
+        return self._edit(task_id, m)
 
     # ── Team Workload ──
 
