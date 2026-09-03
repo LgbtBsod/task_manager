@@ -246,19 +246,15 @@ class DropColumn:
             border_radius=8,
         )
 
-        self._list_view = ft.Column(
-            spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
-        )
+        self._list_view = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
 
-        # The card list lives inside a DragTarget so a card can be dropped
-        # anywhere in the column, not just on another card.
+        # Обёртываем список в DragTarget
         self._border_container = ft.DragTarget(
             group="tasks",
-            expand=True,
             content=ft.Container(
                 content=self._list_view,
                 padding=ft.Padding.only(left=8, right=8, bottom=8),
-                expand=True,
+                height=450,
                 border=ft.Border.all(1, COLORS["border_color"]),
                 border_radius=12,
                 bgcolor=COLORS["bg_card"],
@@ -269,11 +265,9 @@ class DropColumn:
         )
 
         return ft.Container(
-            content=ft.Column(
-                controls=[header, self._border_container],
-                spacing=8, expand=True,
-            ),
-            width=340,
+            content=ft.Column(controls=[header, self._border_container], spacing=8),
+            width=500,
+            height=540,
             padding=12,
             bgcolor=COLORS["bg_card"],
             border=ft.Border.all(1, COLORS["border_color"]),
@@ -338,22 +332,15 @@ class KanbanView:
         self.done_col = DropColumn(self.app, "Done", "#30d158", "Done", icon="check_circle")
 
         self.container = ft.Container(
-            content=ft.Row(
-                [
-                    self.todo_col.build(),
-                    ft.Container(width=10),
-                    self.progress_col.build(),
-                    ft.Container(width=10),
-                    self.done_col.build(),
-                ],
-                spacing=0,
-                scroll=ft.ScrollMode.AUTO,
-                vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-                expand=True,
-            ),
+            content=ft.Row([
+                self.todo_col.build(),
+                ft.Container(width=8),
+                self.progress_col.build(),
+                ft.Container(width=8),
+                self.done_col.build(),
+            ], spacing=0, scroll=ft.ScrollMode.AUTO),
             padding=12,
             bgcolor=COLORS["bg_dark"],
-            expand=True,
         )
 
     def update_tasks(self, todo, in_progress, done):
