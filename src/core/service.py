@@ -54,7 +54,8 @@ class TaskService:
     ) -> Task:
         log.info(f"Creating task: {title[:50]}")
         try:
-            task_model = TaskModel(
+            # Task.__post_init__ runs the (single) pydantic validation pass.
+            task = Task(
                 title=title.strip(),
                 description=description.strip(),
                 priority=priority, due_date=due_date,
@@ -62,8 +63,6 @@ class TaskService:
                 assignee=assignee, story_points=story_points,
                 task_type=task_type, time_spent=time_spent,
             )
-            task = task_model.to_task()
-            # Set extra fields not in TaskModel
             if urgency != Urgency.NORMAL.value:
                 task.urgency = urgency
             if watchers:
@@ -78,7 +77,7 @@ class TaskService:
                 task.version_id = version_id
             if original_estimate > 0:
                 task.original_estimate = original_estimate
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             log.error(f"Validation failed for task '{title}': {e}")
             raise ValueError(f"Validation failed: {e}")
 

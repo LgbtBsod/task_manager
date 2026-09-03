@@ -456,14 +456,9 @@ class ActivityEntry(_DataclassJSON):
 # Each value is a dict: from_status -> list of allowed to_statuses.
 # '*' means all statuses.
 WORKFLOW_TRANSITIONS: dict[str, dict[str, list[str]]] = {
-    # Default: Todo <-> In Progress <-> Done (any direction)
+    # Todo <-> In Progress <-> Done (any direction). Keyed by task type;
+    # "*" is the fallback and currently the only rule.
     "*": {
-        TaskStatus.TODO.value: [TaskStatus.IN_PROGRESS.value],
-        TaskStatus.IN_PROGRESS.value: [TaskStatus.TODO.value, TaskStatus.DONE.value],
-        TaskStatus.DONE.value: [TaskStatus.IN_PROGRESS.value],
-    },
-    # Bug: must go Todo -> In Progress -> Done (no going back from Done)
-    TaskType.BUG.value: {
         TaskStatus.TODO.value: [TaskStatus.IN_PROGRESS.value],
         TaskStatus.IN_PROGRESS.value: [TaskStatus.TODO.value, TaskStatus.DONE.value],
         TaskStatus.DONE.value: [TaskStatus.IN_PROGRESS.value],

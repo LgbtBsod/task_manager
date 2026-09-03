@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import labels as L
+from core.models import TaskStatus
 
 APP_DIR = Path(__file__).parent.parent.parent
 DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
@@ -207,7 +208,6 @@ class TaskManagerApp:
                 pass
 
     def _check_deadlines(self):
-        from core.models import TaskStatus
         just_passed = []
         for t in self.service.get_all_tasks():
             if t.status == TaskStatus.DONE or not t.due_date:
@@ -374,7 +374,6 @@ class TaskManagerApp:
         self.refresh_all()
 
     def _filter_and_sort(self, tasks):
-        from core.models import TaskStatus
         if self._search_query:
             q = self._search_query
             tasks = [t for t in tasks
@@ -389,7 +388,6 @@ class TaskManagerApp:
         return tasks
 
     def refresh_all(self):
-        from core.models import TaskStatus
         all_tasks = self._filter_and_sort(self.service.get_all_tasks())
 
         if self.current_view == "kanban":
@@ -516,7 +514,6 @@ class TaskManagerApp:
 
     def show_edit_dialog(self, task):
         from .task_dialog import show_task_dialog
-        from core.models import TaskStatus, Priority
 
         def on_save(**kwargs):
             try:
@@ -566,7 +563,6 @@ class TaskManagerApp:
             self._show_snackbar(str(e), error=True)
 
     def handle_drop(self, task, target_status_value: str):
-        from core.models import TaskStatus
         STATUS_MAP = {
             "Todo": TaskStatus.TODO,
             "In Progress": TaskStatus.IN_PROGRESS,
