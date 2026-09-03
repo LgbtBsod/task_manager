@@ -55,7 +55,7 @@ class TaskManagerApp:
         self.current_view: str = "kanban"
         self._search_query: str = ""
         self._sort_mode: str = "default"
-        self._notified_overdue: set = set()
+        self.deadline_watcher = None
 
     def _ensure_wired(self):
         """Build a default AppContext when the app was constructed bare
@@ -151,7 +151,12 @@ class TaskManagerApp:
 
         # In-app deadline checker.
         try:
-            page.run_task(self._deadline_watcher)
+            from .deadline_watcher import DeadlineWatcher
+            self.deadline_watcher = DeadlineWatcher(
+                self.service, self.settings, page,
+                on_refresh=lambda: self.refresh_all() if self.current_view == "kanban" else None,
+            )
+            page.run_task(self.deadline_watcher.run)
         except Exception:
             pass
 
@@ -161,52 +166,6 @@ class TaskManagerApp:
             page.run_task(check_on_start, self)
         except Exception:
             pass
-
-    async def _deadline_watcher(self):
-        """Periodically flag tasks nearing their deadline and pop up overdue ones."""
-        import asyncio
-        while True:
-            try:
-                interval = int(self.settings.get("notify_check_seconds") or 60)
-            except (TypeError, ValueError):
-                interval = 60
-            await asyncio.sleep(max(15, interval))
-            if not self.settings.get("notifications_enabled"):
-                continue
-            try:
-                self._check_deadlines()
-            except Exception:
-                pass
-
-    def _check_deadlines(self):
-        just_passed = []
-        for t in self.service.get_all_tasks():
-            if t.status == TaskStatus.DONE or not t.due_date:
-                continue
-            secs = t.seconds_until_due()
-            if secs is None:
-                continue
-            if secs < 0 and t.id not in self._notified_overdue:
-                self._notified_overdue.add(t.id)
-                just_passed.append(t)
-        if just_passed:
-            self._popup_overdue(just_passed)
-        # keep "скоро" badges fresh
-        if self.current_view == "kanban":
-            self.refresh_all()
-
-    def _popup_overdue(self, tasks):
-        names = "\n".join(f"•  {t.title}" for t in tasks[:8])
-        extra = f"\n… и ещё {len(tasks) - 8}" if len(tasks) > 8 else ""
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Row([ft.Icon(ic("warning"), color=COLORS["accent_red"]),
-                          ft.Text("Наступил срок задач")], spacing=8),
-            content=ft.Text(names + extra),
-            actions=[ft.TextButton("Понятно", on_click=lambda e: self.page.pop_dialog())],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        self.page.show_dialog(dlg)
 
     def _theme_toggle_button(self) -> ft.IconButton:
         mode = self.settings.get("theme_mode") or "dark"
@@ -483,7 +442,8 @@ class TaskManagerApp:
                 return
             s.update(notifications_enabled=enabled.value, notify_hours_before=h,
                      check_updates_on_start=auto_updates.value)
-            self._notified_overdue.clear()
+            if self.deadline_watcher is not None:
+                self.deadline_watcher.reset()
             self.page.pop_dialog()
             if chosen["mode"] != s.get("theme_mode") or chosen["accent"] != s.get("accent_color"):
                 self.set_theme(mode=chosen["mode"], accent=chosen["accent"])
