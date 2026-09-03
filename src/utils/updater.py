@@ -294,21 +294,26 @@ class AutoUpdater:
         except Exception as exc:
             return False, f"Download failed: {str(exc)}"
 
+    _VER_WIDTH = 16  # supports schemes like v.1.0.0.0.0.0.2.1.8.b
+
     @staticmethod
     def _parse_version(version_str: str) -> Tuple[Tuple[int, ...], str, str]:
         import re
 
-        version_str = version_str.lstrip("v").strip()
-        pattern = r"^(\d+(?:\.\d+)*)([a-zA-Z]+)?(\d*)$"
+        W = AutoUpdater._VER_WIDTH
+        # tolerate a leading 'v', 'v.' and surrounding whitespace
+        version_str = version_str.strip().lstrip("vV").strip(". ").strip()
+        pattern = r"^(\d+(?:\.\d+)*)[.\- ]?([a-zA-Z]+)?(\d*)$"
         match = re.match(pattern, version_str)
         if not match:
             parts = re.findall(r"\d+", version_str)
-            padded = tuple(int(p) for p in parts[:8]) + (0,) * max(0, 8 - len(parts))
-            return padded, "", ""
+            pre = re.search(r"[a-zA-Z]+", version_str)
+            padded = tuple(int(p) for p in parts[:W]) + (0,) * max(0, W - len(parts))
+            return padded, (pre.group(0).lower() if pre else ""), ""
 
         base_version, pre_type, pre_num = match.groups()
         base_parts = [int(p) for p in base_version.split(".")]
-        numeric = tuple(base_parts[:8]) + (0,) * max(0, 8 - len(base_parts))
+        numeric = tuple(base_parts[:W]) + (0,) * max(0, W - len(base_parts))
 
         pre_type = (pre_type or "").lower().strip()
         pre_num = (pre_num or "0").strip()

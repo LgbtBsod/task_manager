@@ -131,23 +131,24 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     )
     error_label = ft.Text("", size=12, color=COLORS["accent_red"])
 
-    def _validate_date(date_str: str) -> bool:
-        if not date_str:
-            return True
-        from datetime import datetime
-        try:
-            datetime.strptime(date_str.strip(), "%Y-%m-%d")
-            return True
-        except ValueError:
-            return False
+    def _err(msg: str):
+        """Show a validation message. Refresh via the dialog (always mounted)
+        rather than the label alone."""
+        error_label.value = msg
+        for ctl in (error_label, dlg):
+            try:
+                if getattr(ctl, "page", None) is not None:
+                    ctl.update()
+                    break
+            except (AttributeError, AssertionError, RuntimeError):
+                pass
 
     def on_save_click(e):
         from core.models import Priority
 
         t = title_field.value.strip()
         if not t:
-            error_label.value = "Название обязательно"
-            error_label.update()
+            _err("Название обязательно")
             return
 
         s_time = (start_time_field.value or "").strip()
@@ -155,15 +156,12 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         start_val = normalize(start_date_value, s_time)
         due_val = normalize(due_date_value, d_time)
         if s_time and not start_date_value.strip():
-            error_label.value = "Сначала выберите дату начала"
-            error_label.update(); return
+            _err("Сначала выберите дату начала"); return
         if d_time and not due_date_value.strip():
-            error_label.value = "Сначала выберите дату дедлайна"
-            error_label.update(); return
+            _err("Сначала выберите дату дедлайна"); return
         if (s_time and start_val and " " not in start_val) or \
            (d_time and due_val and " " not in due_val):
-            error_label.value = "Время в формате ЧЧ:ММ (например 14:30)"
-            error_label.update(); return
+            _err("Время в формате ЧЧ:ММ (например 14:30)"); return
 
         try:
             time_val = float(time_field.value.strip() or "0")

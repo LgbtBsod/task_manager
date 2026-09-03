@@ -30,7 +30,9 @@ jobs:
           tests/test_functional.py tests/test_jira_features.py
           tests/test_new_features.py tests/test_extended.py
           tests/test_updater.py tests/test_updater_download.py
-          tests/test_post_update.py test_integration_ux.py
+          test_integration_ux.py
+        # test_launcher.py / test_stress.py need a real venv layout or are
+        # timing-sensitive -> run those locally, not in CI.
 
   build:
     needs: test
