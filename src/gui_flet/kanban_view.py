@@ -20,18 +20,19 @@ STATUS_CONFIG = {
 def _format_due_info(task) -> tuple:
     if not task.due_date:
         return "", ""
+    from core.datetimeutil import display as _dsp
+    shown = _dsp(task.due_date)
     days = task.days_until_due()
-    if days is None:
-        return task.due_date, "#86868b"
-    if task.status.value == "Done":
-        return task.due_date, "#86868b"
-    if days < 0:
-        return f"Просрочен: {task.due_date}", "#F44336"
+    if days is None or task.status.value == "Done":
+        return shown, "#86868b"
+    secs = task.seconds_until_due()
+    if secs is not None and secs < 0:
+        return f"Просрочен: {shown}", "#F44336"
     if days == 0:
-        return f"Сегодня: {task.due_date}", "#ff9f0a"
+        return f"Сегодня: {shown}", "#ff9f0a"
     if days <= 3:
-        return f"Скоро: {task.due_date}", "#ff9f0a"
-    return task.due_date, "#86868b"
+        return f"Скоро: {shown}", "#ff9f0a"
+    return shown, "#86868b"
 
 
 def _format_time(hours: float) -> str:

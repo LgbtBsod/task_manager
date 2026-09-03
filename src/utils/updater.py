@@ -543,30 +543,25 @@ class AutoUpdater:
                 "@echo off\r\n"
                 "setlocal\r\n"
                 f'set "LOG={log_path}"\r\n'
-                'echo [%date% %time%] restart helper started > "%LOG%"\r\n'
+                f'set "TGT={target}"\r\n'
+                f'set "SRC={staged}"\r\n'
+                'echo [%date% %time%] helper started > "%LOG%"\r\n'
                 "ping -n 4 127.0.0.1 >nul\r\n"
-                f'move /Y "{staged}" "{target}" >nul 2>&1\r\n'
+                'move /Y "%SRC%" "%TGT%" >nul 2>&1\r\n'
                 'if errorlevel 1 (\r\n'
                 '  ping -n 4 127.0.0.1 >nul\r\n'
-                f'  move /Y "{staged}" "{target}" >nul 2>&1\r\n'
+                '  move /Y "%SRC%" "%TGT%" >nul 2>&1\r\n'
                 ')\r\n'
-                f'echo [%date% %time%] move rc=%errorlevel% >> "%LOG%"\r\n'
-                f'start "" "{target}" --no-update\r\n'
-                f'echo [%date% %time%] relaunched >> "%LOG%"\r\n'
+                'echo [%date% %time%] move rc=%errorlevel% >> "%LOG%"\r\n'
+                "ping -n 3 127.0.0.1 >nul\r\n"  # let AV finish scanning the new file
+                'start "" "%TGT%" --no-update\r\n'
+                'echo [%date% %time%] relaunched via start >> "%LOG%"\r\n'
                 'del /f /q "%~f0" >nul 2>&1\r\n',
                 encoding="utf-8",
             )
-            flags = (getattr(sp, "DETACHED_PROCESS", 0)
-                     | getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0)
-                     | getattr(sp, "CREATE_BREAKAWAY_FROM_JOB", 0))
-            try:
-                sp.Popen(["cmd", "/c", str(helper)], creationflags=flags,
-                         close_fds=True, cwd=str(self.app_dir))
-            except OSError:
-                # CREATE_BREAKAWAY_FROM_JOB can be refused; retry without it.
-                sp.Popen(["cmd", "/c", str(helper)],
-                         creationflags=getattr(sp, "DETACHED_PROCESS", 0),
-                         close_fds=True, cwd=str(self.app_dir))
+            sp.Popen(["cmd", "/c", str(helper)],
+                     creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0),
+                     close_fds=True, cwd=str(self.app_dir))
         else:
             helper = self.app_dir / "update_restart.sh"
             helper.write_text(

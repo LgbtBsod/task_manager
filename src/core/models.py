@@ -6,6 +6,8 @@ from typing import Optional, Self, List, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .datetimeutil import parse_dt, date_part
+
 
 # Type aliases for better type hints
 TaskID = str
@@ -225,13 +227,11 @@ class TaskModel(BaseModel):
     @field_validator('due_date', 'start_date')
     @classmethod
     def validate_date_format(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        try:
-            datetime.strptime(v, "%Y-%m-%d")
-            return v
-        except ValueError:
-            raise ValueError("Invalid date format. Use YYYY-MM-DD")
+        if v is None or v == "":
+            return None
+        if parse_dt(v) is None:
+            raise ValueError("Формат даты: ГГГГ-ММ-ДД или ГГГГ-ММ-ДД ЧЧ:ММ")
+        return v.strip()
     
     @field_validator('task_type')
     @classmethod
@@ -244,10 +244,10 @@ class TaskModel(BaseModel):
     @model_validator(mode='after')
     def validate_dates_consistency(self) -> Self:
         if self.start_date and self.due_date:
-            start_dt = datetime.strptime(self.start_date, "%Y-%m-%d")
-            due_dt = datetime.strptime(self.due_date, "%Y-%m-%d")
-            if due_dt < start_dt:
-                raise ValueError("Due date must be after start date")
+            start_dt = parse_dt(self.start_date)
+            due_dt = parse_dt(self.due_date)
+            if start_dt and due_dt and due_dt < start_dt:
+                raise ValueError("Дедлайн должен быть не раньше даты начала")
         return self
     
     def to_task(self) -> 'Task':
@@ -379,36 +379,46 @@ class Task:
         # Validation runs once, in __post_init__ (TaskModel.from_task).
         return cls(**data)
 
+    def _due_dt(self):
+        return parse_dt(self.due_date)
+
     def is_overdue(self) -> bool:
-        if self.due_date is None or self.status == TaskStatus.DONE:
+        if not self.due_date or self.status == TaskStatus.DONE:
             return False
-        try:
-            return datetime.strptime(self.due_date, "%Y-%m-%d") < datetime.now()
-        except ValueError:
-            return False
+        dt = self._due_dt()
+        return dt is not None and dt < datetime.now()
 
     def days_until_due(self) -> Optional[int]:
-        if self.due_date is None:
+        dt = self._due_dt()
+        if dt is None:
             return None
-        try:
-            delta = datetime.strptime(self.due_date, "%Y-%m-%d") - datetime.now()
-            return delta.days
-        except ValueError:
+        return (dt - datetime.now()).days
+
+    def seconds_until_due(self) -> Optional[float]:
+        """Signed seconds to the deadline (negative once overdue)."""
+        dt = self._due_dt()
+        if dt is None:
             return None
+        return (dt - datetime.now()).total_seconds()
+
+    def due_has_time(self) -> bool:
+        from .datetimeutil import has_time
+        return has_time(self.due_date)
 
     def update_timestamp(self):
         self.updated_at = datetime.now().isoformat()
 
     def get_gantt_start(self) -> str:
-        if self.start_date:
-            return self.start_date
+        d = date_part(self.start_date)
+        if d:
+            return d
         return (self.created_at or datetime.now().isoformat())[:10]
 
     def get_gantt_end(self) -> str:
         if self.status == TaskStatus.DONE and self.updated_at:
             end_date = self.updated_at[:10]
-        elif self.due_date:
-            end_date = self.due_date
+        elif date_part(self.due_date):
+            end_date = date_part(self.due_date)
         else:
             start = self.get_gantt_start()
             try:
