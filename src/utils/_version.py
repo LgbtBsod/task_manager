@@ -10,13 +10,15 @@ from pathlib import Path
 
 
 def _candidates() -> list:
+    out = []
+    if getattr(sys, "frozen", False):
+        # Authoritative after an update.
+        out.append(Path(sys.executable).resolve().parent / "version.txt")
     here = Path(__file__).resolve().parent.parent.parent  # src/ -> root / _MEIPASS
-    out = [here / "version.txt"]
+    out.append(here / "version.txt")
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         out.append(Path(meipass) / "version.txt")
-    if getattr(sys, "frozen", False):
-        out.append(Path(sys.executable).resolve().parent / "version.txt")
     return out
 
 

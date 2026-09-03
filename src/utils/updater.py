@@ -140,7 +140,11 @@ class AutoUpdater:
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.current_version = current_version
-        self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        # TASKMANAGER_UPDATE_API lets you point the updater at a self-hosted
+        # GitHub-compatible endpoint (or a test server). Must expose
+        # `<base>/releases/latest`.
+        override = os.environ.get("TASKMANAGER_UPDATE_API", "").rstrip("/")
+        self.api_url = override or f"https://api.github.com/repos/{repo_owner}/{repo_name}"
         self.is_frozen = bool(getattr(sys, "frozen", False))
         self.app_dir = (
             Path(sys.executable).resolve().parent
@@ -713,15 +717,20 @@ class AutoUpdater:
 
 
 def _version_file_candidates() -> list:
-    """Every place version.txt might live, source or frozen."""
+    """Every place version.txt might live, most-authoritative first.
+
+    For a frozen app the copy next to the .exe wins: the updater writes it
+    there after a successful update, while the bundled copy is frozen at build
+    time (trusting it would cause an endless update loop).
+    """
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / "version.txt")
     here = Path(__file__).resolve().parent.parent.parent  # src/ -> repo root / _MEIPASS
-    candidates = [here / "version.txt"]
+    candidates.append(here / "version.txt")
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidates.append(Path(meipass) / "version.txt")
-    if getattr(sys, "frozen", False):
-        # Written next to the .exe by the updater after a successful update.
-        candidates.append(Path(sys.executable).resolve().parent / "version.txt")
     return candidates
 
 
