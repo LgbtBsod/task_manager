@@ -518,9 +518,10 @@ class AutoUpdater:
 
     def _update_version_file(self, new_version: str) -> None:
         version_file = self.app_dir / "version.txt"
+        clean = str(new_version).strip().lstrip("vV").strip()
         try:
-            version_file.write_text(str(new_version).strip(), encoding="utf-8")
-            logger.info("Version updated to %s", new_version)
+            version_file.write_text(clean + "\n", encoding="utf-8")
+            logger.info("Version updated to %s", clean)
         except Exception as exc:
             logger.warning("Could not update version.txt: %s", exc)
 
@@ -537,17 +538,35 @@ class AutoUpdater:
         import subprocess as sp
         if sys.platform == "win32":
             helper = self.app_dir / "update_restart.cmd"
+            log_path = self.app_dir / "logs" / "update_restart.log"
             helper.write_text(
-                "@echo off\n"
-                "ping -n 3 127.0.0.1 >nul\n"
-                f'move /Y "{staged}" "{target}" >nul 2>&1\n'
-                f'if errorlevel 1 ( ping -n 3 127.0.0.1 >nul & move /Y "{staged}" "{target}" >nul 2>&1 )\n'
-                f'start "" "{target}"\n'
-                '(goto) 2>nul & del /f /q "%~f0"\n',
+                "@echo off\r\n"
+                "setlocal\r\n"
+                f'set "LOG={log_path}"\r\n'
+                'echo [%date% %time%] restart helper started > "%LOG%"\r\n'
+                "ping -n 4 127.0.0.1 >nul\r\n"
+                f'move /Y "{staged}" "{target}" >nul 2>&1\r\n'
+                'if errorlevel 1 (\r\n'
+                '  ping -n 4 127.0.0.1 >nul\r\n'
+                f'  move /Y "{staged}" "{target}" >nul 2>&1\r\n'
+                ')\r\n'
+                f'echo [%date% %time%] move rc=%errorlevel% >> "%LOG%"\r\n'
+                f'start "" "{target}" --no-update\r\n'
+                f'echo [%date% %time%] relaunched >> "%LOG%"\r\n'
+                'del /f /q "%~f0" >nul 2>&1\r\n',
                 encoding="utf-8",
             )
-            sp.Popen([str(helper)], shell=True,
-                     creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0))
+            flags = (getattr(sp, "DETACHED_PROCESS", 0)
+                     | getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0)
+                     | getattr(sp, "CREATE_BREAKAWAY_FROM_JOB", 0))
+            try:
+                sp.Popen(["cmd", "/c", str(helper)], creationflags=flags,
+                         close_fds=True, cwd=str(self.app_dir))
+            except OSError:
+                # CREATE_BREAKAWAY_FROM_JOB can be refused; retry without it.
+                sp.Popen(["cmd", "/c", str(helper)],
+                         creationflags=getattr(sp, "DETACHED_PROCESS", 0),
+                         close_fds=True, cwd=str(self.app_dir))
         else:
             helper = self.app_dir / "update_restart.sh"
             helper.write_text(
