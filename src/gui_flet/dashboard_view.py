@@ -3,6 +3,7 @@ import flet as ft
 from typing import Optional, TYPE_CHECKING
 
 from .app import COLORS, ic
+from . import labels as L
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -128,22 +129,22 @@ class DashboardView:
 
         prio_section = []
         for prio, color in [("Low", "#4CAF50"), ("Medium", "#FF9800"), ("High", "#F44336"), ("Critical", "#FF1744")]:
-            bar = PriorityBar(prio, color, 0, 1, padding=ft.Padding.only(bottom=12))
+            bar = PriorityBar(L.priority(prio), color, 0, 1, padding=ft.Padding.only(bottom=12))
             self.prio_bars[prio] = bar
             prio_section.append(bar)
 
         type_section = []
         type_config = [("Task", "#86868b"), ("Bug", "#ff453a"), ("Story", "#bf5af2"), ("Epic", "#ff9f0a"), ("Sub-task", "#30d158")]
         for ttype, color in type_config:
-            bar = TypeBar(ttype, color, 0, 1, padding=ft.Padding.only(bottom=12))
+            bar = TypeBar(L.task_type(ttype), color, 0, 1, padding=ft.Padding.only(bottom=12))
             self.type_bars[ttype] = bar
             type_section.append(bar)
 
         status_section = []
         status_config = [
-            ("todo", "Todo", COLORS["accent_blue"]),
-            ("in_progress", "В работе", COLORS["accent_orange"]),
-            ("done", "Готово", COLORS["accent_green"]),
+            ("todo", L.STATUS["Todo"], COLORS["accent_blue"]),
+            ("in_progress", L.STATUS["In Progress"], COLORS["accent_orange"]),
+            ("done", L.STATUS["Done"], COLORS["accent_green"]),
         ]
         for key, label, color in status_config:
             lbl = ft.Text(f"{label}: 0", size=13, color=COLORS["text_primary"])
@@ -163,7 +164,7 @@ class DashboardView:
         ], spacing=8)
 
         self.container = ft.Column([
-            ft.Container(content=ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD,
+            ft.Container(content=ft.Text(L.NAV["dashboard"], size=24, weight=ft.FontWeight.BOLD,
                                               color=COLORS["text_primary"]),
                            padding=ft.Padding.only(left=20, top=15, bottom=20)),
             ft.Container(content=ft.Row([
@@ -249,7 +250,7 @@ class DashboardView:
             "in_progress": stats["by_status"]["in_progress"],
             "done": stats["by_status"]["done"],
         }
-        status_labels_map = {"todo": "Todo", "in_progress": "В работе", "done": "Готово"}
+        status_labels_map = {"todo": L.STATUS["Todo"], "in_progress": L.STATUS["In Progress"], "done": L.STATUS["Done"]}
         for key, count in status_map.items():
             pct = (count / total * 100) if total > 0 else 0
             if key in self._status_labels:
@@ -289,7 +290,7 @@ class DashboardView:
                     ft.Text(f"{in_prog} в работе", size=12,
                             color=COLORS["accent_orange"] if in_prog > 0 else COLORS["text_secondary"]),
                     ft.Container(width=12),
-                    ft.Text(f"SP:{sp}" if sp else "", size=12, color=COLORS["accent_purple"]),
+                    ft.Text(f"{L.STORY_POINTS}:{sp}" if sp else "", size=12, color=COLORS["accent_purple"]),
                     ft.Container(width=12),
                     ft.Text(_format_time(time_s) if time_s > 0 else "", size=12, color=COLORS["text_secondary"]),
                 ], spacing=4)
@@ -300,9 +301,9 @@ class DashboardView:
 
 def _format_time(hours: float) -> str:
     if hours < 1:
-        return f"{int(hours * 60)}m"
+        return f"{int(hours * 60)}{L.UNIT_MINUTES}"
     h = int(hours)
     m = int((hours - h) * 60)
     if m == 0:
-        return f"{h}h"
-    return f"{h}h {m}m"
+        return f"{h}{L.UNIT_HOURS}"
+    return f"{h}{L.UNIT_HOURS} {m}{L.UNIT_MINUTES}"

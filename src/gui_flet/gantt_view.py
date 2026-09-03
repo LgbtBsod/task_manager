@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
 from .app import COLORS, PRIORITY_COLORS, ic
+from . import labels as L
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -51,7 +52,7 @@ class GanttView:
 
         header = ft.Container(
             content=ft.Row([
-                ft.Text("Gantt Chart", size=18, weight=ft.FontWeight.BOLD,
+                ft.Text("Диаграмма Ганта", size=18, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_primary"]),
                 ft.Container(expand=True),
                 ft.Row(btns, spacing=4),
@@ -189,10 +190,10 @@ class GanttView:
                 padding=ft.Padding.only(left=8, right=8), alignment=ft.Alignment(-1, 0),
                 opacity=0.55 if is_done else 1.0,
                 on_click=lambda e, t=task: self.app.show_edit_dialog(t),
-                tooltip=f"{task.title} | {task.priority.value} | {task.status.value} | {task.get_gantt_start()} - {task.get_gantt_end()}",
+                tooltip=f"{task.title} | {L.priority(task.priority.value)} | {L.status(task.status.value)} | {task.get_gantt_start()} — {task.get_gantt_end()}",
             )
 
-            duration_label = f"{duration}d" if duration > 0 else ""
+            duration_label = f"{duration} {L.UNIT_DAYS}" if duration > 0 else ""
             due_info = " !" if (task.due_date and task.is_overdue()) else ""
 
             row_children = [

@@ -18,25 +18,18 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     priority_var = task.priority.value if task else "Medium"
     priority_field = ft.Dropdown(
         label="Приоритет", value=priority_var,
-        options=[
-            ft.dropdown.Option("Low", text="Low"),
-            ft.dropdown.Option("Medium", text="Medium"),
-            ft.dropdown.Option("High", text="High"),
-            ft.dropdown.Option("Critical", text="Critical"),
-        ], text_size=14, border_radius=8, width=200,
+        options=[ft.dropdown.Option(v, text=L.priority(v))
+                 for v in ("Low", "Medium", "High", "Critical")],
+        text_size=14, border_radius=8, width=200,
     )
 
-    # Task type (Jira)
+    # Тип задачи
     task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
     task_type_field = ft.Dropdown(
         label="Тип", value=task_type_var,
-        options=[
-            ft.dropdown.Option("Task", text="Task"),
-            ft.dropdown.Option("Bug", text="Bug"),
-            ft.dropdown.Option("Story", text="Story"),
-            ft.dropdown.Option("Epic", text="Epic"),
-            ft.dropdown.Option("Sub-task", text="Sub-task"),
-        ], text_size=14, border_radius=8, width=200,
+        options=[ft.dropdown.Option(v, text=L.task_type(v))
+                 for v in ("Task", "Bug", "Story", "Epic", "Sub-task")],
+        text_size=14, border_radius=8, width=200,
     )
 
     # Date pickers with calendar
@@ -114,19 +107,16 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         text_size=14, border_radius=8, width=200,
     )
     story_points_field = ft.TextField(
-        label="Story Points",
+        label="Очки истории",
         value=str(task.story_points) if task and task.story_points else "",
         text_size=14, border_radius=8, width=200,
     )
 
     urgency_field = ft.Dropdown(
         label="Срочность", value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
-        options=[
-            ft.dropdown.Option("Low", text="Low"),
-            ft.dropdown.Option("Normal", text="Normal"),
-            ft.dropdown.Option("High", text="High"),
-            ft.dropdown.Option("Urgent", text="Urgent"),
-        ], text_size=14, border_radius=8, width=200,
+        options=[ft.dropdown.Option(v, text=L.urgency(v))
+                 for v in ("Low", "Normal", "High", "Urgent")],
+        text_size=14, border_radius=8, width=200,
     )
     watchers_field = ft.TextField(
         label="Наблюдатели (через запятую)",

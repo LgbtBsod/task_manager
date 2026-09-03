@@ -5,6 +5,8 @@ import flet as ft
 from pathlib import Path
 from typing import Optional
 
+from . import labels as L
+
 APP_DIR = Path(__file__).parent.parent.parent
 DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
 
@@ -104,7 +106,7 @@ class TaskManagerApp:
         self.init_service()
         self.page = page
 
-        page.title = "Task Manager"
+        page.title = L.APP_TITLE
         page.theme = DARK_THEME
         page.dark_theme = DARK_THEME
         page.theme_mode = ft.ThemeMode.DARK
@@ -153,9 +155,9 @@ class TaskManagerApp:
     def _build_top_bar(self, page: ft.Page):
         self.nav_buttons = {}
         nav_items = [
-            ("kanban", "Kanban", "view_kanban"),
-            ("gantt", "Gantt", "bar_chart"),
-            ("dashboard", "Dashboard", "dashboard"),
+            ("kanban", L.NAV["kanban"], "view_kanban"),
+            ("gantt", L.NAV["gantt"], "bar_chart"),
+            ("dashboard", L.NAV["dashboard"], "dashboard"),
         ]
 
         nav_buttons_row = []
@@ -212,7 +214,7 @@ class TaskManagerApp:
         top_bar = ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Text("Task Manager", size=18, weight=ft.FontWeight.BOLD,
+                    ft.Text(L.APP_TITLE, size=18, weight=ft.FontWeight.BOLD,
                             color=COLORS["text_primary"]),
                     ft.Container(width=20),
                     *nav_buttons_row,
@@ -427,7 +429,7 @@ def run_app(db_path: str = None, port: int = 8550):
             import urllib.request
             urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read(1)
             webbrowser.open(f"http://127.0.0.1:{port}/")
-            print(f"Task Manager is already running at http://127.0.0.1:{port}/")
+            print(f"Менеджер задач уже запущен: http://127.0.0.1:{port}/")
             return
         except Exception:
             # Something else holds the port — fall back to an ephemeral one.

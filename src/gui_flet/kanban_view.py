@@ -4,6 +4,7 @@ import flet as ft
 from typing import Optional, TYPE_CHECKING
 
 from .app import COLORS, PRIORITY_COLORS, ic
+from . import labels as L
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -35,12 +36,12 @@ def _format_due_info(task) -> tuple:
 
 def _format_time(hours: float) -> str:
     if hours < 1:
-        return f"{int(hours * 60)}m"
+        return f"{int(hours * 60)}{L.UNIT_MINUTES}"
     h = int(hours)
     m = int((hours - h) * 60)
     if m == 0:
-        return f"{h}h"
-    return f"{h}h {m}m"
+        return f"{h}{L.UNIT_HOURS}"
+    return f"{h}{L.UNIT_HOURS} {m}{L.UNIT_MINUTES}"
 
 
 class TaskCard:
@@ -101,13 +102,13 @@ class TaskCard:
         header_right = []
         if task.task_type != "Task":
             header_right.append(ft.Container(
-                content=ft.Text(task.task_type, size=9, color=type_color, weight=ft.FontWeight.W_600),
+                content=ft.Text(L.task_type(task.task_type), size=9, color=type_color, weight=ft.FontWeight.W_600),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=f"{type_color}20", border_radius=4,
             ))
         if task.story_points is not None:
             header_right.append(ft.Container(
-                content=ft.Text(f"SP:{task.story_points}", size=9, color="#86868b"),
+                content=ft.Text(f"{L.STORY_POINTS}:{task.story_points}", size=9, color="#86868b"),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=COLORS["bg_button"], border_radius=4,
             ))
@@ -329,9 +330,9 @@ class KanbanView:
         self.done_col: Optional[DropColumn] = None
 
     def build(self):
-        self.todo_col = DropColumn(self.app, "Todo", "#0a84ff", "Todo", icon="radio_button_unchecked")
-        self.progress_col = DropColumn(self.app, "In Progress", "#ff9f0a", "In Progress", icon="pending")
-        self.done_col = DropColumn(self.app, "Done", "#30d158", "Done", icon="check_circle")
+        self.todo_col = DropColumn(self.app, L.STATUS["Todo"], "#0a84ff", "Todo", icon="radio_button_unchecked")
+        self.progress_col = DropColumn(self.app, L.STATUS["In Progress"], "#ff9f0a", "In Progress", icon="pending")
+        self.done_col = DropColumn(self.app, L.STATUS["Done"], "#30d158", "Done", icon="check_circle")
 
         self.container = ft.Container(
             content=ft.Row(
