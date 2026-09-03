@@ -126,13 +126,10 @@ class AutoUpdater:
         # `<base>/releases/latest`.
         override = os.environ.get("TASKMANAGER_UPDATE_API", "").rstrip("/")
         self.api_url = override or f"https://api.github.com/repos/{repo_owner}/{repo_name}"
-        self.is_frozen = bool(getattr(sys, "frozen", False))
-        self.app_dir = (
-            Path(sys.executable).resolve().parent
-            if self.is_frozen
-            else Path(__file__).resolve().parent.parent.parent
-        )
-        self.current_exe = Path(sys.executable).resolve() if self.is_frozen else None
+        from core import paths
+        self.is_frozen = paths.frozen
+        self.app_dir = paths.app_dir
+        self.current_exe = paths.exe_path
         self.backup_dir: Optional[Path] = None
         self.progress_callback: Optional[Callable[[DownloadProgress], None]] = None
         self._network_reachable: bool = True
@@ -801,48 +798,17 @@ class AutoUpdater:
         return False
 
 
-def _version_file_candidates() -> list:
-    """Every place version.txt might live, most-authoritative first.
-
-    For a frozen app the copy next to the .exe wins: the updater writes it
-    there after a successful update, while the bundled copy is frozen at build
-    time (trusting it would cause an endless update loop).
-    """
-    candidates = []
-    if getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable).resolve().parent / "version.txt")
-    here = Path(__file__).resolve().parent.parent.parent  # src/ -> repo root / _MEIPASS
-    candidates.append(here / "version.txt")
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        candidates.append(Path(meipass) / "version.txt")
-    return candidates
-
-
 def get_current_version() -> str:
-    for version_file in _version_file_candidates():
-        try:
-            if version_file.is_file():
-                text = normalize_version(version_file.read_text(encoding="utf-8"))
-                if text:
-                    return text
-        except Exception:
-            pass
+    from core import paths
+    v = paths.read_version()
+    if v != "unknown":
+        return v
 
-    try:
-        from ._version import get_version
-        v = get_version()
-        if v and v != "unknown":
-            return v
-    except Exception:
-        pass
-
-    if not getattr(sys, "frozen", False):
+    if not paths.frozen:
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=5,
-                cwd=str(Path(__file__).resolve().parent.parent.parent),
+                capture_output=True, text=True, timeout=5, cwd=str(paths.app_dir),
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -856,10 +822,8 @@ _CHECK_INTERVAL_SECONDS = 30 * 60
 
 
 def _check_stamp_path() -> Path:
-    base = (Path(sys.executable).resolve().parent
-            if getattr(sys, "frozen", False)
-            else Path(__file__).resolve().parent.parent.parent)
-    return base / "logs" / ".last_update_check"
+    from core.paths import logs_dir
+    return logs_dir / ".last_update_check"
 
 
 def _recently_checked() -> bool:

@@ -1,23 +1,20 @@
-"""
-Task Manager - Main Entry Point
+"""Task Manager — entry point.
 
-Launches the Flet GUI (a local web server; opens a browser tab).
-
-Portable EXE mode:
-  When frozen via PyInstaller, data is stored in a 'data' folder
-  next to the executable:  <exe_dir>/data/db/tasks.json
-  This ensures user data survives app updates.
+Launches the Flet GUI (a local web server; opens a browser tab). When frozen
+via PyInstaller, all data / logs live next to the .exe so they survive updates
+(see ``core.paths``).
 """
-import sys
 import os
+import sys
+import time
 from pathlib import Path
 
 
 def _ensure_std_streams() -> None:
-    """A PyInstaller ``--windowed`` build has no console, so ``sys.stdout`` and
-    ``sys.stderr`` are ``None`` — the first ``print()`` (ours, uvicorn's, Flet's)
-    would then crash the app. Point them at a log file next to the executable,
-    falling back to the null device.
+    """A PyInstaller ``--windowed`` build has no console, so ``sys.stdout`` /
+    ``sys.stderr`` are ``None`` and the first ``print()`` (ours, uvicorn's,
+    Flet's) would crash the app. Point them at a log file next to the exe,
+    falling back to the null device. Must run before anything prints.
     """
     if not getattr(sys, "frozen", False):
         return
@@ -41,122 +38,70 @@ def _ensure_std_streams() -> None:
 
 _ensure_std_streams()
 
+# Bootstrap: put src/ on the path so `import core.*` works, then hand every
+# other path question to core.paths.
+_here = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).resolve().parent)
+for _p in (_here / "src", Path(__file__).resolve().parent / "src"):
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-def get_app_dir() -> Path:
-    """Return the application directory.
+from core import paths  # noqa: E402
+from core.app_context import AppContext  # noqa: E402
 
-    - Frozen (PyInstaller EXE): directory containing the .exe
-    - Normal (python main.py): directory containing main.py
+paths.ensure_src_on_path()
+
+
+def _cleanup_update_leftovers(log) -> None:
+    """Sweep files a self-update leaves behind. The VBS relaunch helper cleans
+    up after itself, but a hard-killed helper or an AV-quarantined script can
+    leave the old / staged binary or the helper around — retry a few times in
+    case the previous process only just released the handle.
     """
-    if getattr(sys, 'frozen', False):
-        return Path(sys.executable).parent.resolve()
-    return Path(__file__).parent.resolve()
-
-
-def configure_import_path() -> None:
-    """Add the source directory for both normal and frozen execution."""
-    candidates = []
-    bundle_dir = getattr(sys, "_MEIPASS", None)
-    if bundle_dir:
-        candidates.append(Path(bundle_dir) / "src")
-    candidates.append(get_app_dir() / "src")
-
-    for src_path in candidates:
-        if src_path.exists() and str(src_path) not in sys.path:
-            sys.path.insert(0, str(src_path))
-
-
-configure_import_path()
-
-
-def get_data_dir() -> Path:
-    """Return the user-data directory.
-
-    Structure:  <app_dir>/data/db/
-    The 'data' folder is created automatically on first run.
-    This folder is NEVER touched by app updates, so user data survives.
-    """
-    d = get_app_dir() / "data" / "db"
-    d.mkdir(parents=True, exist_ok=True)
-
-    # Seed an empty task database on first run. TaskRepository owns the schema
-    # (a JSON *list* of task dicts), so we must not write a dict here.
-    tasks_file = d / "tasks.json"
-    if not tasks_file.exists():
-        import json
-        with open(tasks_file, "w", encoding="utf-8") as f:
-            json.dump([], f)
-
-    return d
-
-
-def get_db_path() -> str:
-    """Return the path to the tasks JSON database file."""
-    return str(get_data_dir() / "tasks.json")
-
-
-def _cleanup_update_leftovers(app_dir: Path, log) -> None:
-    """Remove files a self-update leaves behind. The VBS relaunch helper does
-    this itself, but a hard-killed helper or an AV-quarantined script can leave
-    the old binary / staged binary / helper script around — sweep them here too,
-    with a couple of retries in case the previous process only just released the
-    handle.
-    """
-    import time
-    exe = Path(sys.executable)
+    exe = paths.exe_path or Path(sys.executable)
     stale = [
         exe.with_name(exe.name + ".old"),
         exe.with_name(exe.name + ".updated"),
-        app_dir / "update_restart.vbs",
-        app_dir / "update_restart.cmd",
+        paths.app_dir / "update_restart.vbs",
+        paths.app_dir / "update_restart.cmd",
     ]
     for path in stale:
         for attempt in range(3):
             try:
                 if path.exists():
                     path.unlink()
-                    log.info(f"Removed update leftover: {path.name}")
+                    log.info("Removed update leftover: %s", path.name)
                 break
             except OSError:
                 time.sleep(0.3 * (attempt + 1))
 
 
-def main():
-    app_dir = get_app_dir()
-    db_path = get_db_path()
-
-    # Setup logging FIRST — before anything else
+def main() -> None:
     from utils.logger import setup_logging, get_logger
-    logs_dir = setup_logging(str(app_dir))
+    setup_logging(str(paths.app_dir))
     log = get_logger("main")
-    log.info(f"App dir: {app_dir}")
-    log.info(f"Data dir: {get_data_dir()}")
-    log.info(f"DB path: {db_path}")
-    log.info(f"Python: {sys.version}")
-    log.info(f"Frozen: {getattr(sys, 'frozen', False)}")
-    log.info(f"Args: {sys.argv}")
+    log.info("App dir: %s | frozen: %s | python: %s", paths.app_dir, paths.frozen,
+             sys.version.split()[0])
+    log.info("Args: %s", sys.argv)
 
-    # Install enhanced error handler (writes to error_log.txt on crash)
     from utils.error_handler import install_error_handler, ErrorContext
-    install_error_handler(str(app_dir))
+    install_error_handler(str(paths.app_dir))
+    ErrorContext().set("app_dir", str(paths.app_dir))
 
     args = sys.argv[1:]
-    if getattr(sys, "frozen", False):
-        _cleanup_update_leftovers(app_dir, log)
+    if paths.frozen:
+        _cleanup_update_leftovers(log)
 
-    if getattr(sys, "frozen", False) and "--force-update" in args:
-        # Opt-in CLI path: download + install now, before the GUI, then exit
-        # for relaunch. The normal flow asks inside the app instead (see
-        # gui_flet/app.py) so a user with no GitHub access is never blocked.
+    if paths.frozen and "--force-update" in args:
+        # Opt-in CLI path: download + install now, before the GUI, then exit for
+        # relaunch. The normal flow asks inside the running app instead.
         try:
             from utils.updater import check_updates
             if check_updates("LgbtBsod", "task_manager", auto=True, force=True):
                 log.info("Update staged; exiting for relaunch.")
                 return
         except Exception as e:
-            log.warning(f"Forced update failed, continuing: {e}")
+            log.warning("Forced update failed, continuing: %s", e)
 
-    # Optional: --port N to override the default web-server port.
     port = 8550
     if "--port" in args:
         try:
@@ -164,19 +109,17 @@ def main():
         except (ValueError, IndexError):
             pass
 
-    log.info(f"Starting Flet GUI on port {port}")
-    ErrorContext().set("app_dir", str(app_dir))
-    ErrorContext().set("db_path", db_path)
-
+    log.info("Starting Flet GUI on port %d", port)
     try:
+        context = AppContext.create()
         from gui_flet.app import run_app
-        run_app(db_path=db_path, port=port)
+        run_app(context=context, port=port)
     except Exception as e:
-        log.critical(f"Fatal error starting GUI: {e}", exc_info=True)
+        log.critical("Fatal error starting GUI: %s", e, exc_info=True)
         from utils.error_handler import write_error_log
         error_path = write_error_log(
             f"Fatal error starting GUI: {e}",
-            app_dir=str(app_dir),
+            app_dir=str(paths.app_dir),
             context={"phase": "gui_launch"},
         )
         sys.stderr.write(f"[FATAL] Error log: {error_path}\n")

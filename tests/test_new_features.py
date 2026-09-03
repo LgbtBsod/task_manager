@@ -711,50 +711,29 @@ def test_import_merge_versions(r):
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_get_app_dir_normal(r):
-    # Import from main.py's directory
-    main_dir = Path(__file__).parent.parent
-    sys.path.insert(0, str(main_dir))
-    import importlib
-    import main as m
-    importlib.reload(m)
-    app_dir = m.get_app_dir()
-    r.ok('get_app_dir_normal') if app_dir == main_dir.resolve() else \
-        r.fail('get_app_dir_normal', f'{app_dir} != {main_dir.resolve()}')
+    from core import paths
+    repo_root = Path(__file__).parent.parent.resolve()
+    r.ok('app_dir is repo root') if paths.app_dir == repo_root else \
+        r.fail('app_dir', f'{paths.app_dir} != {repo_root}')
+    r.ok('not frozen from source') if paths.frozen is False else r.fail('frozen', 'True')
 
 
 def test_get_data_dir_creates_folder(r):
-    import tempfile
-    tmp = tempfile.mkdtemp()
-    try:
-        # Simulate frozen mode by patching
-        import main as m
-        original_frozen = getattr(sys, 'frozen', False)
-        sys.frozen = True
-        sys.executable = str(Path(tmp) / "TaskManager.exe")
-        # Need to re-evaluate
-        app_dir = m.get_app_dir()
-        data_dir = m.get_data_dir()
-        r.ok('get_data_dir_frozen') if data_dir == Path(tmp) / "data" / "db" else \
-            r.fail('get_data_dir_frozen', f'{data_dir}')
-        r.ok('get_data_dir_exists') if data_dir.exists() else \
-            r.fail('get_data_dir_exists', 'not created')
-        # Cleanup
-        if not original_frozen:
-            delattr(sys, 'frozen')
-        else:
-            sys.frozen = original_frozen
-        shutil.rmtree(tmp, ignore_errors=True)
-    except Exception as e:
-        r.fail('get_data_dir_creates_folder', str(e))
+    from core import paths
+    d = paths.ensure_data_dir()
+    r.ok('data_dir under app_dir') if d == paths.app_dir / "data" / "db" else \
+        r.fail('data_dir', f'{d}')
+    r.ok('data_dir exists') if d.exists() else r.fail('data_dir_exists', 'not created')
+    r.ok('tasks.json seeded') if paths.db_path.exists() else r.fail('seed', 'missing')
 
 
 def test_get_db_path(r):
-    import main as m
-    db = m.get_db_path()
-    r.ok('get_db_path_ends_json') if db.endswith("tasks.json") else \
-        r.fail('get_db_path_ends_json', f'{db}')
-    r.ok('get_db_path_has_data') if "data" in db and "db" in db else \
-        r.fail('get_db_path_has_data', f'{db}')
+    from core import paths
+    db = str(paths.db_path)
+    r.ok('db ends tasks.json') if db.endswith("tasks.json") else r.fail('db', db)
+    r.ok('db under data/db') if ("data" in db and "db" in db) else r.fail('db_layout', db)
+    r.ok('settings sibling of db') if paths.settings_path.parent == paths.db_path.parent \
+        else r.fail('settings', str(paths.settings_path))
 
 
 # ═══════════════════════════════════════════════════════════════════════

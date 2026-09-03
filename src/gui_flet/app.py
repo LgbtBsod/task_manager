@@ -2,15 +2,12 @@
 Main app module with routing, theme, and view switching.
 """
 import flet as ft
-from pathlib import Path
 from typing import Optional
 
 from . import labels as L
 from .palette import COLORS, apply as apply_palette, build_theme, resolve_dark
+from core import paths
 from core.models import TaskStatus
-
-APP_DIR = Path(__file__).parent.parent.parent
-DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
 
 
 def _app_version() -> str:
@@ -48,32 +45,27 @@ def _nav_style(active: bool) -> ft.ButtonStyle:
 class TaskManagerApp:
     """Flet Task Manager application."""
 
-    def __init__(self, service=None, settings=None):
-        # service / settings are shared across browser sessions; the rest of
-        # this object (page, views, current_view, …) is strictly per-session.
-        self.service = service
-        self.settings = settings
+    def __init__(self, context=None, service=None, settings=None):
+        # The data layer (service + settings) is shared across browser sessions;
+        # everything else on this object (page, views, …) is per-session.
+        self.context = context
+        self.service = context.service if context is not None else service
+        self.settings = context.settings if context is not None else settings
         self.page: Optional[ft.Page] = None
         self.current_view: str = "kanban"
         self._search_query: str = ""
         self._sort_mode: str = "default"
         self._notified_overdue: set = set()
 
-    def init_service(self):
+    def _ensure_wired(self):
+        """Build a default AppContext when the app was constructed bare
+        (``TaskManagerApp()`` — used by tests / a plain ``run_app()``)."""
         if self.service is not None and self.settings is not None:
             return
-        import sys
-        src_path = APP_DIR / "src"
-        if str(src_path) not in sys.path:
-            sys.path.insert(0, str(src_path))
-        from core.repository import TaskRepository
-        from core.service import TaskService
-        from core.settings import SettingsStore
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if self.service is None:
-            self.service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
-        if self.settings is None:
-            self.settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
+        from core.app_context import AppContext
+        self.context = AppContext.create()
+        self.service = self.context.service
+        self.settings = self.context.settings
 
     def notify_hours_before(self) -> int:
         try:
@@ -118,7 +110,7 @@ class TaskManagerApp:
         self.page.update()
 
     def main(self, page: ft.Page):
-        self.init_service()
+        self._ensure_wired()
         self.page = page
 
         page.title = L.APP_TITLE
@@ -503,7 +495,7 @@ class TaskManagerApp:
             from .update_ui import check_now
             check_now(self)
 
-        data_dir = str(DB_PATH.parent)
+        data_dir = str(paths.data_dir)
 
         def open_data_dir(e):
             try:
@@ -631,23 +623,33 @@ class TaskManagerApp:
         self.refresh_all()
 
 
-def run_app(db_path: str = None, port: int = 8550):
+def run_app(context=None, db_path: str = None, port: int = 8550):
     """Entry point for the Flet-based task manager.
 
     Args:
-        db_path: Path to the tasks JSON file. If None, uses default.
+        context: a built ``AppContext`` (from ``main()``). If omitted, one is
+            created — ``db_path`` then still overrides the tasks file for tests.
         port: TCP port for the local web server.
     """
+    import os
     import socket
+    import time
     import webbrowser
     import flet as ft
 
-    global DB_PATH
-    if db_path:
-        DB_PATH = Path(db_path)
-
-    import os
-    import time
+    from core.app_context import AppContext
+    if context is None:
+        if db_path:
+            from core.repository import TaskRepository
+            from core.service import TaskService
+            from core.settings import SettingsStore
+            from pathlib import Path
+            repo = TaskRepository(db_path=str(db_path))
+            settings = SettingsStore(str(Path(db_path).parent / "settings.json"))
+            context = AppContext(settings=settings, repository=repo,
+                                 service=TaskService(repository=repo), version="dev")
+        else:
+            context = AppContext.create()
 
     def _port_free(p: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -725,20 +727,9 @@ def run_app(db_path: str = None, port: int = 8550):
     # IMPORTANT: a fresh TaskManagerApp per browser session. One shared instance
     # means a second tab/window overwrites self.page and the first session's
     # click handlers silently target the wrong page (the "F5 fixes it" bug).
-    # The data layer (service + settings) IS shared so tabs stay consistent.
-    import sys as _sys
-    _src = APP_DIR / "src"
-    if str(_src) not in _sys.path:
-        _sys.path.insert(0, str(_src))
-    from core.repository import TaskRepository
-    from core.service import TaskService
-    from core.settings import SettingsStore
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    shared_service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
-    shared_settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
-
+    # The AppContext (service + settings) IS shared so tabs stay consistent.
     def session_main(page: ft.Page):
-        TaskManagerApp(service=shared_service, settings=shared_settings).main(page)
+        TaskManagerApp(context=context).main(page)
 
     # Force the CanvasKit renderer: the default (AUTO -> SKWASM) needs
     # cross-origin isolation headers the local server doesn't send and renders
