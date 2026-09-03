@@ -1,44 +1,18 @@
 ```
-# Python
+# Python cache files
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+*.pyc
+*.pyo
+*.pyd
 
-# Virtual Environment
+# Virtual environment
 venv/
-ENV/
-env.bak/
-venv.bak/
 
-# Logs
-logs/
-*.log
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Backup
-.update_backup/
+# Dependencies in virtual environment
+venv/lib/python*/site-packages/__pycache__/
+venv/lib/python*/site-packages/*/__pycache__/
+venv/lib/python*/site-packages/*/*/__pycache__/
+venv/lib/python*/site-packages/*/*/*/__pycache__/
+venv/lib/python*/site-packages/*/*/*/*/__pycache__/
+venv/lib/python*/site-packages/*/*/*/*/*/__pycache__/
 ```
