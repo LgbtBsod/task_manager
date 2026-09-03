@@ -124,19 +124,17 @@ def main():
         except OSError:
             pass
 
-    if getattr(sys, "frozen", False) and "--no-update" not in args:
-        # Self-update: if a newer GitHub release exists, download it, swap the
-        # binary and relaunch (we return so this old process exits). Any
-        # failure here must never block the app from starting.
-        # --force-update bypasses the 30-min "already checked" throttle.
+    if getattr(sys, "frozen", False) and "--force-update" in args:
+        # Opt-in CLI path: download + install now, before the GUI, then exit
+        # for relaunch. The normal flow asks inside the app instead (see
+        # gui_flet/app.py) so a user with no GitHub access is never blocked.
         try:
             from utils.updater import check_updates
-            if check_updates("LgbtBsod", "task_manager", auto=True,
-                             force="--force-update" in args):
+            if check_updates("LgbtBsod", "task_manager", auto=True, force=True):
                 log.info("Update staged; exiting for relaunch.")
                 return
         except Exception as e:
-            log.warning(f"Update check failed, continuing: {e}")
+            log.warning(f"Forced update failed, continuing: {e}")
 
     # Optional: --port N to override the default web-server port.
     port = 8550

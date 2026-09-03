@@ -10,6 +10,8 @@ DEFAULTS: dict[str, Any] = {
     "notifications_enabled": True,
     "notify_hours_before": 24,      # flag a task this many hours before its deadline
     "notify_check_seconds": 60,     # how often the in-app checker runs
+    "check_updates_on_start": True, # look for a new release when the app opens
+    "skipped_update_version": "",   # a release the user chose to skip
 }
 
 
