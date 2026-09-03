@@ -40,57 +40,61 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     )
 
     # Date pickers with calendar
-    start_date_value = task.start_date if task else ""
-    due_date_value = task.due_date if task else ""
-    
+    start_date_value = (task.start_date or "") if task else ""
+    due_date_value = (task.due_date or "") if task else ""
+
     start_display = ft.TextField(
         label="Дата начала",
-        value=start_date_value if start_date_value else "",
+        value=start_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon="calendar_today",
         width=200,
     )
-    
+
     due_display = ft.TextField(
         label="Дедлайн",
-        value=due_date_value if due_date_value else "",
+        value=due_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon="calendar_today",
         width=200,
     )
-    
+
+    def _parse_or_now(s: str) -> datetime:
+        try:
+            return datetime.strptime(s, "%Y-%m-%d") if s else datetime.now()
+        except ValueError:
+            return datetime.now()
+
     def pick_start_date(e):
-        async def date_changed(e):
+        def date_changed(ev):
             nonlocal start_date_value
-            start_date_value = e.control.value.strftime("%Y-%m-%d") if e.control.value else ""
+            v = ev.control.value
+            start_date_value = v.strftime("%Y-%m-%d") if v else ""
             start_display.value = start_date_value
-            page.update()
-        
-        page.dialog = ft.DatePicker(
+            start_display.update()
+
+        page.show_dialog(ft.DatePicker(
             first_date=datetime(2020, 1, 1),
             last_date=datetime(2035, 12, 31),
-            initial_date=datetime.strptime(start_date_value, "%Y-%m-%d") if start_date_value else datetime.now(),
+            value=_parse_or_now(start_date_value),
             on_change=date_changed,
-        )
-        page.dialog.open = True
-        page.update()
-    
+        ))
+
     def pick_due_date(e):
-        async def date_changed(e):
+        def date_changed(ev):
             nonlocal due_date_value
-            due_date_value = e.control.value.strftime("%Y-%m-%d") if e.control.value else ""
+            v = ev.control.value
+            due_date_value = v.strftime("%Y-%m-%d") if v else ""
             due_display.value = due_date_value
-            page.update()
-        
-        page.dialog = ft.DatePicker(
+            due_display.update()
+
+        page.show_dialog(ft.DatePicker(
             first_date=datetime(2020, 1, 1),
             last_date=datetime(2035, 12, 31),
-            initial_date=datetime.strptime(due_date_value, "%Y-%m-%d") if due_date_value else datetime.now(),
+            value=_parse_or_now(due_date_value),
             on_change=date_changed,
-        )
-        page.dialog.open = True
-        page.update()
-    
+        ))
+
     start_display.on_click = pick_start_date
     due_display.on_click = pick_due_date
     
@@ -195,18 +199,17 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
                 error_label.update()
                 return
 
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     def on_cancel(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     dates_row = ft.Row([start_display, ft.Container(width=16), due_display], spacing=0)
     prio_type_row = ft.Row([priority_field, ft.Container(width=16), task_type_field], spacing=0)
     time_sp_row = ft.Row([time_field, ft.Container(width=16), story_points_field], spacing=0)
 
     dlg = ft.AlertDialog(
+        modal=True,
         title=ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
         content=ft.Column([
             title_field, desc_field, tags_field,
@@ -228,6 +231,4 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    page.show_dialog(dlg)

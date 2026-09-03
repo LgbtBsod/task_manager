@@ -21,6 +21,7 @@ import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.request import Request, urlopen
@@ -129,7 +130,7 @@ class UpdateError(Exception):
 class AutoUpdater:
     """Responsible only for checking and applying app updates."""
 
-    TIMEOUT_API = 8
+    TIMEOUT_API = 5
     TIMEOUT_DOWNLOAD = 120
     CHUNK_SIZE = 8192
     MIN_UPDATE_SIZE = 1024  # Minimum expected update size in bytes
@@ -149,6 +150,7 @@ class AutoUpdater:
         self.current_exe = Path(sys.executable).resolve() if self.is_frozen else None
         self.backup_dir: Optional[Path] = None
         self.progress_callback: Optional[Callable[[DownloadProgress], None]] = None
+        self._network_reachable: bool = True
 
     def _create_request(self, url: str) -> Request:
         req = Request(url)
@@ -159,11 +161,17 @@ class AutoUpdater:
         try:
             with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except (URLError, HTTPError) as exc:
+        except HTTPError as exc:
+            # Server answered (e.g. 404 "no releases yet") -> network is fine.
             logger.debug("API request failed: %s", exc)
+            return None
+        except (URLError, TimeoutError) as exc:
+            logger.debug("Network unreachable: %s", exc)
+            self._network_reachable = False
             return None
         except Exception as exc:
             logger.debug("Unexpected API error: %s", exc)
+            self._network_reachable = False
             return None
 
     def _download_with_progress(
@@ -338,13 +346,24 @@ class AutoUpdater:
         except Exception:
             return str(latest).strip() != str(current).strip() and str(latest) > str(current)
 
+    def _asset_keywords(self) -> list:
+        """Substrings that identify the release asset for this OS, best first."""
+        if not self.is_frozen:
+            return [".zip"]
+        if sys.platform == "win32":
+            return ["windows", ".exe"]
+        if sys.platform == "darwin":
+            return ["macos", "mac", "darwin", ".app", ".dmg"]
+        return ["linux"]
+
     def _resolve_download_url(self, release_info: Dict[str, Any]) -> Optional[str]:
         assets = release_info.get("assets") or []
-        preferred_suffix = ".exe" if self.is_frozen else ".zip"
-        for asset in assets:
-            name = str(asset.get("name") or "").lower()
-            if name.endswith(preferred_suffix):
-                return asset.get("browser_download_url")
+        for keyword in self._asset_keywords():
+            for asset in assets:
+                name = str(asset.get("name") or "").lower()
+                if keyword in name:
+                    return asset.get("browser_download_url")
+        # Source checkout (not frozen): fall back to the auto-generated zipball.
         if not self.is_frozen:
             return release_info.get("zipball_url")
         return None
@@ -358,6 +377,11 @@ class AutoUpdater:
                 logger.info("New version available: %s", latest_version)
                 return True, latest_version, zip_url
             return False, latest_version, None
+
+        # No release found. Skip the commit-SHA fallback entirely when the
+        # network is down (it would just burn another timeout).
+        if not self._network_reachable:
+            return False, None, None
 
         import re
 
@@ -375,28 +399,36 @@ class AutoUpdater:
         return False, None, None
 
     def _create_backup(self) -> Optional[Path]:
-        """Create a backup of critical files before update."""
+        """Snapshot critical files + the user database before an update."""
         try:
             backup_base = self.app_dir / ".update_backup"
-            backup_base.mkdir(exist_ok=True)
-            
-            timestamp = subprocess.run(
-                ["date", "+%Y%m%d_%H%M%S"],
-                capture_output=True, text=True, timeout=5
-            ).stdout.strip() if sys.platform != "win32" else "backup"
-            
-            self.backup_dir = backup_base / f"backup_{timestamp}"
-            self.backup_dir.mkdir(parents=True)
-            
-            critical_files = ["version.txt", "tasks.json", "requirements.txt"]
-            for fname in critical_files:
+            backup_base.mkdir(parents=True, exist_ok=True)
+
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            self.backup_dir = backup_base / f"backup_{stamp}"
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+
+            for fname in ("version.txt", "requirements.txt"):
                 src = self.app_dir / fname
                 if src.exists():
                     shutil.copy2(src, self.backup_dir / fname)
-            
+
+            data_src = self.app_dir / "data" / "db"
+            if data_src.is_dir():
+                shutil.copytree(data_src, self.backup_dir / "data" / "db",
+                                dirs_exist_ok=True)
+
+            # Keep only the 5 most recent backups.
+            old_backups = sorted(
+                (d for d in backup_base.glob("backup_*") if d.is_dir()),
+                key=lambda d: d.name,
+            )
+            for old in old_backups[:-5]:
+                shutil.rmtree(old, ignore_errors=True)
+
             logger.info("Backup created at: %s", self.backup_dir)
             return self.backup_dir
-            
+
         except Exception as exc:
             logger.warning("Failed to create backup: %s", exc)
             return None
@@ -406,16 +438,18 @@ class AutoUpdater:
         if not self.backup_dir or not self.backup_dir.exists():
             logger.warning("No backup available for restoration")
             return False
-        
+
         try:
             for item in self.backup_dir.iterdir():
                 if item.is_file():
-                    dest = self.app_dir / item.name
-                    shutil.copy2(item, dest)
-            
+                    shutil.copy2(item, self.app_dir / item.name)
+            data_backup = self.backup_dir / "data" / "db"
+            if data_backup.is_dir():
+                shutil.copytree(data_backup, self.app_dir / "data" / "db",
+                                dirs_exist_ok=True)
             logger.info("Successfully restored from backup")
             return True
-            
+
         except Exception as exc:
             logger.error("Failed to restore from backup: %s", exc)
             return False
@@ -487,42 +521,42 @@ class AutoUpdater:
             logger.warning("Could not update version.txt: %s", exc)
 
     def _relaunch_after_update(self) -> None:
+        """Swap in the staged executable and restart, via an external helper
+        script so the running process can exit and release its own file lock."""
         if not self.current_exe:
             return
-
-        exe_name = self.current_exe.name
-        staged_exe = self.app_dir / f"{exe_name}.updated"
+        staged = self.app_dir / f"{self.current_exe.name}.updated"
         target = self.current_exe
+        if not staged.exists():
+            return
 
-        if staged_exe.exists():
-            try:
-                if target.exists():
-                    try:
-                        target.unlink()
-                    except PermissionError:
-                        pass
-                if not target.exists():
-                    shutil.move(str(staged_exe), str(target))
-            except Exception:
-                pass
-
-        launcher = self.app_dir / "update_restart.cmd"
-        launcher.write_text(
-            "@echo off\n"
-            "setlocal\n"
-            "echo [Updater] Waiting...\n"
-            "ping -n 3 127.0.0.1 >nul\n"
-            f"if exist \"{staged_exe}\" (\n"
-            f"  copy /Y \"{staged_exe}\" \"{target}\" >nul 2>&1\n"
-            f"  if errorlevel 1 ping -n 2 127.0.0.1 >nul & copy /Y \"{staged_exe}\" \"{target}\" >nul 2>&1\n"
-            f"  if not errorlevel 1 del /f /q \"{staged_exe}\" 2>nul\n"
-            ")\n"
-            f"if exist \"{target}\" start \"\" \"{target}\"\n"
-            "del /f /q \"{launcher}\" 2>nul\n",
-            encoding="utf-8",
-        )
         import subprocess as sp
-        sp.Popen([str(launcher)], shell=True, creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0))
+        if sys.platform == "win32":
+            helper = self.app_dir / "update_restart.cmd"
+            helper.write_text(
+                "@echo off\n"
+                "ping -n 3 127.0.0.1 >nul\n"
+                f'move /Y "{staged}" "{target}" >nul 2>&1\n'
+                f'if errorlevel 1 ( ping -n 3 127.0.0.1 >nul & move /Y "{staged}" "{target}" >nul 2>&1 )\n'
+                f'start "" "{target}"\n'
+                '(goto) 2>nul & del /f /q "%~f0"\n',
+                encoding="utf-8",
+            )
+            sp.Popen([str(helper)], shell=True,
+                     creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0))
+        else:
+            helper = self.app_dir / "update_restart.sh"
+            helper.write_text(
+                "#!/bin/sh\n"
+                "sleep 2\n"
+                f'mv -f "{staged}" "{target}" 2>/dev/null || (sleep 2 && mv -f "{staged}" "{target}")\n'
+                f'chmod +x "{target}" 2>/dev/null\n'
+                f'"{target}" &\n'
+                'rm -f "$0"\n',
+                encoding="utf-8",
+            )
+            helper.chmod(0o755)
+            sp.Popen(["/bin/sh", str(helper)], start_new_session=True)
 
     def _install_frozen_update(self, source_folder: Path, latest_version: str) -> bool:
         if not self.current_exe:
@@ -539,6 +573,8 @@ class AutoUpdater:
         version_file_in_bundle = source_folder / "version.txt"
         if version_file_in_bundle.exists():
             shutil.copy2(version_file_in_bundle, self.app_dir / "version.txt")
+        else:
+            self._update_version_file(latest_version)
 
         if staged_exe and staged_exe.exists():
             self._relaunch_after_update()
@@ -592,7 +628,9 @@ class AutoUpdater:
             checksum = self._calculate_checksum(zip_path)
             logger.info("Download verified. SHA256: %s", checksum[:16])
 
-            if self.is_frozen and zip_url.lower().split("?", 1)[0].endswith(".exe"):
+            url_path = zip_url.lower().split("?", 1)[0]
+            is_raw_binary = self.is_frozen and not url_path.endswith((".zip", ".tar.gz", ".tgz"))
+            if is_raw_binary:
                 result = self._install_frozen_executable(zip_path, latest_version)
                 if result:
                     logger.info("Executable update staged successfully: %s", latest_version)
@@ -644,6 +682,16 @@ class AutoUpdater:
             if temp_dir and temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
+    @staticmethod
+    def _say(message: str) -> None:
+        """Print to console if we have one, always mirror to the log."""
+        logger.info(message)
+        try:
+            if sys.stdout is not None:
+                print(message)
+        except Exception:
+            pass
+
     def run_update_check(self, auto: bool = False) -> bool:
         logger.info("Checking for updates (current: %s)", self.current_version)
         has_update, latest_version, download_url = self.check_for_updates()
@@ -653,46 +701,59 @@ class AutoUpdater:
             return False
 
         if auto and download_url:
-            print(f"[Обновление] Новая версия: {latest_version}. Автообновление...")
+            self._say(f"[Update] New version {latest_version} — downloading...")
             ok = self.download_update(download_url, latest_version)
-            if ok:
-                print("[Обновление] Обновление установлено и приложение будет перезапущено.")
-            else:
-                print("[Обновление] Не удалось установить обновление.")
+            self._say("[Update] Installed; the app will restart." if ok
+                      else "[Update] Could not install the update.")
             return ok
 
-        print(f"[Обновление] Доступна новая версия: {latest_version}")
-        print(f"[Обновление] Текущая версия: {self.current_version}")
-        print("[Обновление] Для обновления перезапустите приложение заново.")
+        self._say(f"[Update] Version {latest_version} is available "
+                  f"(current: {self.current_version}). Restart to apply.")
         return False
 
 
+def _version_file_candidates() -> list:
+    """Every place version.txt might live, source or frozen."""
+    here = Path(__file__).resolve().parent.parent.parent  # src/ -> repo root / _MEIPASS
+    candidates = [here / "version.txt"]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "version.txt")
+    if getattr(sys, "frozen", False):
+        # Written next to the .exe by the updater after a successful update.
+        candidates.append(Path(sys.executable).resolve().parent / "version.txt")
+    return candidates
+
+
 def get_current_version() -> str:
-    version_file = Path(__file__).resolve().parent.parent.parent / "version.txt"
-    if version_file.exists():
+    for version_file in _version_file_candidates():
         try:
-            return version_file.read_text(encoding="utf-8").strip()
+            if version_file.is_file():
+                text = version_file.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
         except Exception:
             pass
 
     try:
         from ._version import get_version
-        return get_version()
+        v = get_version()
+        if v and v != "unknown":
+            return v
     except Exception:
         pass
 
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=str(Path(__file__).resolve().parent.parent.parent),
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
+    if not getattr(sys, "frozen", False):
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(Path(__file__).resolve().parent.parent.parent),
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
 
     return "unknown"
 

@@ -1,226 +1,150 @@
 """
-Task Manager - Build Script for PyInstaller
-Replaces build.bat with a pure Python script.
+Task Manager - build a standalone executable with PyInstaller.
 
-Usage:
-    python build.py [--clean] [--onefile|--onedir] [--name TaskManager]
+    python build.py                # onefile build for the current OS
+    python build.py --onedir       # folder build (faster cold start)
+    python build.py --clean        # wipe build/ and dist/ first
+    python build.py --no-deps      # skip the dependency install step
+
+Output:
+    Windows : dist/TaskManager.exe   (+ dist/TaskManager/ for --onedir)
+    Linux   : dist/TaskManager
+    macOS   : dist/TaskManager.app
+
+The app runs Flet in web-browser mode: launching the executable starts a local
+server and opens the default browser at http://localhost:8550.
 """
 import os
-import sys
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
+APP_DIR = Path(__file__).resolve().parent
+NAME = "TaskManager"
 
-def info(msg: str):
-    print(f"[INFO] {msg}")
+# Pinned so `--upgrade` can never swap in a Flet with breaking API changes.
+BUILD_DEPS = [
+    "pyinstaller>=6.10",
+    "flet[web]==0.86.5",
+    "pydantic>=2.0.0",
+    "workalendar>=17.0.0",
+]
 
 
-def warn(msg: str):
-    print(f"[WARNING] {msg}")
+def info(m):  print(f"[INFO] {m}")
+def warn(m):  print(f"[WARN] {m}")
+def err(m):   print(f"[ERROR] {m}")
 
 
-def err(msg: str):
-    print(f"[ERROR] {msg}")
+def install_deps() -> None:
+    info("Installing / verifying build dependencies...")
+    r = subprocess.run([sys.executable, "-m", "pip", "install", *BUILD_DEPS],
+                       timeout=900)
+    if r.returncode != 0:
+        err("Dependency install failed.")
+        sys.exit(1)
+    probe = subprocess.run(
+        [sys.executable, "-c", "import flet, flet_web, pydantic, PyInstaller"],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        err(f"Post-install import check failed:\n{probe.stderr}")
+        sys.exit(1)
 
 
-def main():
-    app_dir = Path(__file__).parent.resolve()
-    os.chdir(str(app_dir))
-
-    print("=" * 60)
-    print("  Task Manager - EXE Builder (PyInstaller)")
-    print("=" * 60)
-    print()
-
-    # Parse arguments
+def main() -> None:
+    os.chdir(APP_DIR)
     args = sys.argv[1:]
-    clean_build = "--clean" in args
     onedir = "--onedir" in args
-    custom_name = None
-    if "--name" in args:
-        idx = args.index("--name")
-        if idx + 1 < len(args):
-            custom_name = args[idx + 1]
+    clean = "--clean" in args
 
-    # Check Python
-    info("Checking Python...")
-    try:
-        result = subprocess.run(
-            [sys.executable, "--version"],
-            capture_output=True, text=True, timeout=10
-        )
-        info(f"Python: {result.stdout.strip()}")
-    except Exception as e:
-        err(f"Python check failed: {e}")
-        sys.exit(1)
+    print("=" * 60)
+    print(f"  {NAME} — PyInstaller build ({sys.platform}, py{sys.version_info.major}.{sys.version_info.minor})")
+    print("=" * 60)
 
-    # Install/upgrade dependencies
-    info("[1/4] Installing PyInstaller and dependencies...")
-    deps = ["pyinstaller", "flet", "pydantic", "workalendar"]
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade"] + deps + ["--quiet"],
-            timeout=300,
-            check=True
-        )
-        info("Dependencies installed")
-    except subprocess.CalledProcessError as e:
-        err(f"Failed to install dependencies: {e}")
-        sys.exit(1)
-    except subprocess.TimeoutExpired:
-        err("Dependency installation timed out")
-        sys.exit(1)
+    if "--no-deps" not in args:
+        install_deps()
 
-    # Clean previous build if requested
-    dist_dir = app_dir / "dist"
-    build_dir = app_dir / "build"
-    spec_file = app_dir / "TaskManager.spec"
+    if clean:
+        for d in ("build", "dist"):
+            shutil.rmtree(APP_DIR / d, ignore_errors=True)
+        info("Cleaned build/ and dist/")
 
-    if clean_build:
-        info("Cleaning previous build...")
-        for d in [dist_dir, build_dir]:
-            if d.exists():
-                shutil.rmtree(d, ignore_errors=True)
-        if spec_file.exists():
-            spec_file.unlink()
+    # Skip PyInstaller's flet hook downloading the 100 MB desktop Flutter client
+    # (web-browser mode never loads it).
+    empty_view = APP_DIR / "build" / "_no_flet_view"
+    empty_view.mkdir(parents=True, exist_ok=True)
+    os.environ["FLET_VIEW_PATH"] = str(empty_view)
 
-    # Build EXE command
-    info("[2/4] Building EXE (this may take a minute)...")
-    
-    exe_name = custom_name or "TaskManager"
-    pyinstaller_cmd = [
+    sep = os.pathsep
+    cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--noconfirm",
-        "--windowed",
-    ]
-    
-    if onedir:
-        pyinstaller_cmd.append("--onedir")
-    else:
-        pyinstaller_cmd.append("--onefile")
-    
-    pyinstaller_cmd.extend([
-        "--name", exe_name,
-        "--icon", "NONE",
-        "--add-data", f"src{os.pathsep}src",
-        "--add-data", f"tasks.json{os.pathsep}.",
-        "--hidden-import", "core",
-        "--hidden-import", "core.models",
-        "--hidden-import", "core.repository",
-        "--hidden-import", "core.service",
-        "--hidden-import", "core.events",
-        "--hidden-import", "core.interfaces",
-        "--hidden-import", "gui_flet",
-        "--hidden-import", "gui_flet.app",
-        "--hidden-import", "gui_flet.kanban_view",
-        "--hidden-import", "gui_flet.gantt_view",
-        "--hidden-import", "gui_flet.dashboard_view",
-        "--hidden-import", "gui_flet.task_dialog",
-        "--hidden-import", "gui",
-        "--hidden-import", "gui.main_window",
-        "--hidden-import", "gui.components",
-        "--hidden-import", "gui.gantt_view",
-        "--hidden-import", "utils",
-        "--hidden-import", "utils.logger",
-        "--hidden-import", "utils.error_handler",
-        "--hidden-import", "utils.helpers",
-        "--hidden-import", "utils.updater",
-        "--hidden-import", "utils._version",
-        "--hidden-import", "flet",
-        "--hidden-import", "flet.web",
-        "--hidden-import", "pydantic",
-        "--hidden-import", "workalendar",
+        "--noconfirm", "--clean",
+        "--name", NAME,
+        "--onedir" if onedir else "--onefile",
+        "--paths", "src",
+        "--add-data", f"src{sep}src",
+        "--add-data", f"version.txt{sep}.",
         "--collect-all", "flet",
         "--collect-all", "flet_web",
+        "--collect-submodules", "core",
+        "--collect-submodules", "gui_flet",
+        "--collect-submodules", "utils",
         "--collect-all", "workalendar",
-        "--collect-all", "pydantic",
-        "main.py"
-    ])
+        "--exclude-module", "flet_desktop",
+        "--exclude-module", "tkinter",
+        "--exclude-module", "matplotlib",
+        "--noupx",
+    ]
 
+    if sys.platform == "win32":
+        # A console window that is hidden at startup: no visual clutter, but the
+        # server process is still killable and can print update/errors.
+        cmd += ["--console", "--hide-console", "hide-early"]
+    elif sys.platform == "darwin":
+        cmd += ["--windowed"]
+
+    cmd.append("main.py")
+
+    info("Running PyInstaller...")
+    print("  " + " ".join(cmd))
+    r = subprocess.run(cmd, timeout=1800)
+    if r.returncode != 0:
+        err("PyInstaller failed.")
+        sys.exit(1)
+
+    # Ship version.txt next to the output too (the updater reads it there).
+    dist = APP_DIR / "dist"
     try:
-        result = subprocess.run(
-            pyinstaller_cmd,
-            timeout=600,
-            capture_output=False
-        )
-        if result.returncode != 0:
-            err("Build failed! Check output above.")
-            sys.exit(1)
-        info("Build completed")
-    except subprocess.TimeoutExpired:
-        err("Build timed out")
-        sys.exit(1)
-    except Exception as e:
-        err(f"Build failed: {e}")
-        sys.exit(1)
+        if onedir:
+            shutil.copy2(APP_DIR / "version.txt", dist / NAME / "version.txt")
+        else:
+            shutil.copy2(APP_DIR / "version.txt", dist / "version.txt")
+    except OSError:
+        pass
 
-    # Copy version file
-    info("[3/4] Copying version file...")
-    exe_path = dist_dir / exe_name / f"{exe_name}.exe" if onedir else dist_dir / f"{exe_name}.exe"
-    
-    if exe_path.exists():
-        version_src = app_dir / "version.txt"
-        version_dst = dist_dir / "version.txt"
-        if version_src.exists():
-            shutil.copy2(version_src, version_dst)
-        info("Version file copied")
+    exe = (dist / NAME / (NAME + (".exe" if sys.platform == "win32" else ""))) if onedir \
+        else (dist / (NAME + (".exe" if sys.platform == "win32" else "")))
+    macapp = dist / f"{NAME}.app"
+
+    print()
+    print("=" * 60)
+    if exe.exists():
+        print(f"  BUILD OK -> {exe}   ({exe.stat().st_size / 1e6:.0f} MB)")
+    elif macapp.exists():
+        print(f"  BUILD OK -> {macapp}")
     else:
-        warn(f"EXE not found at {exe_path}")
-
-    # Create launcher batch file
-    info("[4/4] Creating update launcher...")
-    if exe_path.exists():
-        run_bat = dist_dir / "run.bat"
-        run_bat_content = f'''@echo off
-chcp 65001 >nul
-setlocal
-set "APP_DIR=%~dp0"
-cd /d "%APP_DIR%"
-
-REM Check for updates on startup
-if exist "{exe_name}.exe" (
-    start "" "{exe_name}.exe" --no-update
-) else (
-    echo {exe_name}.exe not found!
-    pause
-)
-'''
-        run_bat.write_text(run_bat_content, encoding="utf-8")
-        info("Launcher created")
-
-        print()
-        print("=" * 60)
-        print("  BUILD SUCCESS!")
-        print("=" * 60)
-        print()
-        print(f"  Output: {exe_path}")
-        print(f"  Launcher: {run_bat}")
-        print()
-        print("  Data storage:")
-        print("    When you run the EXE, it creates")
-        print("    a 'data\\db' folder next to itself.")
-        print("    All tasks are stored in:")
-        print("      data\\db\\tasks.json")
-        print("      data\\db\\tasks_sprints.json")
-        print("      data\\db\\tasks_versions.json")
-        print()
-        print("  To update: replace the EXE only.")
-        print("  The 'data' folder is NEVER touched.")
-        print("=" * 60)
-    else:
-        err(f"{exe_name}.exe not found in dist\\")
+        err("Build finished but no executable was found in dist/.")
         sys.exit(1)
+    print("  Data is stored next to the executable in  data/db/  and is")
+    print("  never touched by an update.")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        warn("\nBuild cancelled by user")
-        sys.exit(1)
-    except Exception as e:
-        err(f"Build failed: {e}")
-        import traceback
-        traceback.print_exc()
+        warn("cancelled")
         sys.exit(1)

@@ -131,13 +131,14 @@ def _crash_dump_handler(exc_type, exc_value, exc_traceback):
                 f.write(f"Python version: {platform.python_version()}\n")
             except Exception:
                 f.write("(env info unavailable)\n")
-            f.write("\n--- LOCALS (top frame) ---\n")
+            f.write("\n--- LOCALS (deepest frame) ---\n")
             if exc_traceback:
-                frame = exc_traceback.tb_frame
-                while frame.tb_next:
-                    frame = frame.tb_next
+                tb = exc_traceback
+                while tb.tb_next:
+                    tb = tb.tb_next
+                frame = tb.tb_frame
                 locals_str = ""
-                for name, val in (frame.tb_frame.f_locals or {}).items():
+                for name, val in (frame.f_locals or {}).items():
                     try:
                         val_str = repr(val)
                         if len(val_str) > 500:

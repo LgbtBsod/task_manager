@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 APP_DIR = Path(__file__).parent.parent.parent
-DB_PATH = APP_DIR / "tasks.json"
+DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
 
 DARK_THEME = ft.Theme(
     color_scheme_seed="#0a84ff",
@@ -85,6 +85,7 @@ class TaskManagerApp:
             sys.path.insert(0, str(src_path))
         from core.repository import TaskRepository
         from core.service import TaskService
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
 
     def main(self, page: ft.Page):
@@ -98,11 +99,6 @@ class TaskManagerApp:
         page.bgcolor = COLORS["bg_dark"]
         page.padding = 0
         page.spacing = 0
-
-        self.views_container = ft.Container(
-            expand=True,
-            bgcolor=COLORS["bg_dark"],
-        )
 
         from .kanban_view import KanbanView
         from .gantt_view import GanttView
@@ -126,7 +122,6 @@ class TaskManagerApp:
             in_progress=[t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS],
             done=[t for t in all_tasks if t.status == TaskStatus.DONE],
         )
-        self.views_container.content = self.kanban_view.container
 
         self._build_top_bar(page)
         self._view_host_index = len(page.controls)
@@ -254,8 +249,6 @@ class TaskManagerApp:
             view.build()
             if self.page and hasattr(self, "_view_host_index"):
                 self.page.controls[self._view_host_index] = view.container
-            else:
-                self.views_container.content = view.container
             if self.page:
                 self.page.update()
             if view_name == "kanban":
@@ -286,7 +279,7 @@ class TaskManagerApp:
                      or q in t.description.lower()
                      or any(q in tag for tag in t.tags)]
         if self._sort_mode == "priority":
-            prio_order = {"High": 0, "Medium": 1, "Low": 2}
+            prio_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
             tasks = sorted(tasks, key=lambda t: prio_order.get(t.priority.value, 99))
         elif self._sort_mode == "due_date":
             tasks = sorted(tasks, key=lambda t: t.due_date or "9999-12-31")
@@ -346,38 +339,32 @@ class TaskManagerApp:
                                task=task, on_save=on_save)
 
     def delete_task(self, task):
+        def close_dlg(e=None):
+            self.page.pop_dialog()
+
         def on_confirm(e):
             self.service.delete_task(task.id)
+            close_dlg()
             self.refresh_all()
-            dlg.open = False
-            self.page.update()
 
         dlg = ft.AlertDialog(
+            modal=True,
             title=ft.Text("\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0443"),
             content=ft.Text(f'\u0423\u0434\u0430\u043b\u0438\u0442\u044c "{task.title}"?'),
             actions=[
-                ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=lambda e: close_dlg(e)),
+                ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=close_dlg),
                 ft.TextButton("\u0423\u0434\u0430\u043b\u0438\u0442\u044c", on_click=on_confirm),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        self.page.overlay.append(dlg)
-        dlg.open = True
-        self.page.update()
-
-        def close_dlg(e):
-            dlg.open = False
-            self.page.update()
+        self.page.show_dialog(dlg)
 
     def _show_snackbar(self, message: str, error: bool = False):
-        snack = ft.SnackBar(
+        self.page.show_dialog(ft.SnackBar(
             content=ft.Text(message),
             bgcolor=COLORS["accent_red"] if error else COLORS["accent_green"],
             duration=3000,
-        )
-        self.page.overlay.append(snack)
-        snack.open = True
-        self.page.update()
+        ))
 
     def _clone_task(self, task):
         try:
@@ -402,15 +389,16 @@ class TaskManagerApp:
         self.refresh_all()
 
 
-def run_app(db_path: str = None):
+def run_app(db_path: str = None, port: int = 8550):
     """Entry point for the Flet-based task manager.
 
     Args:
         db_path: Path to the tasks JSON file. If None, uses default.
+        port: TCP port for the local web server.
     """
     import flet as ft
     global DB_PATH
     if db_path:
         DB_PATH = Path(db_path)
     app = TaskManagerApp()
-    ft.app(target=app.main, view=ft.AppView.WEB_BROWSER, port=8550)
+    ft.run(app.main, view=ft.AppView.WEB_BROWSER, port=port)

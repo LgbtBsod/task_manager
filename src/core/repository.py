@@ -12,13 +12,19 @@ Principles:
 - DIP: Depends on abstractions (file path), not concrete implementations
 - YAGNI: No unnecessary methods or complexity
 """
+import itertools
 import json
 import logging
 import os
 import shutil
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+
+_tmp_counter = itertools.count()
+_write_lock = threading.Lock()  # serialize JSON writes (they are short and rare)
 
 from .models import Task, TaskStatus, Sprint, VersionRelease, TaskTemplate, Category, RecurringTask, Notification
 
@@ -59,12 +65,33 @@ def _read_json_list(path: Path) -> list:
 
 
 def _write_json_list(path: Path, items: list) -> None:
-    """Atomically write *items* as pretty JSON to *path*."""
+    """Atomically write *items* as pretty JSON to *path*.
+
+    Writes to a per-writer temp file then ``os.replace`` (atomic on POSIX and
+    Windows), so a crash mid-write never leaves a half-written file and
+    concurrent writers don't clobber each other's temp file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(items, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{next(_tmp_counter)}.tmp")
+    with _write_lock:
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(items, f, indent=2, ensure_ascii=False)
+            # os.replace can transiently fail on Windows (AV / lingering handle).
+            for attempt in range(5):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
 
 
 def _parse_each(records: list, factory, kind: str) -> list:
@@ -575,10 +602,11 @@ class TaskRepository:
 
         Returns dict: {total, valid, removed}
         """
+        self._task_cache = None  # force a fresh read from disk
         try:
             with open(self.db_path, 'r', encoding='utf-8') as f:
-                raw_items = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
+                raw_items = _coerce_list(json.load(f))
+        except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
             # File is completely corrupted — reset to empty
             self._save_tasks([])
             return {"total": 0, "valid": 0, "removed": 0, "reset": True}

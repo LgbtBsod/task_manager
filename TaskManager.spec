@@ -1,23 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('src', 'src'), ('version.txt', '.')]
 binaries = []
-hiddenimports = ['flet', 'customtkinter', 'packaging.version']
+hiddenimports = []
+hiddenimports += collect_submodules('core')
+hiddenimports += collect_submodules('gui_flet')
+hiddenimports += collect_submodules('utils')
 tmp_ret = collect_all('flet')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('flet_web')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('workalendar')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['flet_desktop', 'tkinter', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )
@@ -33,13 +41,14 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    hide_console='hide-early',
 )

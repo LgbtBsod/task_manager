@@ -113,7 +113,7 @@ class GanttView:
             return
 
         status_order = {"In Progress": 0, "Todo": 1, "Done": 2}
-        prio_order = {"High": 0, "Medium": 1, "Low": 2}
+        prio_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         self._tasks_data = sorted(
             tasks_with_dates,
             key=lambda t: (status_order.get(t.status.value, 99),
@@ -204,18 +204,20 @@ class GanttView:
                     ], spacing=6),
                     width=LEFT_MARGIN - 10,
                 ),
-                ft.Container(expand=start_offset),
-                ft.Container(
-                    expand=max(duration, 1),
-                    content=ft.Row([
-                        ft.Container(expand=1, content=bar_inner),
-                        ft.Text(f"{duration_label}{due_info}", size=9,
-                                color=COLORS["accent_red"] if due_info else "#86868b")
-                        if (duration_label or due_info) else ft.Container(),
-                    ], spacing=4),
-                ),
-                ft.Container(expand=remaining),
             ]
+            if start_offset > 0:
+                row_children.append(ft.Container(expand=start_offset))
+            row_children.append(ft.Container(
+                expand=max(duration, 1),
+                content=ft.Row([
+                    ft.Container(expand=1, content=bar_inner),
+                    ft.Text(f"{duration_label}{due_info}", size=9,
+                            color=COLORS["accent_red"] if due_info else "#86868b")
+                    if (duration_label or due_info) else ft.Container(),
+                ], spacing=4),
+            ))
+            if remaining > 0:
+                row_children.append(ft.Container(expand=remaining))
 
             row = ft.Container(
                 content=ft.Row(row_children, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -230,14 +232,16 @@ class GanttView:
         if self._min_date <= today <= self._max_date:
             today_offset = (today - self._min_date).days
             controls.append(ft.Container(height=2, bgcolor=GRID_LINE_COLOR))
-            today_marker_row = ft.Row([
+            marker_cells = [
                 ft.Container(content=ft.Text("Сегодня", size=9, color=TODAY_LINE_COLOR,
-                                              weight=ft.FontWeight.W_500),
-                               width=LEFT_MARGIN - 10, alignment=ft.Alignment(1, 0)),
-                ft.Container(expand=today_offset),
-                ft.Container(width=2, height=20, bgcolor=TODAY_LINE_COLOR, border_radius=1),
-                ft.Container(expand=td - today_offset),
-            ], spacing=0)
-            controls.append(today_marker_row)
+                                             weight=ft.FontWeight.W_500),
+                             width=LEFT_MARGIN - 10, alignment=ft.Alignment(1, 0)),
+            ]
+            if today_offset > 0:
+                marker_cells.append(ft.Container(expand=today_offset))
+            marker_cells.append(ft.Container(width=2, height=20, bgcolor=TODAY_LINE_COLOR, border_radius=1))
+            if td - today_offset > 0:
+                marker_cells.append(ft.Container(expand=td - today_offset))
+            controls.append(ft.Row(marker_cells, spacing=0))
 
         self._scroll.controls = controls

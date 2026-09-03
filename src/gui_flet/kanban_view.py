@@ -54,24 +54,30 @@ class TaskCard:
         self.control = self._build_draggable(task, app)
 
     def _build_draggable(self, task, app) -> ft.Draggable:
-        """Build the draggable wrapper around the card content."""
+        """Build the draggable wrapper around the card content.
+
+        The real card is built once. The drag placeholder and the drag
+        "feedback" (what follows the cursor) are cheap stand-ins so a board
+        with dozens of tasks doesn't serialize the full card tree 3x each.
+        """
+        priority_color = PRIORITY_COLORS.get(task.priority.value, "#FF9800")
         return ft.Draggable(
             group=self.group,
             data=self.task_id,
             content=self._build_card(task, app),
             content_when_dragging=ft.Container(
-                content=self._build_card(task, app),
-                opacity=0.7,
-                bgcolor=COLORS["bg_card"],
-                border_radius=12,
-                padding=12,
+                height=64, border_radius=12,
+                bgcolor=COLORS["bg_button"], opacity=0.4,
             ),
             content_feedback=ft.Container(
-                content=self._build_card(task, app),
-                bgcolor=COLORS["bg_card"],
-                border_radius=12,
-                padding=12,
-                width=280,
+                content=ft.Row([
+                    ft.Container(width=4, height=28, bgcolor=priority_color, border_radius=2),
+                    ft.Text(task.title, size=13, weight=ft.FontWeight.W_600,
+                            color=COLORS["text_primary"], max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS),
+                ], spacing=8),
+                bgcolor=COLORS["bg_card"], border_radius=12,
+                padding=12, width=260,
             ),
         )
 
@@ -240,8 +246,8 @@ class DropColumn:
             border_radius=8,
         )
 
-        self._list_view = ft.Column(spacing=8)
-        
+        self._list_view = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+
         # Обёртываем список в DragTarget
         self._border_container = ft.DragTarget(
             group="tasks",
@@ -269,20 +275,28 @@ class DropColumn:
         )
 
     def _on_will_accept(self, e):
-        """Called when draggable enters the target."""
-        e.accept = True  # Разрешаем drop
+        """Called when a draggable of a matching group hovers the target."""
         e.control.content.border = ft.Border.all(2, self.color)
         e.control.update()
 
     def _on_leave(self, e):
-        """Called when draggable leaves the target."""
+        """Called when the draggable leaves the target."""
         e.control.content.border = ft.Border.all(1, COLORS["border_color"])
         e.control.update()
 
+    def _resolve_dragged_task_id(self, e):
+        """Flet 0.86: the drop event carries src_id, not the Draggable's data."""
+        src = getattr(e, "src", None)
+        if src is None and getattr(e, "src_id", None) is not None:
+            page = getattr(e, "page", None) or getattr(e.control, "page", None)
+            if page is not None:
+                src = page.get_control(e.src_id)
+        return getattr(src, "data", None)
+
     def _on_drop(self, e):
-        """Called when draggable is dropped on the target."""
+        """Called when a draggable is dropped on the target."""
         e.control.content.border = ft.Border.all(1, COLORS["border_color"])
-        task_id = e.data
+        task_id = self._resolve_dragged_task_id(e)
         if task_id:
             task = self.app.service.get_task(task_id)
             if task:
@@ -292,6 +306,14 @@ class DropColumn:
     def set_cards(self, cards: list):
         self._list_view.controls = [c.control for c in cards]
         self._badge.value = str(len(cards))
+        # Repaint immediately if we're already mounted; callers that build the
+        # board before it's on a page rely on their own page.update().
+        for ctl in (self._list_view, self._badge):
+            try:
+                if ctl.page is not None:
+                    ctl.update()
+            except (AttributeError, AssertionError, RuntimeError):
+                pass
 
 
 class KanbanView:

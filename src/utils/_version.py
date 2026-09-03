@@ -1,41 +1,41 @@
 """
-Task Manager - Version File
-Auto-generated version information
-Version is now stored in version.txt file
+Task Manager - Version helper.
+
+The canonical version lives in ``version.txt`` at the project / EXE root.
+This module just locates and reads it, tolerating both source and frozen
+(PyInstaller) layouts.
 """
+import sys
+from pathlib import Path
 
-import os
 
-# Путь к файлу версии (относительно этого файла)
-VERSION_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'version.txt')
+def _candidates() -> list:
+    here = Path(__file__).resolve().parent.parent.parent  # src/ -> root / _MEIPASS
+    out = [here / "version.txt"]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        out.append(Path(meipass) / "version.txt")
+    if getattr(sys, "frozen", False):
+        out.append(Path(sys.executable).resolve().parent / "version.txt")
+    return out
 
 
 def get_version() -> str:
-    """Получить текущую версию из файла version.txt.
-    
-    Returns:
-        str: Текущая версия приложения.
-    """
-    try:
-        if os.path.exists(VERSION_FILE):
-            with open(VERSION_FILE, 'r', encoding='utf-8') as f:
-                version = f.read().strip()
-                return version if version else "unknown"
-        else:
-            return "unknown"
-    except Exception:
-        return "unknown"
+    """Return the current version string, or ``"unknown"``."""
+    for path in _candidates():
+        try:
+            if path.is_file():
+                text = path.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+    return "unknown"
 
 
 def get_build_info() -> str:
-    """Получить информацию о сборке.
-    
-    Returns:
-        str: Информация о сборке.
-    """
     return "auto-updated"
 
 
-# Для обратной совместимости
 __version__ = get_version()
 __build__ = get_build_info()

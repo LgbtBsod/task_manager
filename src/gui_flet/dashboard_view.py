@@ -156,7 +156,11 @@ class DashboardView:
                              border_radius=4, height=8, clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
             ], spacing=4))
 
-        self._workload_column = ft.Column(spacing=8)
+        self._workload_column = ft.Column([
+            ft.Text("Нагрузка на команду", size=15, weight=ft.FontWeight.BOLD,
+                    color=COLORS["text_primary"]),
+            ft.Container(height=8),
+        ], spacing=8)
 
         self.container = ft.Column([
             ft.Container(content=ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD,
@@ -190,10 +194,8 @@ class DashboardView:
                     ft.Container(height=8), *status_section,
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
                 ft.Container(width=12),
-                ft.Container(content=ft.Column([
-                    ft.Text("Нагрузка на команду", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
-                    ft.Container(height=8),
-                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
+                ft.Container(content=self._workload_column,
+                             expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
             ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Column([
@@ -209,7 +211,7 @@ class DashboardView:
         ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
 
     def _build_progress_bar(self) -> ft.Control:
-        self._progress_bar = ft.ProgressBar(width=400, height=10, color=COLORS["accent_green"],
+        self._progress_bar = ft.ProgressBar(bar_height=10, color=COLORS["accent_green"],
                                               bgcolor=COLORS["bg_button"], border_radius=5)
         self._progress_label = ft.Text("0%", size=14, weight=ft.FontWeight.W_600,
                                           color=COLORS["text_primary"])

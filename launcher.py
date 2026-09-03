@@ -131,19 +131,27 @@ def get_venv_pip() -> str:
 # ── Step 1: Virtual Environment ─────────────────────────────────────────────
 
 def setup_venv(system_python: str) -> str:
-    """Ensure venv exists and return the venv python path."""
+    """Ensure a usable venv exists and return its python path.
+
+    A venv directory that is missing its interpreter (e.g. one created on
+    another OS and committed to the repo) is treated as broken and rebuilt.
+    """
     venv_python = get_venv_python()
     if VENV_DIR.exists() and Path(venv_python).exists():
         info("Virtual environment already exists")
         ensure_venv_compat_aliases()
         return venv_python
 
+    if VENV_DIR.exists():
+        warn("Existing venv is broken (no interpreter) — recreating it")
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
+
     info("Creating virtual environment...")
     result = subprocess.run(
         [system_python, "-m", "venv", str(VENV_DIR)],
         capture_output=True, text=True, timeout=120,
     )
-    if result.returncode != 0:
+    if result.returncode != 0 or not Path(venv_python).exists():
         err(f"Failed to create venv:\n{result.stderr}")
         sys.exit(1)
     ensure_venv_compat_aliases()
@@ -153,11 +161,21 @@ def setup_venv(system_python: str) -> str:
 
 # ── Step 2: Dependencies ─────────────────────────────────────────────────────
 
-def install_deps(venv_python: str):
-    """Upgrade pip and install requirements."""
-    venv_pip = get_venv_pip()
+def _flet_ok(venv_python: str) -> bool:
+    """True if flet + its web server deps import cleanly in the venv."""
+    probe = subprocess.run(
+        [venv_python, "-c", "import flet, flet_web, uvicorn, pydantic"],
+        capture_output=True, text=True, timeout=60,
+    )
+    return probe.returncode == 0
 
-    # Upgrade pip
+
+def install_deps(venv_python: str, force: bool = False):
+    """Upgrade pip and install requirements (skips if already satisfied)."""
+    if not force and _flet_ok(venv_python):
+        info("Dependencies already satisfied")
+        return
+
     info("Upgrading pip...")
     subprocess.run(
         [venv_python, "-m", "pip", "install", "--upgrade", "pip", "--quiet"],
@@ -168,15 +186,16 @@ def install_deps(venv_python: str):
         warn("requirements.txt not found, skipping dependency install")
         return
 
-    info("Installing dependencies...")
+    info("Installing dependencies (first run can take a minute)...")
     result = subprocess.run(
-        [venv_pip, "install", "-r", str(REQUIREMENTS_FILE), "--quiet"],
-        capture_output=True, text=True, timeout=300,
+        [venv_python, "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)],
+        text=True, timeout=600,
     )
-    if result.returncode != 0:
-        warn("Some dependencies may have failed to install")
-    else:
-        info("Dependencies installed")
+    if result.returncode != 0 or not _flet_ok(venv_python):
+        err("Failed to install the required packages (flet / flet-web).")
+        err("Try running manually:  venv\\Scripts\\python -m pip install -r requirements.txt")
+        sys.exit(1)
+    info("Dependencies installed")
 
 
 # ── Step 3: Optional Git Pull (non-blocking, short timeout) ──────────────────
@@ -241,7 +260,13 @@ def launch(venv_python: str, gui_args=None):
         info(f"GUI mode: {gui_args[1]}")
     print("=" * 50)
     os.chdir(str(APP_DIR))
-    os.execv(venv_python, [venv_python, str(main_py)] + gui_args)
+    # subprocess (not os.execv): on Windows execv spawns a detached child and
+    # kills the parent, which breaks argument quoting and terminal behaviour.
+    try:
+        ret = subprocess.call([venv_python, str(main_py), *gui_args])
+    except KeyboardInterrupt:
+        ret = 0
+    sys.exit(ret)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -267,9 +292,13 @@ def main():
     # 1. Find Python
     info("Checking Python...")
     system_python = find_python()
-    version = subprocess.run(
-        [system_python, "--version"], capture_output=True, text=True
-    ).stdout.strip()
+    try:
+        version = subprocess.run(
+            [system_python, "--version"], capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except subprocess.TimeoutExpired:
+        err("The Python interpreter did not respond to '--version' (hung?)")
+        sys.exit(1)
     info(f"Python: {version}")
     print()
 

@@ -123,6 +123,7 @@ class TaskService:
         story_points: Optional[int] = None,
         task_type: Optional[str] = None,
         urgency: Optional[str] = None,
+        watchers: Optional[List[str]] = None,
     ) -> Optional[Task]:
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -172,6 +173,10 @@ class TaskService:
         if urgency is not None:
             _track("urgency", task.urgency, urgency)
             task.urgency = urgency
+        if watchers is not None:
+            cleaned = sorted({w.strip() for w in watchers if w and w.strip()})
+            _track("watchers", str(task.watchers), str(cleaned))
+            task.watchers = cleaned
 
         try:
             TaskModel.from_task(task)
