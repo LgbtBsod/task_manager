@@ -14,7 +14,6 @@ from core.models import (
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from core.events import EventBus, EventType, Event, event_bus
 from utils.logger import setup_logging, get_logger
 
 TMP_DB = tempfile.mktemp(suffix='.json')
@@ -412,23 +411,12 @@ def test_repository_statistics(r):
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_service_crud(r):
-    event_bus.clear()
-    events_received = []
-    def capture(event):
-        events_received.append(event.type)
-    event_bus.subscribe(EventType.TASK_CREATED, capture)
-    event_bus.subscribe(EventType.STATUS_CHANGED, capture)
-    event_bus.subscribe(EventType.TASK_DELETED, capture)
-
     repo = TaskRepository(db_path=TMP_DB)
-    service = TaskService(repository=repo, event_bus=event_bus)
+    service = TaskService(repository=repo)
     t = service.create_task('Service test', priority=Priority.HIGH, due_date='2026-12-31')
     r.ok('service create' if t.title == 'Service test' else 'create failed')
-    r.ok('TASK_CREATED event' if EventType.TASK_CREATED in events_received else 'no event')
-    events_received.clear()
     updated = service.update_task_status(t.id, TaskStatus.IN_PROGRESS)
     r.ok('status updated' if updated and updated.status == TaskStatus.IN_PROGRESS else 'status failed')
-    r.ok('STATUS_CHANGED event' if EventType.STATUS_CHANGED in events_received else 'no event')
     updated = service.update_task(t.id, title='Renamed', time_spent=2.5)
     r.ok('field update' if updated and updated.title == 'Renamed' else 'field update failed')
     r.ok('time_spent updated' if updated.time_spent == 2.5 else 'time_spent wrong')
@@ -437,12 +425,9 @@ def test_service_crud(r):
         r.fail('bad date update', 'should raise')
     except ValueError:
         r.ok('bad date update rejected')
-    events_received.clear()
     result = service.delete_task(t.id)
     r.ok('service delete' if result else 'delete failed')
-    r.ok('TASK_DELETED event' if EventType.TASK_DELETED in events_received else 'no event')
     r.ok('get missing returns None' if service.get_task('nope') is None else 'should be None')
-    event_bus.clear()
 
 
 def test_service_with_new_fields(r):
@@ -754,48 +739,6 @@ def test_statistics(r):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# EVENT BUS TESTS
-# ═══════════════════════════════════════════════════════════════════════
-
-def test_event_bus(r):
-    bus = EventBus.__new__(EventBus)
-    bus._subscribers = {}
-    received = []
-    def cb(e): received.append(e)
-    bus.subscribe(EventType.TASK_CREATED, cb)
-    bus.publish(Event.task_event(EventType.TASK_CREATED, task_id='abc'))
-    r.ok('event received' if len(received) == 1 else f'got {len(received)}')
-    bus.unsubscribe(EventType.TASK_CREATED, cb)
-    bus.publish(Event.task_event(EventType.TASK_CREATED, task_id='def'))
-    r.ok('unsub works' if len(received) == 1 else f'got {len(received)}')
-    def bad_cb(e): raise RuntimeError('boom')
-    bus.subscribe(EventType.TASK_CREATED, bad_cb)
-    bus.publish(Event.task_event(EventType.TASK_CREATED, task_id='xyz'))
-    r.ok('error in cb doesnt break' if len(received) == 1 else 'broke')
-    bus.clear()
-
-
-def test_event_types(r):
-    # Verify all expected event types exist
-    expected = [
-        'TASK_CREATED', 'TASK_UPDATED', 'TASK_DELETED', 'STATUS_CHANGED',
-        'DATA_REFRESHED', 'COMMENT_ADDED', 'COMMENT_DELETED',
-        'LINK_ADDED', 'LINK_REMOVED', 'SUBTASK_ADDED',
-        'SUBTASK_TOGGLED', 'SUBTASK_DELETED', 'TASK_CLONED', 'BULK_OPERATION',
-    ]
-    for name in expected:
-        r.ok(f'event {name}' if hasattr(EventType, name) else f'missing {name}')
-
-
-def test_event_data(r):
-    e = Event.task_event(EventType.TASK_CREATED, 'abc123', status='Todo', old_status=None)
-    r.ok('event type set' if e.type == EventType.TASK_CREATED else 'wrong type')
-    r.ok('event task_id set' if e.task_id == 'abc123' else 'wrong id')
-    r.ok('event data has status' if e.data.get('status') == 'Todo' else 'wrong data')
-    r.ok('event data default empty' if Event(EventType.TASK_DELETED).data == {} else 'not empty')
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # HELPER TESTS
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -874,35 +817,6 @@ def test_edge_cases(r):
     service.delete_task(t5.id)
 
 
-def test_concurrent_events(r):
-    """Test that events fire correctly for rapid operations."""
-    event_bus.clear()
-    event_counts = {e: 0 for e in EventType}
-    def counter(event):
-        event_counts[event.type] += 1
-    for et in EventType:
-        event_bus.subscribe(et, counter)
-
-    repo = TaskRepository(db_path=TMP_DB)
-    service = TaskService(repository=repo, event_bus=event_bus)
-
-    t1 = service.create_task('C1')
-    t2 = service.create_task('C2')
-    service.update_task_status(t1.id, TaskStatus.DONE)
-    service.add_subtask(t2.id, 'Sub')
-    service.add_comment(t1.id, 'A', 'B')
-    service.delete_task(t2.id)
-
-    r.ok('2 TASK_CREATED' if event_counts[EventType.TASK_CREATED] == 2 else f'got {event_counts[EventType.TASK_CREATED]}')
-    r.ok('1 STATUS_CHANGED' if event_counts[EventType.STATUS_CHANGED] == 1 else f'got {event_counts[EventType.STATUS_CHANGED]}')
-    r.ok('1 SUBTASK_ADDED' if event_counts[EventType.SUBTASK_ADDED] == 1 else f'got {event_counts[EventType.SUBTASK_ADDED]}')
-    r.ok('1 COMMENT_ADDED' if event_counts[EventType.COMMENT_ADDED] == 1 else f'got {event_counts[EventType.COMMENT_ADDED]}')
-    r.ok('1 TASK_DELETED' if event_counts[EventType.TASK_DELETED] == 1 else f'got {event_counts[EventType.TASK_DELETED]}')
-
-    service.delete_task(t1.id)
-    event_bus.clear()
-
-
 def test_update_timestamp(r):
     """Verify updated_at changes on update."""
     repo = TaskRepository(db_path=TMP_DB)
@@ -971,12 +885,8 @@ if __name__ == '__main__':
         ('Service history', test_service_history),
         ('Service overdue', test_service_overdue),
         ('Statistics', test_statistics),
-        ('Event bus', test_event_bus),
-        ('Event types', test_event_types),
-        ('Event data', test_event_data),
         ('Logger', test_logger),
         ('Edge cases', test_edge_cases),
-        ('Concurrent events', test_concurrent_events),
         ('Update timestamp', test_update_timestamp),
         ('Service get_by_status', test_get_tasks_by_status_service),
     ]

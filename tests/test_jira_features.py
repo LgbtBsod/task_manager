@@ -22,7 +22,6 @@ from core.models import (
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from core.events import EventBus, EventType, Event, event_bus
 from utils.error_handler import ErrorContext, write_error_log, install_error_handler
 
 
@@ -55,7 +54,6 @@ TMP_DB = tempfile.mktemp(suffix='.json')
 
 
 def make_service(db_path=None) -> TaskService:
-    event_bus.clear()
     p = db_path or TMP_DB
     return TaskService(TaskRepository(p))
 

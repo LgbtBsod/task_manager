@@ -18,7 +18,6 @@ from .models import (
     TaskTemplate, Category, Notification, RecurringTask, RecurrenceFrequency,
 )
 from .repository import TaskRepository
-from .events import EventBus, EventType, Event, event_bus
 
 log = logging.getLogger(__name__)
 
@@ -26,9 +25,8 @@ log = logging.getLogger(__name__)
 class TaskService:
     """Business logic service for task management."""
 
-    def __init__(self, repository: Optional[TaskRepository] = None, event_bus: Optional[EventBus] = None):
+    def __init__(self, repository: Optional[TaskRepository] = None):
         self.repo = repository or TaskRepository()
-        self.event_bus = event_bus if event_bus is not None else EventBus()
 
     # ── Basic CRUD ──
 
@@ -82,7 +80,6 @@ class TaskService:
             raise ValueError(f"Validation failed: {e}")
 
         created = self.repo.add(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_CREATED, created.id, status=created.status.value))
         log.info(f"Task created: id={created.id}")
         return created
 
@@ -102,10 +99,6 @@ class TaskService:
         task.record_change("status", old_status.value, status.value)
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(
-            EventType.STATUS_CHANGED, task_id,
-            old_status=old_status.value, new_status=status.value,
-        ))
         log.info(f"Task {task_id}: {old_status.value} -> {status.value}")
         return updated
 
@@ -187,11 +180,6 @@ class TaskService:
 
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(
-            EventType.TASK_UPDATED, task_id,
-            old_status=old_status.value,
-            new_status=status.value if status else old_status.value,
-        ))
         log.info(f"Task updated: {task_id}")
         return updated
 
@@ -201,7 +189,6 @@ class TaskService:
             return False
         result = self.repo.delete(task_id)
         if result:
-            self.event_bus.publish(Event.task_event(EventType.TASK_DELETED, task_id, status=task.status.value))
             log.info(f"Task deleted: {task_id}")
         return result
 
@@ -240,7 +227,6 @@ class TaskService:
         task.record_change("subtask_added", "", title.strip())
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.SUBTASK_ADDED, task_id))
         log.info(f"Subtask added to {task_id}: {title.strip()}")
         return updated
 
@@ -256,7 +242,6 @@ class TaskService:
         task.record_change("subtask_toggled", sub.title, "done" if sub.done else "undone")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.SUBTASK_TOGGLED, task_id))
         return updated
 
     def delete_subtask(self, task_id: str, index: int) -> Optional[Task]:
@@ -272,7 +257,6 @@ class TaskService:
         task.record_change("subtask_deleted", removed_title, "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.SUBTASK_DELETED, task_id))
         return updated
 
     # ── Comments ──
@@ -286,9 +270,6 @@ class TaskService:
         task.record_change("comment_added", "", f"by {author.strip()}: {text.strip()[:50]}")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(
-            EventType.COMMENT_ADDED, task_id, comment_id=comment.id,
-        ))
         log.info(f"Comment added to {task_id} by {author.strip()}")
         return updated
 
@@ -303,9 +284,6 @@ class TaskService:
         task.record_change("comment_deleted", comment_id, "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(
-            EventType.COMMENT_DELETED, task_id, comment_id=comment_id,
-        ))
         return updated
 
     # ── Task Links ──
@@ -344,7 +322,6 @@ class TaskService:
         task.record_change("link_added", "", f"{link_type} -> {target_task_id}")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.LINK_ADDED, task_id, target=target_task_id, link_type=link_type))
         log.info(f"Link added: {task_id} {link_type} -> {target_task_id}")
         return updated
 
@@ -365,7 +342,6 @@ class TaskService:
         task.record_change("link_removed", target_task_id, "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.LINK_REMOVED, task_id, target=target_task_id))
         return updated
 
     def get_linked_tasks(self, task_id: str) -> dict:
@@ -388,7 +364,6 @@ class TaskService:
         for tid in task_ids:
             if self.delete_task(tid):
                 count += 1
-        self.event_bus.publish(Event.task_event(EventType.BULK_OPERATION, "", action="delete", count=count))
         log.info(f"Bulk delete: {count}/{len(task_ids)} tasks")
         return count
 
@@ -398,7 +373,6 @@ class TaskService:
         for tid in task_ids:
             if self.update_task_status(tid, status):
                 count += 1
-        self.event_bus.publish(Event.task_event(EventType.BULK_OPERATION, "", action="status_change", count=count))
         log.info(f"Bulk status change to {status.value}: {count}/{len(task_ids)} tasks")
         return count
 
@@ -519,7 +493,6 @@ class TaskService:
             task.record_change("watcher_added", "", watcher_clean)
             task.update_timestamp()
             updated = self.repo.update(task)
-            self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
             log.info(f"Watcher {watcher_clean} added to {task_id}")
             return updated
         return task
@@ -536,7 +509,6 @@ class TaskService:
             task.record_change("watcher_removed", watcher_clean, "")
             task.update_timestamp()
             updated = self.repo.update(task)
-            self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
             log.info(f"Watcher {watcher_clean} removed from {task_id}")
             return updated
         return task
@@ -566,7 +538,6 @@ class TaskService:
         task.epic_link = epic_task_id
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Epic link for {task_id}: {old_epic} -> {epic_task_id}")
         return updated
 
@@ -588,7 +559,6 @@ class TaskService:
         task.record_change("time_spent", str(old_time), str(task.time_spent))
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Logged {hours}h to {task_id} (total: {task.time_spent}h)")
         return updated
 
@@ -643,7 +613,6 @@ class TaskService:
             self.add_subtask(cloned.id, sub.title)
         # Return final state from repo
         cloned = self.repo.get_by_id(cloned.id)
-        self.event_bus.publish(Event.task_event(EventType.TASK_CLONED, cloned.id, source_id=task_id))
         log.info(f"Task cloned: {task_id} -> {cloned.id}")
         return cloned
 
@@ -682,7 +651,6 @@ class TaskService:
         task.record_change("rank", str(old_rank), str(task.rank))
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Task {task_id} rank: {old_rank} -> {task.rank}")
         return updated
 
@@ -709,7 +677,6 @@ class TaskService:
             task.rank = i
             task.update_timestamp()
             self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.BULK_OPERATION, "", action="reorder", count=len(task_ids)))
         log.info(f"Backlog reordered: {len(task_ids)} tasks")
         return True
 
@@ -838,7 +805,6 @@ class TaskService:
             task.record_change("status", old_status, TaskStatus.DONE.value)
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Resolution for {task_id}: {resolution}")
         return updated
 
@@ -855,7 +821,6 @@ class TaskService:
             task.record_change("status", TaskStatus.DONE.value, TaskStatus.IN_PROGRESS.value)
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Resolution cleared for {task_id}")
         return updated
 
@@ -921,7 +886,6 @@ class TaskService:
         task.record_change("sprint_id", old_sprint, sprint_id or "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Task {task_id} assigned to sprint {sprint_id}")
         return updated
 
@@ -1033,7 +997,6 @@ class TaskService:
         task.record_change("original_estimate", str(old_est), str(task.original_estimate))
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Estimate for {task_id}: {old_est}h -> {task.original_estimate}h")
         return updated
 
@@ -1078,7 +1041,6 @@ class TaskService:
             task.record_change("label_added", "", lbl)
             task.update_timestamp()
             updated = self.repo.update(task)
-            self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
             return updated
         return task
 
@@ -1094,7 +1056,6 @@ class TaskService:
             task.record_change("label_removed", lbl, "")
             task.update_timestamp()
             updated = self.repo.update(task)
-            self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
             return updated
         return task
 
@@ -1163,7 +1124,6 @@ class TaskService:
         task.record_change("version_id", old_ver, version_id or "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         log.info(f"Task {task_id} assigned to version {version_id}")
         return updated
 
@@ -1414,7 +1374,6 @@ class TaskService:
         task.record_change("category_id", old_cat, category_id or "")
         task.update_timestamp()
         updated = self.repo.update(task)
-        self.event_bus.publish(Event.task_event(EventType.TASK_UPDATED, task_id))
         return updated
 
     def get_category_report(self, category_id: str) -> dict:

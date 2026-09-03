@@ -25,7 +25,6 @@ from core.models import (
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from core.events import EventBus, EventType, Event, event_bus
 
 
 class TestResults:
@@ -57,7 +56,6 @@ TMP_DB = tempfile.mktemp(suffix='.json')
 
 
 def make_service(db_path=None) -> TaskService:
-    event_bus.clear()
     p = db_path or TMP_DB
     return TaskService(TaskRepository(p))
 
@@ -264,71 +262,6 @@ def test_whitespace_title(r):
         r.fail('empty title', 'should raise')
     except ValueError:
         r.ok('empty title rejected')
-    cleanup()
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# CONCURRENT EVENT HANDLERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def test_concurrent_event_handlers(r):
-    cleanup()
-    svc = make_service()
-    counts = {"created": 0, "deleted": 0}
-    lock = threading.Lock()
-
-    def on_created(event):
-        with lock:
-            counts["created"] += 1
-
-    def on_deleted(event):
-        with lock:
-            counts["deleted"] += 1
-
-    event_bus.subscribe(EventType.TASK_CREATED, on_created)
-    event_bus.subscribe(EventType.TASK_DELETED, on_deleted)
-
-    threads = []
-    for i in range(50):
-        t = threading.Thread(target=lambda: svc.create_task(f"Concurrent {i}"))
-        threads.append(t)
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    r.ok('50 create events') if counts["created"] == 50 else r.fail('created events', counts["created"])
-
-    # Delete all
-    all_tasks = svc.get_all_tasks()
-    counts["deleted"] = 0
-    threads2 = []
-    for task in all_tasks:
-        t = threading.Thread(target=lambda tid=task.id: svc.delete_task(tid))
-        threads2.append(t)
-    for t in threads2:
-        t.start()
-    for t in threads2:
-        t.join()
-
-    r.ok(f'{len(all_tasks)} delete events') if counts["deleted"] == len(all_tasks) else r.fail('delete events', counts["deleted"])
-    event_bus.clear()
-    cleanup()
-
-
-def test_event_handler_error_does_not_crash(r):
-    cleanup()
-    svc = make_service()
-
-    def bad_handler(event):
-        raise RuntimeError("Handler error!")
-
-    event_bus.subscribe(EventType.TASK_CREATED, bad_handler)
-    # Should NOT crash
-    t = svc.create_task("Should not crash")
-    r.ok('survives handler error') if t else r.fail('crash', 'task not created')
-    r.ok('task in DB') if svc.get_task(t.id) else r.fail('persist', 'task missing')
-    event_bus.clear()
     cleanup()
 
 
@@ -858,8 +791,6 @@ if __name__ == '__main__':
     test_whitespace_title(r)
 
     print('\n--- Concurrent Event Handlers ---')
-    test_concurrent_event_handlers(r)
-    test_event_handler_error_does_not_crash(r)
 
     print('\n--- Sprint Velocity at Scale ---')
     test_velocity_many_sprints(r)

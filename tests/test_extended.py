@@ -16,7 +16,6 @@ from core.models import (
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from core.events import EventBus, EventType, Event, event_bus
 from utils.logger import setup_logging, get_logger
 
 TMP_DB = tempfile.mktemp(suffix='.json')
@@ -620,45 +619,6 @@ def test_service_empty_title_on_update(r):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# EVENT BUS EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════
-
-def test_event_bus_multiple_subscribers(r):
-    bus = EventBus.__new__(EventBus)
-    bus._subscribers = {}
-    received_a = []
-    received_b = []
-    def cb_a(e): received_a.append(e)
-    def cb_b(e): received_b.append(e)
-    bus.subscribe(EventType.TASK_CREATED, cb_a)
-    bus.subscribe(EventType.TASK_CREATED, cb_b)
-    bus.publish(Event.task_event(EventType.TASK_CREATED, 't1'))
-    r.ok('both subscribers called' if len(received_a) == 1 and len(received_b) == 1 else 'not both')
-    bus.unsubscribe(EventType.TASK_CREATED, cb_a)
-    bus.publish(Event.task_event(EventType.TASK_CREATED, 't2'))
-    r.ok('only B after A unsub' if len(received_a) == 1 and len(received_b) == 2 else 'wrong counts')
-    bus.clear()
-
-
-def test_event_bus_unsubscribe_nonexistent(r):
-    bus = EventBus.__new__(EventBus)
-    bus._subscribers = {}
-    def cb(e): pass
-    bus.unsubscribe(EventType.TASK_CREATED, cb)
-    r.ok('unsubscribe nonexistent does not raise')
-
-
-def test_event_bus_clear(r):
-    bus = EventBus.__new__(EventBus)
-    bus._subscribers = {}
-    def cb(e): pass
-    bus.subscribe(EventType.TASK_CREATED, cb)
-    bus.clear()
-    bus.publish(Event.task_event(EventType.TASK_CREATED, 't1'))
-    r.ok('clear removes all subscribers')
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # LINKS EDGE CASES
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -792,9 +752,6 @@ if __name__ == '__main__':
         ('Service update nonexistent', test_service_update_nonexistent),
         ('Service create all fields', test_service_create_with_all_fields),
         ('Service empty title update', test_service_empty_title_on_update),
-        ('Event bus multiple subscribers', test_event_bus_multiple_subscribers),
-        ('Event bus unsubscribe nonexistent', test_event_bus_unsubscribe_nonexistent),
-        ('Event bus clear', test_event_bus_clear),
         ('All link types', test_link_types_all),
         ('Blocks not symmetric', test_blocks_link_not_symmetric),
         ('Clones symmetric', test_clones_link_symmetric),
