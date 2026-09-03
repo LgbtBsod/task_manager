@@ -1,8 +1,7 @@
 """
 Task Manager - Main Entry Point
 
-Launches the Flet GUI by default (web + desktop).
-Use --gui ctk to launch the CustomTkinter alternative.
+Launches the Flet GUI (a local web server; opens a browser tab).
 
 Portable EXE mode:
   When frozen via PyInstaller, data is stored in a 'data' folder
@@ -108,34 +107,28 @@ def main():
         except Exception as e:
             log.warning(f"Update check failed, continuing: {e}")
 
-    gui_mode = "flet"  # default
+    # Optional: --port N to override the default web-server port.
+    port = 8550
+    if "--port" in args:
+        try:
+            port = int(args[args.index("--port") + 1])
+        except (ValueError, IndexError):
+            pass
 
-    if "--gui" in args:
-        idx = args.index("--gui")
-        if idx + 1 < len(args):
-            gui_mode = args[idx + 1].lower()
-
-    log.info(f"Starting GUI: {gui_mode}")
-
-    # Store context for crash dumps
-    ErrorContext().set("gui_mode", gui_mode)
+    log.info(f"Starting Flet GUI on port {port}")
     ErrorContext().set("app_dir", str(app_dir))
     ErrorContext().set("db_path", db_path)
 
     try:
-        if gui_mode == "ctk":
-            from gui.main_window import run_app
-            run_app()
-        else:
-            from gui_flet.app import run_app
-            run_app(db_path=db_path)
+        from gui_flet.app import run_app
+        run_app(db_path=db_path, port=port)
     except Exception as e:
         log.critical(f"Fatal error starting GUI: {e}", exc_info=True)
         from utils.error_handler import write_error_log
         error_path = write_error_log(
-            f"Fatal error starting GUI ({gui_mode}): {e}",
+            f"Fatal error starting GUI: {e}",
             app_dir=str(app_dir),
-            context={"gui_mode": gui_mode, "phase": "gui_launch"},
+            context={"phase": "gui_launch"},
         )
         sys.stderr.write(f"[FATAL] Error log: {error_path}\n")
         import traceback as tb

@@ -10,11 +10,7 @@ Responsibilities:
 - Launch main.py
 
 Usage:
-    python launcher.py [--no-update] [--skip-deps] [--gui flet|ctk]
-
-GUI modes:
-    flet  — Flet web/desktop GUI (default, opens in browser)
-    ctk   — CustomTkinter desktop GUI
+    python launcher.py [--no-update] [--skip-deps] [--port N]
 """
 import sys
 import os
@@ -245,25 +241,20 @@ def try_git_pull():
 
 # ── Step 4: Launch ───────────────────────────────────────────────────────────
 
-def launch(venv_python: str, gui_args=None):
+def launch(venv_python: str, extra_args=None):
     """Launch main.py inside the venv."""
     main_py = APP_DIR / "main.py"
     if not main_py.exists():
         err("main.py not found!")
         sys.exit(1)
 
-    if gui_args is None:
-        gui_args = []
-
     info("Starting Task Manager...")
-    if gui_args:
-        info(f"GUI mode: {gui_args[1]}")
     print("=" * 50)
     os.chdir(str(APP_DIR))
     # subprocess (not os.execv): on Windows execv spawns a detached child and
     # kills the parent, which breaks argument quoting and terminal behaviour.
     try:
-        ret = subprocess.call([venv_python, str(main_py), *gui_args])
+        ret = subprocess.call([venv_python, str(main_py), *(extra_args or [])])
     except KeyboardInterrupt:
         ret = 0
     sys.exit(ret)
@@ -277,12 +268,9 @@ def main():
     skip_deps = "--skip-deps" in args
     no_update = "--no-update" in args
 
-    # Extract --gui value for passing to main.py
-    gui_args = []
-    if "--gui" in raw_args:
-        idx = raw_args.index("--gui")
-        if idx + 1 < len(raw_args):
-            gui_args = ["--gui", raw_args[idx + 1]]
+    # Anything that isn't a launcher flag is forwarded to main.py (e.g. --port).
+    _own = {"--skip-deps", "--no-update"}
+    passthrough = [a for a in raw_args if a not in _own]
 
     print("=" * 50)
     print("  Task Manager - Launcher")
@@ -325,7 +313,7 @@ def main():
 
     # 5. Launch
     info("[4/4] Launching application...")
-    launch(venv_python, gui_args)
+    launch(venv_python, passthrough)
 
 
 if __name__ == "__main__":

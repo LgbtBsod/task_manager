@@ -1,6 +1,0 @@
-# Extra dependencies for the legacy CustomTkinter desktop GUI (`python main.py --gui ctk`).
-# Install with:  pip install -r requirements.txt -r requirements-ctk.txt
-customtkinter>=5.2.0
-pillow>=10.0.0
-matplotlib>=3.8.0
-darkdetect>=0.8.0

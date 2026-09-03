@@ -1,8 +1,4 @@
-# Runtime dependencies for the default (Flet, web) GUI.
-# Python 3.10+ (tested on 3.14).
+# Runtime dependencies. Python 3.10+ (tested on 3.14).
 flet[web]>=0.86.5,<0.90
 pydantic>=2.0.0
 workalendar>=17.0.0   # optional: Russian holiday calendar in the Gantt/stats
-
-# The legacy CustomTkinter GUI (`--gui ctk`) needs extra packages —
-# see requirements-ctk.txt. It is not installed by default.

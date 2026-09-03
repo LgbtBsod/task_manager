@@ -25,7 +25,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['flet_desktop', 'tkinter', 'matplotlib'],
+    excludes=['flet_desktop', 'tkinter', 'customtkinter', 'matplotlib', 'darkdetect'],
     noarchive=False,
     optimize=0,
 )

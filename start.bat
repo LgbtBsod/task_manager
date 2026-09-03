@@ -7,7 +7,7 @@ echo  ============================================
 echo.
 echo  Starting... a browser tab will open at http://localhost:8550
 echo.
-python "%~dp0launcher.py" --gui flet %*
+python "%~dp0launcher.py" %*
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] Launcher exited with code %errorlevel%

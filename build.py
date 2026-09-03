@@ -9,7 +9,7 @@ Task Manager - build a standalone executable with PyInstaller.
 Output:
     Windows : dist/TaskManager.exe   (+ dist/TaskManager/ for --onedir)
     Linux   : dist/TaskManager
-    macOS   : dist/TaskManager.app
+    macOS   : dist/TaskManager
 
 The app runs Flet in web-browser mode: launching the executable starts a local
 server and opens the default browser at http://localhost:8550.
@@ -92,9 +92,12 @@ def main() -> None:
         "--collect-submodules", "gui_flet",
         "--collect-submodules", "utils",
         "--collect-all", "workalendar",
+        # The app is Flet-only; make sure nothing drags a desktop toolkit in.
         "--exclude-module", "flet_desktop",
         "--exclude-module", "tkinter",
+        "--exclude-module", "customtkinter",
         "--exclude-module", "matplotlib",
+        "--exclude-module", "darkdetect",
         "--noupx",
     ]
 
@@ -125,16 +128,13 @@ def main() -> None:
     except OSError:
         pass
 
-    exe = (dist / NAME / (NAME + (".exe" if sys.platform == "win32" else ""))) if onedir \
-        else (dist / (NAME + (".exe" if sys.platform == "win32" else "")))
-    macapp = dist / f"{NAME}.app"
+    ext = ".exe" if sys.platform == "win32" else ""
+    exe = (dist / NAME / (NAME + ext)) if onedir else (dist / (NAME + ext))
 
     print()
     print("=" * 60)
     if exe.exists():
         print(f"  BUILD OK -> {exe}   ({exe.stat().st_size / 1e6:.0f} MB)")
-    elif macapp.exists():
-        print(f"  BUILD OK -> {macapp}")
     else:
         err("Build finished but no executable was found in dist/.")
         sys.exit(1)
