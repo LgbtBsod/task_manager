@@ -121,11 +121,14 @@ class AutoUpdater:
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.current_version = current_version
-        # TASKMANAGER_UPDATE_API lets you point the updater at a self-hosted
-        # GitHub-compatible endpoint (or a test server). Must expose
-        # `<base>/releases/latest`.
-        override = os.environ.get("TASKMANAGER_UPDATE_API", "").rstrip("/")
-        self.api_url = override or f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        # Discovery goes through github.com (releases.atom + direct download
+        # URLs) which is NOT subject to the 60-req/hour api.github.com limit.
+        # The API is only a fallback. Both bases can be overridden for tests /
+        # a self-hosted mirror.
+        api_override = os.environ.get("TASKMANAGER_UPDATE_API", "").rstrip("/")
+        web_override = os.environ.get("TASKMANAGER_UPDATE_WEB", "").rstrip("/")
+        self.api_url = api_override or f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        self.web_url = web_override or f"https://github.com/{repo_owner}/{repo_name}"
         from core import paths
         self.is_frozen = paths.frozen
         self.app_dir = paths.app_dir
@@ -340,6 +343,13 @@ class AutoUpdater:
         except Exception:
             return str(latest).strip() != str(current).strip() and str(latest) > str(current)
 
+    def _platform_asset(self) -> Optional[str]:
+        """The exact release-asset filename for this OS (matches build.yml)."""
+        if not self.is_frozen:
+            return None
+        return {"win32": "TaskManager-windows.exe",
+                "darwin": "TaskManager-macos"}.get(sys.platform, "TaskManager-linux")
+
     def _asset_keywords(self) -> list:
         """Substrings that identify the release asset for this OS, best first."""
         if not self.is_frozen:
@@ -349,6 +359,69 @@ class AutoUpdater:
         if sys.platform == "darwin":
             return ["macos", "mac", "darwin", ".app", ".dmg"]
         return ["linux"]
+
+    # ── Discovery via github.com (no API rate limit) ──────────────────────
+
+    def _http_text(self, url: str) -> Optional[str]:
+        try:
+            with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except HTTPError as exc:
+            if exc.code in (403, 429):
+                self._rate_limited = True
+            logger.debug("web GET %s failed: %s", url, exc)
+        except (URLError, TimeoutError) as exc:
+            logger.debug("web GET %s unreachable: %s", url, exc)
+            self._network_reachable = False
+        except Exception as exc:
+            logger.debug("web GET %s error: %s", url, exc)
+        return None
+
+    def _atom_tags(self) -> list[str]:
+        """Release tags from ``<web>/releases.atom``, newest first. []  on failure."""
+        import re
+        xml = self._http_text(f"{self.web_url}/releases.atom")
+        if not xml:
+            return []
+        # <link ... href=".../releases/tag/<TAG>"/>  — order = newest first
+        tags = re.findall(r"/releases/tag/([^\"'<>\s]+)", xml)
+        seen: set[str] = set()
+        return [t for t in tags if not (t in seen or seen.add(t))]
+
+    def _web_asset_url(self, tag: str) -> Optional[str]:
+        asset = self._platform_asset()
+        return f"{self.web_url}/releases/download/{tag}/{asset}" if asset else None
+
+    def _asset_available(self, url: str) -> bool:
+        """True if the asset URL resolves to a real download (not a 404 because
+        the release exists but CI is still uploading its binaries)."""
+        try:
+            req = self._create_request(url)
+            req.add_header("Range", "bytes=0-0")
+            with urlopen(req, timeout=self.TIMEOUT_API) as resp:
+                return resp.status in (200, 206)
+        except HTTPError as exc:
+            return exc.code in (200, 206, 416)
+        except Exception:
+            return False
+
+    def _check_via_web(self) -> Optional[Tuple[bool, Optional[str], Optional[str]]]:
+        """Atom-feed discovery. Returns a check_for_updates result, or None to
+        let the caller fall through to the API."""
+        tags = self._atom_tags()
+        if not tags:
+            return None
+        newer = [t for t in tags if self._is_newer_version(t, self.current_version)]
+        if not newer:
+            logger.info("Up to date (newest tag: %s, current: %s)", tags[0], self.current_version)
+            return False, tags[0], None
+        newest = newer[0]                       # atom feed is newest-first
+        url = self._web_asset_url(newest)
+        if url and self._asset_available(url):
+            logger.info("New version available: %s (via releases.atom)", newest)
+            return True, newest, url
+        logger.info("Release %s is published but its asset isn't ready yet", newest)
+        return False, newest, None
 
     def _resolve_download_url(self, release_info: Dict[str, Any]) -> Optional[str]:
         assets = release_info.get("assets") or []
@@ -386,8 +459,13 @@ class AutoUpdater:
         return best
 
     def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
-        # Prefer the full list (newest-first) over /releases/latest — see
-        # _pick_release for why the "latest" pointer can't be trusted here.
+        # 1) github.com/releases.atom + a direct download URL — no API limit.
+        web = self._check_via_web()
+        if web is not None:
+            return web
+
+        # 2) API fallback. Prefer the full list (newest-first) over
+        #    /releases/latest — see _pick_release for why "latest" can't be trusted.
         releases = self._api_get(f"{self.api_url}/releases?per_page=20")
         if isinstance(releases, list) and releases:
             chosen = self._pick_release(releases)
