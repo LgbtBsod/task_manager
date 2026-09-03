@@ -26,7 +26,7 @@ def _make_updater(current_version: str):
 
 async def check_on_start(app) -> None:
     """Silent background check when the app opens. Prompts only on success."""
-    if not _is_frozen():
+    if not _is_frozen() or "--no-update" in sys.argv:
         return
     try:
         if not app.settings.get("check_updates_on_start"):
