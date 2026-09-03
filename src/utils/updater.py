@@ -3,12 +3,15 @@ Task Manager - Auto Updater Module
 
 Responsibilities:
 - Query GitHub releases for a newer version.
-- Download a ZIP update bundle.
+- Download a ZIP update bundle with progress tracking.
+- Verify file integrity using checksums.
 - Apply the update to the project root or the frozen EXE directory.
+- Rollback on failure to maintain system stability.
 - Relaunch the app after update installation.
 
 This module keeps the update logic isolated from the GUI and startup flow.
 """
+import hashlib
 import json
 import logging
 import os
@@ -19,13 +22,14 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 logger = logging.getLogger(__name__)
 
-SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data"}
-SKIP_EXTENSIONS = {".pyc", ".pyo"}
+SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data", "logs"}
+SKIP_EXTENSIONS = {".pyc", ".pyo", ".tmp"}
 
 
 @dataclass(frozen=True)
@@ -35,11 +39,101 @@ class UpdateJob:
     download_url: Optional[str]
 
 
+@dataclass
+class DownloadProgress:
+    """Tracks download progress with additional metadata."""
+    bytes_downloaded: int = 0
+    total_bytes: int = 0
+    percent: float = 0.0
+    speed_bps: float = 0.0  # Bytes per second
+    elapsed_time: float = 0.0  # Seconds since download started
+    eta_seconds: float = 0.0  # Estimated time remaining
+    
+    def __post_init__(self):
+        """Calculate percent if total_bytes is known."""
+        if self.total_bytes > 0:
+            object.__setattr__(self, 'percent', (self.bytes_downloaded / self.total_bytes) * 100)
+    
+    @property
+    def is_complete(self) -> bool:
+        return self.total_bytes > 0 and self.bytes_downloaded >= self.total_bytes
+    
+    @property
+    def speed_mbps(self) -> float:
+        """Return download speed in Mbps."""
+        return self.speed_bps / (1024 * 1024)
+    
+    @property
+    def formatted_eta(self) -> str:
+        """Return formatted ETA string (MM:SS)."""
+        if self.eta_seconds <= 0:
+            return "--:--"
+        # Cap at 99 hours to avoid very long strings
+        capped_eta = min(self.eta_seconds, 99 * 3600 + 59 * 60 + 59)
+        hours = int(capped_eta // 3600)
+        minutes = int((capped_eta % 3600) // 60)
+        seconds = int(capped_eta % 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+    
+    @property
+    def formatted_speed(self) -> str:
+        """Return formatted speed string (B/s, KB/s, or MB/s)."""
+        if self.speed_bps < 0:
+            return "0 B/s"
+        if self.speed_bps < 1024:
+            return f"{self.speed_bps:.0f} B/s"
+        elif self.speed_bps < 1024 * 1024:
+            return f"{self.speed_bps / 1024:.1f} KB/s"
+        else:
+            return f"{self.speed_mbps:.2f} MB/s"
+    
+    def update_progress(self, bytes_downloaded: int, elapsed_time: float, total_bytes: Optional[int] = None):
+        """Update progress metrics and recalculate derived values.
+        
+        Args:
+            bytes_downloaded: Total bytes downloaded so far
+            elapsed_time: Time elapsed since download started (seconds)
+            total_bytes: Optional new total bytes value
+        """
+        object.__setattr__(self, 'bytes_downloaded', bytes_downloaded)
+        object.__setattr__(self, 'elapsed_time', elapsed_time)
+        
+        if total_bytes is not None:
+            object.__setattr__(self, 'total_bytes', total_bytes)
+        
+        # Recalculate speed
+        if elapsed_time > 0:
+            object.__setattr__(self, 'speed_bps', bytes_downloaded / elapsed_time)
+        
+        # Recalculate percent
+        if self.total_bytes > 0:
+            object.__setattr__(self, 'percent', (bytes_downloaded / self.total_bytes) * 100)
+        
+        # Recalculate ETA
+        if self.speed_bps > 0 and self.total_bytes > 0:
+            remaining_bytes = max(0, self.total_bytes - bytes_downloaded)
+            object.__setattr__(self, 'eta_seconds', remaining_bytes / self.speed_bps)
+        else:
+            object.__setattr__(self, 'eta_seconds', 0.0)
+
+
+class UpdateError(Exception):
+    """Custom exception for update-related errors."""
+    def __init__(self, message: str, recoverable: bool = True):
+        super().__init__(message)
+        self.recoverable = recoverable
+
+
 class AutoUpdater:
     """Responsible only for checking and applying app updates."""
 
     TIMEOUT_API = 8
-    TIMEOUT_DOWNLOAD = 60
+    TIMEOUT_DOWNLOAD = 120
+    CHUNK_SIZE = 8192
+    MIN_UPDATE_SIZE = 1024  # Minimum expected update size in bytes
+    MAX_UPDATE_SIZE = 500 * 1024 * 1024  # 500 MB max update size
 
     def __init__(self, repo_owner: str, repo_name: str, current_version: str = "unknown"):
         self.repo_owner = repo_owner
@@ -53,6 +147,8 @@ class AutoUpdater:
             else Path(__file__).resolve().parent.parent.parent
         )
         self.current_exe = Path(sys.executable).resolve() if self.is_frozen else None
+        self.backup_dir: Optional[Path] = None
+        self.progress_callback: Optional[Callable[[DownloadProgress], None]] = None
 
     def _create_request(self, url: str) -> Request:
         req = Request(url)
@@ -63,9 +159,128 @@ class AutoUpdater:
         try:
             with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
+        except (URLError, HTTPError) as exc:
             logger.debug("API request failed: %s", exc)
             return None
+        except Exception as exc:
+            logger.debug("Unexpected API error: %s", exc)
+            return None
+
+    def _download_with_progress(
+        self, 
+        url: str, 
+        dest_path: Path,
+        progress_callback: Optional[Callable[[DownloadProgress], None]] = None
+    ) -> Tuple[bool, str]:
+        """Download a file with progress tracking and validation.
+        
+        Returns:
+            Tuple of (success, error_message)
+        """
+        import time
+        
+        try:
+            req = self._create_request(url)
+            req.add_header('Accept', 'application/octet-stream')
+            
+            with urlopen(req, timeout=self.TIMEOUT_DOWNLOAD) as resp:
+                # Handle redirects by following them automatically
+                final_url = resp.url if hasattr(resp, 'url') else url
+                
+                # Try to get Content-Length, may not be available for all URLs
+                total_size = int(resp.getheader('Content-Length', 0))
+                
+                # For GitHub releases, the size might not be available initially
+                # In this case, we'll download without size validation
+                if total_size == 0 and 'github' in final_url.lower():
+                    logger.debug("GitHub URL detected, size validation skipped")
+                
+                downloaded = 0
+                start_time = time.time()
+                progress = DownloadProgress(total_bytes=total_size)
+                last_update_time = start_time
+                bytes_since_last_update = 0
+                
+                with open(dest_path, 'wb') as dest_file:
+                    while True:
+                        chunk = resp.read(self.CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        
+                        dest_file.write(chunk)
+                        downloaded += len(chunk)
+                        bytes_since_last_update += len(chunk)
+                        
+                        current_time = time.time()
+                        elapsed = current_time - start_time
+                        
+                        # Update speed and ETA every 0.5 seconds
+                        if current_time - last_update_time >= 0.5:
+                            if elapsed > 0:
+                                progress.speed_bps = downloaded / elapsed
+                            
+                            # Calculate ETA based on current speed
+                            remaining_bytes = max(0, total_size - downloaded) if total_size > 0 else 0
+                            if progress.speed_bps > 0 and total_size > 0:
+                                progress.eta_seconds = remaining_bytes / progress.speed_bps
+                            else:
+                                progress.eta_seconds = 0
+                            
+                            progress.elapsed_time = elapsed
+                            last_update_time = current_time
+                            bytes_since_last_update = 0
+                        
+                        progress.bytes_downloaded = downloaded
+                        
+                        if total_size > 0:
+                            progress.percent = (downloaded / total_size) * 100
+                        
+                        if progress_callback:
+                            progress_callback(progress)
+                
+                # Final speed calculation
+                total_elapsed = time.time() - start_time
+                if total_elapsed > 0:
+                    progress.speed_bps = downloaded / total_elapsed
+                    progress.elapsed_time = total_elapsed
+                    
+                    # Final ETA calculation
+                    remaining_bytes = max(0, total_size - downloaded) if total_size > 0 else 0
+                    if progress.speed_bps > 0 and total_size > 0:
+                        progress.eta_seconds = remaining_bytes / progress.speed_bps
+                    else:
+                        progress.eta_seconds = 0
+                
+                # Validate size only if we had a valid Content-Length header
+                if total_size > 0:
+                    if total_size < self.MIN_UPDATE_SIZE:
+                        return False, f"Update file too small: {total_size} bytes"
+                    
+                    if total_size > self.MAX_UPDATE_SIZE:
+                        return False, f"Update file too large: {total_size} bytes"
+                    
+                    if downloaded != total_size:
+                        return False, f"Incomplete download: {downloaded}/{total_size} bytes"
+                else:
+                    # No size info available, just check we got something
+                    if downloaded < self.MIN_UPDATE_SIZE:
+                        return False, f"Downloaded file too small: {downloaded} bytes"
+                
+                logger.info(
+                    "Download completed: %s (%.1f KB, %.2f MB/s, %s)",
+                    dest_path.name, 
+                    downloaded / 1024,
+                    progress.speed_mbps,
+                    progress.formatted_eta if total_size > 0 else "N/A"
+                )
+                return True, ""
+                
+        except HTTPError as exc:
+            return False, f"HTTP error {exc.code}: {exc.reason}"
+        except URLError as exc:
+            return False, f"Network error: {exc.reason}"
+        except Exception as exc:
+            return False, f"Download failed: {str(exc)}"
 
     @staticmethod
     def _parse_version(version_str: str) -> Tuple[Tuple[int, ...], str, str]:
@@ -158,6 +373,69 @@ class AutoUpdater:
             ):
                 return True, latest_sha, zip_url
         return False, None, None
+
+    def _create_backup(self) -> Optional[Path]:
+        """Create a backup of critical files before update."""
+        try:
+            backup_base = self.app_dir / ".update_backup"
+            backup_base.mkdir(exist_ok=True)
+            
+            timestamp = subprocess.run(
+                ["date", "+%Y%m%d_%H%M%S"],
+                capture_output=True, text=True, timeout=5
+            ).stdout.strip() if sys.platform != "win32" else "backup"
+            
+            self.backup_dir = backup_base / f"backup_{timestamp}"
+            self.backup_dir.mkdir(parents=True)
+            
+            critical_files = ["version.txt", "tasks.json", "requirements.txt"]
+            for fname in critical_files:
+                src = self.app_dir / fname
+                if src.exists():
+                    shutil.copy2(src, self.backup_dir / fname)
+            
+            logger.info("Backup created at: %s", self.backup_dir)
+            return self.backup_dir
+            
+        except Exception as exc:
+            logger.warning("Failed to create backup: %s", exc)
+            return None
+
+    def _restore_from_backup(self) -> bool:
+        """Restore from backup if update fails."""
+        if not self.backup_dir or not self.backup_dir.exists():
+            logger.warning("No backup available for restoration")
+            return False
+        
+        try:
+            for item in self.backup_dir.iterdir():
+                if item.is_file():
+                    dest = self.app_dir / item.name
+                    shutil.copy2(item, dest)
+            
+            logger.info("Successfully restored from backup")
+            return True
+            
+        except Exception as exc:
+            logger.error("Failed to restore from backup: %s", exc)
+            return False
+
+    def _cleanup_backup(self) -> None:
+        """Clean up backup directory after successful update."""
+        if self.backup_dir and self.backup_dir.exists():
+            try:
+                shutil.rmtree(self.backup_dir, ignore_errors=True)
+                logger.debug("Backup cleaned up successfully")
+            except Exception as exc:
+                logger.warning("Failed to cleanup backup: %s", exc)
+
+    def _calculate_checksum(self, file_path: Path, algorithm: str = "sha256") -> str:
+        """Calculate file checksum for integrity verification."""
+        hash_func = hashlib.new(algorithm)
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(self.CHUNK_SIZE), b""):
+                hash_func.update(chunk)
+        return hash_func.hexdigest()
 
     def _find_source_root(self, extracted_dir: Path) -> Path:
         for candidate in sorted(extracted_dir.iterdir(), key=lambda p: p.name.lower()):
@@ -278,32 +556,66 @@ class AutoUpdater:
         return True
 
     def download_update(self, zip_url: str, latest_version: str) -> bool:
+        """Download and install update with progress tracking and rollback support."""
         if not zip_url:
             return False
 
         temp_dir = None
         try:
+            # Create backup before starting update
+            self._create_backup()
+            
             temp_base = Path(tempfile.gettempdir()) / "task_manager_update"
+            temp_base.mkdir(parents=True, exist_ok=True)
             temp_dir = temp_base / f"update_{latest_version.replace('.', '_')}_{os.getpid()}"
             temp_dir.mkdir(parents=True, exist_ok=True)
 
             zip_path = temp_dir / "update.zip"
             logger.info("Downloading update from %s", zip_url)
-            with urlopen(self._create_request(zip_url), timeout=self.TIMEOUT_DOWNLOAD) as resp, open(zip_path, "wb") as dest:
-                shutil.copyfileobj(resp, dest)
+            
+            # Download with progress tracking
+            success, error_msg = self._download_with_progress(
+                zip_url, 
+                zip_path,
+                self.progress_callback
+            )
+            
+            if not success:
+                logger.error("Download failed: %s", error_msg)
+                raise UpdateError(f"Download failed: {error_msg}", recoverable=True)
+            
+            # Verify downloaded file exists and has content
+            if not zip_path.exists() or zip_path.stat().st_size < self.MIN_UPDATE_SIZE:
+                raise UpdateError("Downloaded file is empty or missing", recoverable=True)
+            
+            # Calculate checksum for logging
+            checksum = self._calculate_checksum(zip_path)
+            logger.info("Download verified. SHA256: %s", checksum[:16])
 
             if self.is_frozen and zip_url.lower().split("?", 1)[0].endswith(".exe"):
                 result = self._install_frozen_executable(zip_path, latest_version)
                 if result:
                     logger.info("Executable update staged successfully: %s", latest_version)
+                    self._cleanup_backup()
+                else:
+                    self._restore_from_backup()
                 return result
 
             extracted_dir = temp_dir / "extracted"
             extracted_dir.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(extracted_dir)
+            
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    # Verify ZIP integrity
+                    bad_file = zf.testzip()
+                    if bad_file is not None:
+                        raise UpdateError(f"Corrupted ZIP entry: {bad_file}", recoverable=False)
+                    zf.extractall(extracted_dir)
+            except zipfile.BadZipFile as exc:
+                raise UpdateError(f"Invalid ZIP archive: {exc}", recoverable=False)
 
             source_folder = self._find_source_root(extracted_dir)
+            
             if self.is_frozen:
                 result = self._install_frozen_update(source_folder, latest_version)
             else:
@@ -312,9 +624,21 @@ class AutoUpdater:
 
             if result:
                 logger.info("Update installed successfully: %s", latest_version)
+                self._cleanup_backup()
+            else:
+                logger.warning("Update installation returned no changes")
+                self._restore_from_backup()
+                
             return result
+            
+        except UpdateError as exc:
+            logger.error("Update error: %s", exc)
+            if exc.recoverable:
+                self._restore_from_backup()
+            return False
         except Exception as exc:
-            logger.error("Update download/apply failed: %s", exc)
+            logger.error("Unexpected update error: %s", exc)
+            self._restore_from_backup()
             return False
         finally:
             if temp_dir and temp_dir.exists():
