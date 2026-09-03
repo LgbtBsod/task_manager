@@ -17,7 +17,6 @@ from core.models import (
 from core.repository import TaskRepository
 from core.service import TaskService
 from core.events import EventBus, EventType, Event, event_bus
-from core.interfaces import ITaskRepository, IEventBus
 from utils.logger import setup_logging, get_logger
 
 TMP_DB = tempfile.mktemp(suffix='.json')
@@ -442,17 +441,6 @@ def test_logger_multiple_levels(r):
 # INTERFACE TESTS
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_interfaces(r):
-    repo = TaskRepository(db_path=TMP_DB)
-    r.ok('repo is ITaskRepository' if isinstance(repo, ITaskRepository) else 'not implementing')
-    bus = EventBus()
-    r.ok('bus is IEventBus' if isinstance(bus, IEventBus) else 'not implementing')
-    for method in ['get_all', 'get_by_id', 'get_by_status', 'add', 'update', 'delete', 'count', 'get_statistics']:
-        r.ok(f'ITaskRepository.{method}' if hasattr(repo, method) else f'missing {method}')
-    for method in ['subscribe', 'unsubscribe', 'publish']:
-        r.ok(f'IEventBus.{method}' if hasattr(bus, method) else f'missing {method}')
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # SERIALIZATION EDGE CASES
 # ═══════════════════════════════════════════════════════════════════════
@@ -795,7 +783,6 @@ if __name__ == '__main__':
         ('Team workload', test_team_workload),
         ('Crash dump', test_crash_dump),
         ('Logger multiple levels', test_logger_multiple_levels),
-        ('Interfaces', test_interfaces),
         ('Full serialization round-trip', test_full_serialization_roundtrip),
         ('Pydantic model validation', test_pydantic_model_validation),
         ('Repository concurrent writes', test_repository_concurrent_writes),

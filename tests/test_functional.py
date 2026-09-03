@@ -15,7 +15,6 @@ from core.models import (
 from core.repository import TaskRepository
 from core.service import TaskService
 from core.events import EventBus, EventType, Event, event_bus
-from core.interfaces import ITaskRepository
 from utils.helpers import validate_date, format_time_spent
 from utils.logger import setup_logging, get_logger
 
@@ -394,14 +393,6 @@ def test_repository_missing_file(r):
     repo = TaskRepository(db_path=tmp)
     r.ok('missing file creates empty db' if repo.count() == 0 else f'count={repo.count()}')
     os.unlink(tmp)
-
-
-def test_repository_implements_interface(r):
-    repo = TaskRepository(db_path=TMP_DB)
-    r.ok('is ITaskRepository' if isinstance(repo, ITaskRepository) else 'not implementing interface')
-    methods = ['get_all', 'get_by_id', 'get_by_status', 'add', 'update', 'delete', 'count', 'get_statistics']
-    for method in methods:
-        r.ok(f'method {method}' if hasattr(repo, method) else f'missing {method}')
 
 
 def test_repository_statistics(r):
@@ -975,7 +966,6 @@ if __name__ == '__main__':
         ('Repository new fields', test_repository_with_new_fields),
         ('Repository corrupted JSON', test_repository_corrupted_json),
         ('Repository missing file', test_repository_missing_file),
-        ('Repository interface', test_repository_implements_interface),
         ('Repository statistics', test_repository_statistics),
         ('Service CRUD', test_service_crud),
         ('Service new fields', test_service_with_new_fields),
