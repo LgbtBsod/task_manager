@@ -2,7 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from .app import COLORS, PRIORITY_COLORS
+from .app import COLORS, PRIORITY_COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -101,7 +101,7 @@ class GanttView:
             self._scroll.controls = [
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon("bar_chart", size=48, color="#38383a"),
+                        ft.Icon(ic("bar_chart"), size=48, color="#38383a"),
                         ft.Container(height=12),
                         ft.Text("Нет задач с датами для отображения", size=14, color="#86868b"),
                         ft.Container(height=4),
@@ -198,7 +198,7 @@ class GanttView:
             row_children = [
                 ft.Container(
                     content=ft.Row([
-                        ft.Icon(status_icon, size=14, color=icon_color),
+                        ft.Icon(ic(status_icon), size=14, color=icon_color),
                         ft.Text(task.title[:24], size=12, color="#f5f5f7",
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=6),

@@ -2,7 +2,7 @@
 import flet as ft
 from typing import Optional, TYPE_CHECKING
 
-from .app import COLORS
+from .app import COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -24,7 +24,7 @@ class StatCard(ft.Container):
     def _build(self) -> ft.Control:
         header_row = []
         if self.icon_name:
-            header_row.append(ft.Icon(self.icon_name, size=20, color=self.accent_color))
+            header_row.append(ft.Icon(ic(self.icon_name), size=20, color=self.accent_color))
         header_row.append(ft.Text(self.title_text, size=12, color=COLORS["text_secondary"]))
         self._value_label = ft.Text(self.value_text, size=32, weight=ft.FontWeight.BOLD,
                                        color=self.accent_color)
@@ -281,7 +281,7 @@ class DashboardView:
                 sp = w["story_points_sum"]
                 time_s = w["total_time"]
                 row = ft.Row([
-                    ft.Icon("person", size=14, color=COLORS["accent_blue"]),
+                    ft.Icon(ic("person"), size=14, color=COLORS["accent_blue"]),
                     ft.Text(name, size=13, weight=ft.FontWeight.W_600, color=COLORS["text_primary"], width=100),
                     ft.Container(expand=True),
                     ft.Text(f"{total} задач", size=12, color=COLORS["text_secondary"]),

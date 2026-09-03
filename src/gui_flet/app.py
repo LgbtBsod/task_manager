@@ -8,6 +8,18 @@ from typing import Optional
 APP_DIR = Path(__file__).parent.parent.parent
 DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
 
+
+def ic(name):
+    """Resolve a Material icon name to the ``ft.Icons`` enum member.
+
+    Flet 0.86 no longer renders bare icon-name strings (``ft.Icon("edit")``
+    shows nothing; ``ft.IconButton(icon="edit")`` throws a render error), so
+    every icon reference must go through this.
+    """
+    if name is None or not isinstance(name, str):
+        return name  # already an ft.Icons member (or None)
+    return getattr(ft.Icons, name.upper().replace("-", "_"), None)
+
 DARK_THEME = ft.Theme(
     color_scheme_seed="#0a84ff",
     color_scheme=ft.ColorScheme(
@@ -150,7 +162,7 @@ class TaskManagerApp:
         for view_id, label, icon in nav_items:
             btn = ft.Button(
                 content=label,
-                icon=icon,
+                icon=ic(icon),
                 on_click=lambda e, v=view_id: self.switch_view(v),
                 style=ft.ButtonStyle(
                     color=ft.Colors.TRANSPARENT,
@@ -164,7 +176,7 @@ class TaskManagerApp:
         self.search_field = ft.TextField(
             hint_text="\u041f\u043e\u0438\u0441\u043a...",
             width=200, height=36, text_size=13,
-            prefix_icon="search", border_radius=8,
+            prefix_icon=ic("search"), border_radius=8,
             filled=True, fill_color=COLORS["bg_button"],
             focused_bgcolor=COLORS["bg_card_hover"],
             border_color=ft.Colors.TRANSPARENT,
@@ -188,7 +200,7 @@ class TaskManagerApp:
 
         self.add_button = ft.Button(
             content="\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c",
-            icon="add",
+            icon=ic("add"),
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
                 bgcolor=COLORS["accent_green"], color="#000000",
@@ -425,4 +437,12 @@ def run_app(db_path: str = None, port: int = 8550):
                     break
 
     app = TaskManagerApp()
-    ft.run(app.main, view=ft.AppView.WEB_BROWSER, port=port)
+    # Force the CanvasKit renderer: the default (AUTO -> SKWASM) needs
+    # cross-origin isolation headers the local server doesn't send and renders
+    # blank / grey in many browsers. CanvasKit works everywhere.
+    ft.run(
+        app.main,
+        view=ft.AppView.WEB_BROWSER,
+        port=port,
+        web_renderer=ft.WebRenderer.CANVAS_KIT,
+    )

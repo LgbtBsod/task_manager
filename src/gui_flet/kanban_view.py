@@ -3,7 +3,7 @@
 import flet as ft
 from typing import Optional, TYPE_CHECKING
 
-from .app import COLORS, PRIORITY_COLORS
+from .app import COLORS, PRIORITY_COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -127,22 +127,22 @@ class TaskCard:
         bottom_items = []
         if task.assignee:
             bottom_items.append(ft.Row([
-                ft.Icon('person', size=12, color="#86868b"),
+                ft.Icon(ic('person'), size=12, color="#86868b"),
                 ft.Text(task.assignee, size=10, color="#86868b"),
             ], spacing=3))
         if due_text:
             bottom_items.append(ft.Row([
-                ft.Icon('calendar_today', size=12, color=due_color),
+                ft.Icon(ic('calendar_today'), size=12, color=due_color),
                 ft.Text(due_text, size=10, color=due_color),
             ], spacing=3))
         if time_text:
             bottom_items.append(ft.Row([
-                ft.Icon('timer_outlined', size=12, color="#86868b"),
+                ft.Icon(ic('timer_outlined'), size=12, color="#86868b"),
                 ft.Text(time_text, size=10, color="#86868b"),
             ], spacing=3))
         if task.comments:
             bottom_items.append(ft.Row([
-                ft.Icon('chat_bubble_outline', size=12, color="#86868b"),
+                ft.Icon(ic('chat_bubble_outline'), size=12, color="#86868b"),
                 ft.Text(str(len(task.comments)), size=10, color="#86868b"),
             ], spacing=3))
 
@@ -152,7 +152,7 @@ class TaskCard:
             total_count = len(task.subtasks)
             progress = done_count / total_count if total_count > 0 else 0
             subtask_info = ft.Row([
-                ft.Icon('checklist', size=12, color="#86868b"),
+                ft.Icon(ic('checklist'), size=12, color="#86868b"),
                 ft.Text(f"{done_count}/{total_count}", size=10, color="#86868b"),
                 ft.Container(expand=1),
                 ft.ProgressBar(width=60, height=4, value=progress,
@@ -162,19 +162,19 @@ class TaskCard:
 
         action_btns = [
             ft.IconButton(
-                icon='content_copy', icon_size=14, icon_color="#86868b",
+                icon=ic('content_copy'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app._clone_task(t),
                 tooltip="Клонировать",
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
-                icon='edit_outlined', icon_size=14, icon_color="#86868b",
+                icon=ic('edit_outlined'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app.show_edit_dialog(t),
                 tooltip="Редактировать",
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
-                icon='delete_outline', icon_size=14, icon_color="#86868b",
+                icon=ic('delete_outline'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app.delete_task(t),
                 tooltip="Удалить",
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
@@ -233,7 +233,7 @@ class DropColumn:
 
         header = ft.Container(
             content=ft.Row([
-                ft.Icon(self.icon, size=16, color=self.color),
+                ft.Icon(ic(self.icon), size=16, color=self.color),
                 ft.Text(self.title, size=13, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_primary"]),
                 ft.Container(expand=True),
@@ -246,32 +246,34 @@ class DropColumn:
             border_radius=8,
         )
 
-        self._list_view = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+        # ListView keeps the drop area filling the whole column even with zero
+        # cards (a plain Column would collapse to nothing).
+        self._list_view = ft.ListView(spacing=8, padding=0, expand=True)
 
-        # Обёртываем список в DragTarget
+        # The ENTIRE column (header + card list) is the drop target, so tasks
+        # can be dropped anywhere on a column, empty or not.
+        self._drop_body = ft.Container(
+            content=ft.Column([header, self._list_view], spacing=8, expand=True),
+            padding=10,
+            border=ft.Border.all(1, COLORS["border_color"]),
+            border_radius=12,
+            bgcolor=COLORS["bg_card"],
+            expand=True,
+        )
+
         self._border_container = ft.DragTarget(
             group="tasks",
-            content=ft.Container(
-                content=self._list_view,
-                padding=ft.Padding.only(left=8, right=8, bottom=8),
-                height=450,
-                border=ft.Border.all(1, COLORS["border_color"]),
-                border_radius=12,
-                bgcolor=COLORS["bg_card"],
-            ),
+            expand=True,
+            content=self._drop_body,
             on_accept=lambda e: self._on_drop(e),
             on_will_accept=lambda e: self._on_will_accept(e),
             on_leave=lambda e: self._on_leave(e),
         )
 
         return ft.Container(
-            content=ft.Column(controls=[header, self._border_container], spacing=8),
-            width=500,
-            height=540,
-            padding=12,
-            bgcolor=COLORS["bg_card"],
-            border=ft.Border.all(1, COLORS["border_color"]),
-            border_radius=12,
+            content=self._border_container,
+            width=360,
+            expand=True,
         )
 
     def _on_will_accept(self, e):
@@ -332,15 +334,21 @@ class KanbanView:
         self.done_col = DropColumn(self.app, "Done", "#30d158", "Done", icon="check_circle")
 
         self.container = ft.Container(
-            content=ft.Row([
-                self.todo_col.build(),
-                ft.Container(width=8),
-                self.progress_col.build(),
-                ft.Container(width=8),
-                self.done_col.build(),
-            ], spacing=0, scroll=ft.ScrollMode.AUTO),
+            content=ft.Row(
+                [
+                    self.todo_col.build(),
+                    ft.Container(width=10),
+                    self.progress_col.build(),
+                    ft.Container(width=10),
+                    self.done_col.build(),
+                ],
+                spacing=0,
+                scroll=ft.ScrollMode.AUTO,
+                vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
             padding=12,
             bgcolor=COLORS["bg_dark"],
+            expand=True,
         )
 
     def update_tasks(self, todo, in_progress, done):

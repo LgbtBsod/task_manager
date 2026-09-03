@@ -2,7 +2,7 @@
 import flet as ft
 from typing import Optional, Callable
 from datetime import datetime
-from .app import COLORS
+from .app import COLORS, ic
 
 
 def show_task_dialog(page: ft.Page, title: str = "Новая задача",
@@ -47,7 +47,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         label="Дата начала",
         value=start_date_value,
         text_size=14, border_radius=8, read_only=True,
-        suffix_icon="calendar_today",
+        suffix_icon=ic("calendar_today"),
         width=200,
     )
 
@@ -55,7 +55,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         label="Дедлайн",
         value=due_date_value,
         text_size=14, border_radius=8, read_only=True,
-        suffix_icon="calendar_today",
+        suffix_icon=ic("calendar_today"),
         width=200,
     )
 
