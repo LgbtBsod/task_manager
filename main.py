@@ -50,7 +50,39 @@ def get_data_dir() -> Path:
     """
     d = get_app_dir() / "data" / "db"
     d.mkdir(parents=True, exist_ok=True)
+    
+    # Инициализируем файл задач если он не существует
+    tasks_file = d / "tasks.json"
+    if not tasks_file.exists():
+        _init_default_tasks(tasks_file)
+    
     return d
+
+
+def _init_default_tasks(tasks_file: Path) -> None:
+    """Создает файл задач с данными по умолчанию"""
+    import json
+    
+    default_data = {
+        "tasks": [],
+        "categories": [
+            {"id": 1, "name": "Работа", "color": "#4CAF50"},
+            {"id": 2, "name": "Личное", "color": "#2196F3"},
+            {"id": 3, "name": "Покупки", "color": "#FF9800"}
+        ],
+        "settings": {
+            "theme": "light",
+            "language": "ru",
+            "notifications": True
+        }
+    }
+    
+    with open(tasks_file, 'w', encoding='utf-8') as f:
+        json.dump(default_data, f, ensure_ascii=False, indent=2)
+    
+    from utils.logger import get_logger
+    log = get_logger("main")
+    log.info(f"✅ Создан файл задач: {tasks_file}")
 
 
 def get_db_path() -> str:
