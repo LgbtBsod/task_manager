@@ -27,6 +27,21 @@ class TaskService:
 
     def __init__(self, repository: Optional[TaskRepository] = None):
         self.repo = repository or TaskRepository()
+        from .service_sprints import SprintService
+        from .service_versions import VersionService
+        self.sprints = SprintService(self.repo)
+        self.versions = VersionService(self.repo)
+        self._collaborators = (self.sprints, self.versions)
+
+    def __getattr__(self, name: str):
+        # Delegate sprint/version/… calls to the composed services without a
+        # wall of one-line forwarders. Only fires for names not on TaskService.
+        for collab in self.__dict__.get("_collaborators", ()):
+            member = getattr(collab, name, None)
+            if member is not None:
+                return member
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def _edit(self, task_id: str, mutate: Callable[[Task], object]) -> Optional[Task]:
         """load task → apply ``mutate`` → bump timestamp → save.
@@ -814,99 +829,6 @@ class TaskService:
         log.info(f"Resolution cleared for {task_id}")
         return updated
 
-    # ── Sprints ──
-
-    def create_sprint(self, name: str, goal: str = "", start_date: Optional[str] = None, end_date: Optional[str] = None) -> Sprint:
-        """Create a new sprint."""
-        sprint = Sprint(name=name.strip(), goal=goal.strip(), start_date=start_date, end_date=end_date)
-        self.repo.add_sprint(sprint)
-        log.info(f"Sprint created: {sprint.id} - {name.strip()}")
-        return sprint
-
-    def get_all_sprints(self) -> List[Sprint]:
-        return self.repo.get_all_sprints()
-
-    def get_sprint(self, sprint_id: str) -> Optional[Sprint]:
-        return self.repo.get_sprint_by_id(sprint_id)
-
-    def update_sprint(self, sprint_id: str, **kwargs) -> Optional[Sprint]:
-        """Update sprint fields."""
-        sprint = self.repo.get_sprint_by_id(sprint_id)
-        if not sprint:
-            return None
-        for key, val in kwargs.items():
-            if hasattr(sprint, key) and val is not None:
-                setattr(sprint, key, val)
-        updated = self.repo.update_sprint(sprint)
-        log.info(f"Sprint updated: {sprint_id}")
-        return updated
-
-    def start_sprint(self, sprint_id: str) -> Optional[Sprint]:
-        """Activate a sprint."""
-        return self.update_sprint(sprint_id, status=SprintStatus.ACTIVE.value)
-
-    def complete_sprint(self, sprint_id: str) -> Optional[Sprint]:
-        """Mark sprint as completed."""
-        return self.update_sprint(sprint_id, status=SprintStatus.COMPLETED.value)
-
-    def cancel_sprint(self, sprint_id: str) -> Optional[Sprint]:
-        """Cancel a sprint."""
-        return self.update_sprint(sprint_id, status=SprintStatus.CANCELLED.value)
-
-    def delete_sprint(self, sprint_id: str) -> bool:
-        """Delete a sprint."""
-        result = self.repo.delete_sprint(sprint_id)
-        if result:
-            log.info(f"Sprint deleted: {sprint_id}")
-        return result
-
-    def get_sprint_tasks(self, sprint_id: str) -> List[Task]:
-        """Get all tasks assigned to a sprint."""
-        return [t for t in self.get_all_tasks() if t.sprint_id == sprint_id]
-
-    def assign_task_to_sprint(self, task_id: str, sprint_id: Optional[str]) -> Optional[Task]:
-        """Assign or unassign a task from a sprint."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if sprint_id and not self.repo.get_sprint_by_id(sprint_id):
-            raise ValueError(f"Sprint {sprint_id} not found")
-        old_sprint = task.sprint_id or ""
-        task.sprint_id = sprint_id
-        task.record_change("sprint_id", old_sprint, sprint_id or "")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Task {task_id} assigned to sprint {sprint_id}")
-        return updated
-
-    def get_sprint_report(self, sprint_id: str) -> dict:
-        """Get sprint burndown-style report."""
-        sprint = self.repo.get_sprint_by_id(sprint_id)
-        if not sprint:
-            return {}
-        tasks = self.get_sprint_tasks(sprint_id)
-        total = len(tasks)
-        done = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-        in_progress = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
-        todo = sum(1 for t in tasks if t.status == TaskStatus.TODO)
-        total_points = sum(t.story_points or 0 for t in tasks)
-        done_points = sum(t.story_points or 0 for t in tasks if t.status == TaskStatus.DONE)
-        total_time = sum(t.time_spent for t in tasks)
-        return {
-            "sprint_id": sprint_id,
-            "sprint_name": sprint.name,
-            "status": sprint.status,
-            "days_remaining": sprint.days_remaining(),
-            "total_tasks": total,
-            "done_tasks": done,
-            "in_progress_tasks": in_progress,
-            "todo_tasks": todo,
-            "completion_rate": round(done / total * 100, 1) if total > 0 else 0,
-            "total_story_points": total_points,
-            "completed_story_points": done_points,
-            "total_time_spent": round(total_time, 2),
-        }
-
     # ── Export / Import ──
 
     def export_data(self, file_path: str) -> str:
@@ -1048,98 +970,6 @@ class TaskService:
             updated = self.repo.update(task)
             return updated
         return task
-
-    # ── Versions / Releases ──
-
-    def create_version(self, name: str, description: str = "") -> VersionRelease:
-        """Create a new version/release."""
-        version = VersionRelease(name=name.strip(), description=description.strip())
-        self.repo.add_version(version)
-        log.info(f"Version created: {version.id} - {name.strip()}")
-        return version
-
-    def get_all_versions(self) -> List[VersionRelease]:
-        return self.repo.get_all_versions()
-
-    def get_version(self, version_id: str) -> Optional[VersionRelease]:
-        return self.repo.get_version_by_id(version_id)
-
-    def update_version(self, version_id: str, **kwargs) -> Optional[VersionRelease]:
-        """Update version fields (name, description, status, release_date)."""
-        version = self.repo.get_version_by_id(version_id)
-        if not version:
-            return None
-        for key, val in kwargs.items():
-            if hasattr(version, key) and val is not None:
-                setattr(version, key, val)
-        updated = self.repo.update_version(version)
-        log.info(f"Version updated: {version_id}")
-        return updated
-
-    def release_version(self, version_id: str, release_date: Optional[str] = None) -> Optional[VersionRelease]:
-        """Mark a version as released."""
-        return self.update_version(version_id, status="Released",
-                                     release_date=release_date or datetime.now().strftime("%Y-%m-%d"))
-
-    def archive_version(self, version_id: str) -> Optional[VersionRelease]:
-        """Archive a version."""
-        return self.update_version(version_id, status="Archived")
-
-    def delete_version(self, version_id: str) -> bool:
-        """Delete a version and clear version_id from all its tasks."""
-        result = self.repo.delete_version(version_id)
-        if result:
-            # Clear version_id from tasks referencing this version
-            for t in self.get_all_tasks():
-                if t.version_id == version_id:
-                    t.version_id = None
-                    t.update_timestamp()
-                    self.repo.update(t)
-            log.info(f"Version deleted: {version_id}")
-        return result
-
-    def get_version_tasks(self, version_id: str) -> List[Task]:
-        """Get all tasks assigned to a version."""
-        return [t for t in self.get_all_tasks() if t.version_id == version_id]
-
-    def assign_task_to_version(self, task_id: str, version_id: Optional[str]) -> Optional[Task]:
-        """Assign or unassign a task from a version."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        if version_id and not self.repo.get_version_by_id(version_id):
-            raise ValueError(f"Version {version_id} not found")
-        old_ver = task.version_id or ""
-        task.version_id = version_id
-        task.record_change("version_id", old_ver, version_id or "")
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Task {task_id} assigned to version {version_id}")
-        return updated
-
-    def get_version_report(self, version_id: str) -> dict:
-        """Get version release report."""
-        version = self.repo.get_version_by_id(version_id)
-        if not version:
-            return {}
-        tasks = self.get_version_tasks(version_id)
-        total = len(tasks)
-        done = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-        total_points = sum(t.story_points or 0 for t in tasks)
-        done_points = sum(t.story_points or 0 for t in tasks if t.status == TaskStatus.DONE)
-        bugs = sum(1 for t in tasks if t.task_type == TaskType.BUG.value)
-        return {
-            "version_id": version_id,
-            "version_name": version.name,
-            "status": version.status,
-            "release_date": version.release_date,
-            "total_tasks": total,
-            "done_tasks": done,
-            "completion_rate": round(done / total * 100, 1) if total > 0 else 0,
-            "total_story_points": total_points,
-            "completed_story_points": done_points,
-            "bug_count": bugs,
-        }
 
     # ── Board Data (Kanban columns for GUI) ──
 
