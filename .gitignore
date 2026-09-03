@@ -16,3 +16,4 @@ venv/lib/python*/site-packages/*/*/*/__pycache__/
 venv/lib/python*/site-packages/*/*/*/*/__pycache__/
 venv/lib/python*/site-packages/*/*/*/*/*/__pycache__/
 ```
+/logs
