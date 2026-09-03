@@ -90,6 +90,17 @@ COLORS = {
 
 PRIORITY_COLORS = {"Low": "#4CAF50", "Medium": "#FF9800", "High": "#F44336", "Critical": "#FF1744"}
 
+_NAV_PAD = ft.Padding.symmetric(horizontal=16, vertical=8)
+_NAV_TEXT = ft.TextStyle(size=13, weight=ft.FontWeight.W_500)
+
+
+def _nav_style(active: bool) -> ft.ButtonStyle:
+    return ft.ButtonStyle(
+        bgcolor=COLORS["accent_blue"] if active else None,
+        color="#ffffff" if active else COLORS["text_primary"],
+        padding=_NAV_PAD, text_style=_NAV_TEXT,
+    )
+
 
 class TaskManagerApp:
     """Flet Task Manager application."""
@@ -153,28 +164,17 @@ class TaskManagerApp:
             "dashboard": self.dashboard_view,
         }
 
-        self.kanban_view.build()
-        all_tasks = self._filter_and_sort(self.service.get_all_tasks())
-        from core.models import TaskStatus
-        self.kanban_view.update_tasks(
-            todo=[t for t in all_tasks if t.status == TaskStatus.TODO],
-            in_progress=[t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS],
-            done=[t for t in all_tasks if t.status == TaskStatus.DONE],
-        )
+        # Build every view once; switching tabs only swaps + refreshes.
+        for v in self.views_map.values():
+            v.build()
 
+        self.current_view = "kanban"
         self._build_top_bar(page)
         self._view_host_index = len(page.controls)
         page.add(self.kanban_view.container)
         self._build_status_bar(page)
-        self.current_view = "kanban"
-        for vid, btn in self.nav_buttons.items():
-            btn.style = ft.ButtonStyle(
-                bgcolor=COLORS["accent_blue"] if vid == "kanban" else None,
-                color="#ffffff" if vid == "kanban" else COLORS["text_primary"],
-                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
-            )
-        self.refresh_status_bar()
+
+        self.refresh_all()
         page.update()
 
         # In-app deadline checker.
@@ -244,11 +244,7 @@ class TaskManagerApp:
                 content=label,
                 icon=ic(icon),
                 on_click=lambda e, v=view_id: self.switch_view(v),
-                style=ft.ButtonStyle(
-                    color=ft.Colors.TRANSPARENT,
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                    text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
-                ),
+                style=_nav_style(view_id == self.current_view),
             )
             self.nav_buttons[view_id] = btn
             nav_buttons_row.append(btn)
@@ -264,18 +260,23 @@ class TaskManagerApp:
             content_padding=ft.Padding.only(left=36, top=4, bottom=4),
         )
 
+        # Flet's Material dropdown ignores a small ``height=`` and renders at its
+        # ~48 px min touch target, so it towered over the 36 px search field.
+        # Pinning ``text_style.height`` + zero vertical content-padding brings it
+        # down to the same line as the rest of the top bar.
         self.sort_dropdown = ft.Dropdown(
-            width=120, height=36, text_size=13,
+            width=185, text_size=13,
             options=[
                 ft.dropdown.Option("default", text="\u0411\u0435\u0437 \u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0438"),
-                ft.dropdown.Option("priority", text="\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442"),
-                ft.dropdown.Option("due_date", text="\u0414\u0435\u0434\u043b\u0430\u0439\u043d"),
+                ft.dropdown.Option("priority", text="\u041f\u043e \u043f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442\u0443"),
+                ft.dropdown.Option("due_date", text="\u041f\u043e \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u0443"),
             ],
             value="default", filled=True,
             fill_color=COLORS["bg_button"],
             border_color=ft.Colors.TRANSPARENT, border_radius=8,
             on_select=self._on_sort,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            text_style=ft.TextStyle(size=13, height=1.0),
+            content_padding=ft.Padding.only(left=10, right=6, top=0, bottom=0),
         )
 
         self.add_button = ft.Button(
@@ -329,42 +330,37 @@ class TaskManagerApp:
         page.add(status_bar)
 
     def switch_view(self, view_name: str):
+        view = self.views_map.get(view_name)
+        if not view:
+            return
         self.current_view = view_name
 
         for vid, btn in self.nav_buttons.items():
-            if vid == view_name:
-                btn.style = ft.ButtonStyle(
-                    bgcolor=COLORS["accent_blue"], color="#ffffff",
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                    text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
-                )
-            else:
-                btn.style = ft.ButtonStyle(
-                    color=COLORS["text_primary"],
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                    text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_500),
-                )
-        view = self.views_map.get(view_name)
-        if view:
-            view.build()
-            if self.page and hasattr(self, "_view_host_index"):
-                self.page.controls[self._view_host_index] = view.container
-            if self.page:
-                self.page.update()
-            if view_name == "kanban":
-                self.refresh_all()
-            elif view_name == "gantt":
-                self.gantt_view.refresh()
-            elif view_name == "dashboard":
-                self.dashboard_view.refresh()
+            btn.style = _nav_style(vid == view_name)
 
-        self.refresh_status_bar()
-        if self.page:
-            self.page.update()
+        # Views are built once in main(); switching only swaps the mounted
+        # container and refreshes its data — no teardown/rebuild.
+        if self.page is not None and hasattr(self, "_view_host_index"):
+            self.page.controls[self._view_host_index] = view.container
+        self.refresh_all()
+
+    def _debounce(self, key: str, delay: float, fn):
+        """Run ``fn`` after ``delay`` seconds, cancelling any pending call under
+        the same ``key``. Keeps per-keystroke handlers from rebuilding the board
+        on every character."""
+        import threading
+        timers = self.__dict__.setdefault("_debounce_timers", {})
+        pending = timers.get(key)
+        if pending is not None:
+            pending.cancel()
+        t = threading.Timer(delay, fn)
+        t.daemon = True
+        timers[key] = t
+        t.start()
 
     def _on_search(self, e):
-        self._search_query = self.search_field.value.strip().lower() if self.search_field.value else ""
-        self.refresh_all()
+        self._search_query = (self.search_field.value or "").strip().lower()
+        self._debounce("search", 0.25, self.refresh_all)
 
     def _on_sort(self, e):
         self._sort_mode = self.sort_dropdown.value or "default"
