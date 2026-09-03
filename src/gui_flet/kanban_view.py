@@ -309,10 +309,11 @@ class DropColumn:
             on_leave=lambda e: self._on_leave(e),
         )
 
+        # expand=1 on all three columns -> they split the board width evenly
+        # and fill the screen (no fixed width, no empty gutter on the right).
         return ft.Container(
             content=self._border_container,
-            width=360,
-            expand=True,
+            expand=1,
         )
 
     def _on_will_accept(self, e):
@@ -376,13 +377,10 @@ class KanbanView:
             content=ft.Row(
                 [
                     self.todo_col.build(),
-                    ft.Container(width=10),
                     self.progress_col.build(),
-                    ft.Container(width=10),
                     self.done_col.build(),
                 ],
-                spacing=0,
-                scroll=ft.ScrollMode.AUTO,
+                spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             padding=12,

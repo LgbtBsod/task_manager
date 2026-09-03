@@ -94,9 +94,11 @@ PRIORITY_COLORS = {"Low": "#4CAF50", "Medium": "#FF9800", "High": "#F44336", "Cr
 class TaskManagerApp:
     """Flet Task Manager application."""
 
-    def __init__(self):
-        self.service = None
-        self.settings = None
+    def __init__(self, service=None, settings=None):
+        # service / settings are shared across browser sessions; the rest of
+        # this object (page, views, current_view, …) is strictly per-session.
+        self.service = service
+        self.settings = settings
         self.page: Optional[ft.Page] = None
         self.current_view: str = "kanban"
         self._search_query: str = ""
@@ -104,6 +106,8 @@ class TaskManagerApp:
         self._notified_overdue: set = set()
 
     def init_service(self):
+        if self.service is not None and self.settings is not None:
+            return
         import sys
         src_path = APP_DIR / "src"
         if str(src_path) not in sys.path:
@@ -112,8 +116,10 @@ class TaskManagerApp:
         from core.service import TaskService
         from core.settings import SettingsStore
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
-        self.settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
+        if self.service is None:
+            self.service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
+        if self.settings is None:
+            self.settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
 
     def notify_hours_before(self) -> int:
         try:
@@ -545,32 +551,105 @@ def run_app(db_path: str = None, port: int = 8550):
     if db_path:
         DB_PATH = Path(db_path)
 
+    import os
+    import time
+
     def _port_free(p: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(("127.0.0.1", p)) != 0
 
-    # If the preferred port is already serving, a previous instance is up —
-    # just open the browser at it instead of failing to bind.
+    def _kill_stale_on_port(p: int) -> None:
+        """Terminate a *previous instance of this app* that is holding the port
+        (a crashed / orphaned server). Never touches unrelated processes."""
+        import sys as _s
+        if _s.platform != "win32":
+            return
+        me = os.getpid()
+        try:
+            out = __import__("subprocess").run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"Get-NetTCPConnection -LocalPort {p} -State Listen -EA SilentlyContinue "
+                 "| Select-Object -Expand OwningProcess -Unique"],
+                capture_output=True, text=True, timeout=8,
+            ).stdout
+        except Exception:
+            return
+        for line in out.split():
+            try:
+                pid = int(line.strip())
+            except ValueError:
+                continue
+            if pid == me:
+                continue
+            try:
+                import subprocess as _sp
+                info = _sp.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}';"
+                     "\"$($p.Name)|$($p.CommandLine)\""],
+                    capture_output=True, text=True, timeout=8,
+                ).stdout.lower()
+            except Exception:
+                info = ""
+            is_ours = ("taskmanager.exe" in info
+                       or ("python" in info and ("main.py" in info or "task_manager" in info)))
+            if is_ours:
+                try:
+                    _sp.run(["powershell", "-NoProfile", "-Command",
+                             f"Stop-Process -Id {pid} -Force -EA SilentlyContinue"],
+                            capture_output=True, timeout=8)
+                    print(f"Остановлен зависший экземпляр (PID {pid}) на порту {p}")
+                except Exception:
+                    pass
+
     if not _port_free(port):
+        # 1) A healthy instance of us is already serving -> just open a tab at it.
         try:
             import urllib.request
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read(1)
-            webbrowser.open(f"http://127.0.0.1:{port}/")
-            print(f"Менеджер задач уже запущен: http://127.0.0.1:{port}/")
-            return
+            body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).read(4096)
+            if b"flutter" in body.lower() or b"flet" in body.lower():
+                webbrowser.open(f"http://127.0.0.1:{port}/")
+                print(f"Менеджер задач уже запущен: http://127.0.0.1:{port}/")
+                return
         except Exception:
-            # Something else holds the port — fall back to an ephemeral one.
-            for cand in range(port + 1, port + 20):
+            pass
+        # 2) Port busy but not answering -> a hung old instance of ours: kill it.
+        _kill_stale_on_port(port)
+        for _ in range(15):                 # wait up to ~3s for the OS to release it
+            if _port_free(port):
+                break
+            time.sleep(0.2)
+        # 3) Still busy (a foreign process) -> take the next free port.
+        if not _port_free(port):
+            for cand in range(port + 1, port + 40):
                 if _port_free(cand):
+                    print(f"Порт {port} занят другим приложением, запуск на {cand}")
                     port = cand
                     break
 
-    app = TaskManagerApp()
+    # IMPORTANT: a fresh TaskManagerApp per browser session. One shared instance
+    # means a second tab/window overwrites self.page and the first session's
+    # click handlers silently target the wrong page (the "F5 fixes it" bug).
+    # The data layer (service + settings) IS shared so tabs stay consistent.
+    import sys as _sys
+    _src = APP_DIR / "src"
+    if str(_src) not in _sys.path:
+        _sys.path.insert(0, str(_src))
+    from core.repository import TaskRepository
+    from core.service import TaskService
+    from core.settings import SettingsStore
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shared_service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
+    shared_settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
+
+    def session_main(page: ft.Page):
+        TaskManagerApp(service=shared_service, settings=shared_settings).main(page)
+
     # Force the CanvasKit renderer: the default (AUTO -> SKWASM) needs
     # cross-origin isolation headers the local server doesn't send and renders
     # blank / grey in many browsers. CanvasKit works everywhere.
     ft.run(
-        app.main,
+        session_main,
         view=ft.AppView.WEB_BROWSER,
         port=port,
         web_renderer=ft.WebRenderer.CANVAS_KIT,
