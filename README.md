@@ -82,8 +82,7 @@ task_manager/
 
 - **flet** `~=0.86` — GUI (Flutter web, рендерер CanvasKit)
 - **pydantic** `v2` — валидация моделей
-- **workalendar** — праздники РФ (опционально)
 - **pyinstaller** — бинарники
 
 ---
-*Python 3.10+ (тестируется на 3.14) · MIT*
+*Python 3.13+ (тестируется на 3.14) · MIT*

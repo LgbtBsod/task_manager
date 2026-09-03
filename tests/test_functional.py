@@ -1,6 +1,6 @@
 """Comprehensive functional tests for Task Manager.
 
-Covers: models, repository, service (CRUD + all Jira features), events, helpers, utils.
+Covers: models, repository, service (CRUD + all Jira features), events.
 """
 import sys, os, json, tempfile, shutil, traceback as tb_module
 from pathlib import Path
@@ -15,7 +15,6 @@ from core.models import (
 from core.repository import TaskRepository
 from core.service import TaskService
 from core.events import EventBus, EventType, Event, event_bus
-from utils.helpers import validate_date, format_time_spent
 from utils.logger import setup_logging, get_logger
 
 TMP_DB = tempfile.mktemp(suffix='.json')
@@ -800,14 +799,6 @@ def test_event_data(r):
 # HELPER TESTS
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_helpers(r):
-    r.ok('valid date' if validate_date('2026-09-01') else 'rejected valid')
-    r.ok('invalid date' if not validate_date('09/01/2026') else 'accepted invalid')
-    r.ok('format 0.5h' if format_time_spent(0.5) == '30m' else f'got {format_time_spent(0.5)}')
-    r.ok('format 2h' if format_time_spent(2.0) == '2h' else f'got {format_time_spent(2.0)}')
-    r.ok('format 1h30m' if format_time_spent(1.5) == '1h 30m' else f'got {format_time_spent(1.5)}')
-    r.ok('format 0h' if format_time_spent(0) == '0m' else f'got {format_time_spent(0)}')
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # LOGGER TESTS
@@ -983,7 +974,6 @@ if __name__ == '__main__':
         ('Event bus', test_event_bus),
         ('Event types', test_event_types),
         ('Event data', test_event_data),
-        ('Helpers', test_helpers),
         ('Logger', test_logger),
         ('Edge cases', test_edge_cases),
         ('Concurrent events', test_concurrent_events),

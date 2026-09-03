@@ -38,10 +38,3 @@ def get_version() -> str:
             pass
     return "unknown"
 
-
-def get_build_info() -> str:
-    return "auto-updated"
-
-
-__version__ = get_version()
-__build__ = get_build_info()

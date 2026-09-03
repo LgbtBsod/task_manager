@@ -28,7 +28,6 @@ BUILD_DEPS = [
     "pyinstaller>=6.10",
     "flet[web]==0.86.5",
     "pydantic>=2.0.0",
-    "workalendar>=17.0.0",
 ]
 
 
@@ -91,7 +90,6 @@ def main() -> None:
         "--collect-submodules", "core",
         "--collect-submodules", "gui_flet",
         "--collect-submodules", "utils",
-        "--collect-all", "workalendar",
         # The app is Flet-only; make sure nothing drags a desktop toolkit in.
         "--exclude-module", "flet_desktop",
         "--exclude-module", "tkinter",

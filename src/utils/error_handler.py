@@ -221,7 +221,7 @@ def _enhanced_crash_handler(exc_type, exc_value, exc_traceback):
         log_lines.append(f"\n--- MODULES ({len(sys.modules)} loaded) ---")
         key_modules = [m for m in sorted(sys.modules) if m in (
             'flet', 'flet_web', 'pydantic', 'pydantic_core',
-            'uvicorn', 'fastapi', 'workalendar',
+            'uvicorn', 'fastapi',
         )]
         for m in key_modules:
             mod = sys.modules[m]
