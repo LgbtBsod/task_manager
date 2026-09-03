@@ -21,7 +21,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Callable, Optional, Protocol
 
 _tmp_counter = itertools.count()
 _write_lock = threading.Lock()  # serialize JSON writes (they are short and rare)
@@ -121,6 +121,62 @@ def _parse_each(records: list, factory, kind: str) -> list:
     return out
 
 
+class _Entity(Protocol):
+    id: str
+    def to_dict(self) -> dict: ...
+
+
+class _JsonCollection[T: _Entity]:
+    """An id-keyed CRUD store over one sidecar JSON list.
+
+    Every secondary entity (sprints, versions, templates, categories, recurring
+    tasks, notifications) is the same list-of-dicts persisted next to the task
+    file and keyed by ``id`` — this holds that logic once instead of six times.
+    """
+
+    __slots__ = ("path", "_factory", "_kind")
+
+    def __init__(self, path: Path, factory: Callable[[dict], T], kind: str) -> None:
+        self.path = path
+        self._factory = factory
+        self._kind = kind
+
+    def load_raw(self) -> list[dict]:
+        return _read_json_list(self.path)
+
+    def save_raw(self, items: list[dict]) -> None:
+        _write_json_list(self.path, items)
+
+    def all(self) -> list[T]:
+        return _parse_each(self.load_raw(), self._factory, self._kind)
+
+    def by_id(self, item_id: str) -> Optional[T]:
+        return next((obj for obj in self.all() if obj.id == item_id), None)
+
+    def add(self, obj: T) -> T:
+        items = self.load_raw()
+        items.append(obj.to_dict())
+        self.save_raw(items)
+        return obj
+
+    def update(self, obj: T) -> T:
+        items = self.load_raw()
+        for i, rec in enumerate(items):
+            if rec.get("id") == obj.id:
+                items[i] = obj.to_dict()
+                break
+        self.save_raw(items)
+        return obj
+
+    def delete(self, item_id: str) -> bool:
+        items = self.load_raw()
+        kept = [r for r in items if r.get("id") != item_id]
+        if len(kept) == len(items):
+            return False
+        self.save_raw(kept)
+        return True
+
+
 class TaskRepository:
     """
     Repository for task data persistence using JSON storage.
@@ -155,6 +211,18 @@ class TaskRepository:
         self.db_path = Path(db_path)
         self._task_cache: Optional[list[dict]] = None
         self._ensure_db_exists()
+
+        # One CRUD store per secondary entity, all sidecar files next to the
+        # task DB: ``tasks_sprints.json``, ``tasks_versions.json``, …
+        def _side(suffix: str) -> Path:
+            return self.db_path.parent / f"{self.db_path.stem}_{suffix}.json"
+
+        self._sprints = _JsonCollection(_side("sprints"), Sprint.from_dict, "sprint")
+        self._versions = _JsonCollection(_side("versions"), VersionRelease.from_dict, "version")
+        self._templates = _JsonCollection(_side("templates"), TaskTemplate.from_dict, "template")
+        self._categories = _JsonCollection(_side("categories"), Category.from_dict, "category")
+        self._recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
+        self._notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
 
     def _ensure_db_exists(self) -> None:
         """Create database file if it doesn't exist."""
@@ -321,291 +389,125 @@ class TaskRepository:
             'total_time_spent': total_time
         }
 
-    # ── Sprints ──
-
-    def _sprints_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_sprints.json")
-
-    def _load_sprints(self) -> list[dict]:
-        path = self._sprints_path()
-        return _read_json_list(path)
-
-    def _save_sprints(self, sprints: list[dict]) -> None:
-        _write_json_list(self._sprints_path(), sprints)
+    # ── Secondary entities ─────────────────────────────────────────────
+    # Sprints / versions / templates / categories / recurring tasks are all
+    # plain id-keyed CRUD; each just forwards to its _JsonCollection.
 
     def get_all_sprints(self) -> list[Sprint]:
-        return _parse_each(self._load_sprints(), Sprint.from_dict, "sprint")
+        return self._sprints.all()
 
     def get_sprint_by_id(self, sprint_id: str) -> Optional[Sprint]:
-        for s in self.get_all_sprints():
-            if s.id == sprint_id:
-                return s
-        return None
+        return self._sprints.by_id(sprint_id)
 
     def add_sprint(self, sprint: Sprint) -> Sprint:
-        sprints = self._load_sprints()
-        sprints.append(sprint.to_dict())
-        self._save_sprints(sprints)
-        return sprint
+        return self._sprints.add(sprint)
 
     def update_sprint(self, sprint: Sprint) -> Sprint:
-        sprints = self._load_sprints()
-        for i, s in enumerate(sprints):
-            if s['id'] == sprint.id:
-                sprints[i] = sprint.to_dict()
-                break
-        self._save_sprints(sprints)
-        return sprint
+        return self._sprints.update(sprint)
 
     def delete_sprint(self, sprint_id: str) -> bool:
-        sprints = self._load_sprints()
-        original_len = len(sprints)
-        sprints = [s for s in sprints if s['id'] != sprint_id]
-        if len(sprints) < original_len:
-            self._save_sprints(sprints)
-            return True
-        return False
-
-    # ── Versions / Releases ──
-
-    def _versions_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_versions.json")
-
-    def _load_versions(self) -> list[dict]:
-        path = self._versions_path()
-        return _read_json_list(path)
-
-    def _save_versions(self, versions: list[dict]) -> None:
-        _write_json_list(self._versions_path(), versions)
+        return self._sprints.delete(sprint_id)
 
     def get_all_versions(self) -> list[VersionRelease]:
-        return _parse_each(self._load_versions(), VersionRelease.from_dict, "version")
+        return self._versions.all()
 
     def get_version_by_id(self, version_id: str) -> Optional[VersionRelease]:
-        for v in self.get_all_versions():
-            if v.id == version_id:
-                return v
-        return None
+        return self._versions.by_id(version_id)
 
     def add_version(self, version: VersionRelease) -> VersionRelease:
-        versions = self._load_versions()
-        versions.append(version.to_dict())
-        self._save_versions(versions)
-        return version
+        return self._versions.add(version)
 
     def update_version(self, version: VersionRelease) -> VersionRelease:
-        versions = self._load_versions()
-        for i, v in enumerate(versions):
-            if v['id'] == version.id:
-                versions[i] = version.to_dict()
-                break
-        self._save_versions(versions)
-        return version
+        return self._versions.update(version)
 
     def delete_version(self, version_id: str) -> bool:
-        versions = self._load_versions()
-        original_len = len(versions)
-        versions = [v for v in versions if v['id'] != version_id]
-        if len(versions) < original_len:
-            self._save_versions(versions)
-            return True
-        return False
-
-    # ── Templates ──
-
-    def _templates_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_templates.json")
-
-    def _load_templates(self) -> list[dict]:
-        path = self._templates_path()
-        return _read_json_list(path)
-
-    def _save_templates(self, items: list[dict]) -> None:
-        _write_json_list(self._templates_path(), items)
+        return self._versions.delete(version_id)
 
     def get_all_templates(self) -> list[TaskTemplate]:
-        return _parse_each(self._load_templates(), TaskTemplate.from_dict, "template")
+        return self._templates.all()
 
     def get_template_by_id(self, template_id: str) -> Optional[TaskTemplate]:
-        for t in self.get_all_templates():
-            if t.id == template_id:
-                return t
-        return None
+        return self._templates.by_id(template_id)
 
     def add_template(self, template: TaskTemplate) -> TaskTemplate:
-        items = self._load_templates()
-        items.append(template.to_dict())
-        self._save_templates(items)
-        return template
+        return self._templates.add(template)
 
     def update_template(self, template: TaskTemplate) -> TaskTemplate:
-        items = self._load_templates()
-        for i, t in enumerate(items):
-            if t['id'] == template.id:
-                items[i] = template.to_dict()
-                break
-        self._save_templates(items)
-        return template
+        return self._templates.update(template)
 
     def delete_template(self, template_id: str) -> bool:
-        items = self._load_templates()
-        before = len(items)
-        items = [t for t in items if t['id'] != template_id]
-        if len(items) < before:
-            self._save_templates(items)
-            return True
-        return False
-
-    # ── Categories ──
-
-    def _categories_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_categories.json")
-
-    def _load_categories(self) -> list[dict]:
-        path = self._categories_path()
-        return _read_json_list(path)
-
-    def _save_categories(self, items: list[dict]) -> None:
-        _write_json_list(self._categories_path(), items)
+        return self._templates.delete(template_id)
 
     def get_all_categories(self) -> list[Category]:
-        return _parse_each(self._load_categories(), Category.from_dict, "category")
+        return self._categories.all()
 
     def get_category_by_id(self, category_id: str) -> Optional[Category]:
-        for c in self.get_all_categories():
-            if c.id == category_id:
-                return c
-        return None
+        return self._categories.by_id(category_id)
 
     def add_category(self, category: Category) -> Category:
-        items = self._load_categories()
-        items.append(category.to_dict())
-        self._save_categories(items)
-        return category
+        return self._categories.add(category)
 
     def update_category(self, category: Category) -> Category:
-        items = self._load_categories()
-        for i, c in enumerate(items):
-            if c['id'] == category.id:
-                items[i] = category.to_dict()
-                break
-        self._save_categories(items)
-        return category
+        return self._categories.update(category)
 
     def delete_category(self, category_id: str) -> bool:
-        items = self._load_categories()
-        before = len(items)
-        items = [c for c in items if c['id'] != category_id]
-        if len(items) < before:
-            self._save_categories(items)
-            return True
-        return False
-
-    # ── Recurring Tasks ──
-
-    def _recurring_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_recurring.json")
-
-    def _load_recurring(self) -> list[dict]:
-        path = self._recurring_path()
-        return _read_json_list(path)
-
-    def _save_recurring(self, items: list[dict]) -> None:
-        _write_json_list(self._recurring_path(), items)
+        return self._categories.delete(category_id)
 
     def get_all_recurring(self) -> list[RecurringTask]:
-        return _parse_each(self._load_recurring(), RecurringTask.from_dict, "recurring task")
+        return self._recurring.all()
 
     def get_recurring_by_id(self, rec_id: str) -> Optional[RecurringTask]:
-        for r in self.get_all_recurring():
-            if r.id == rec_id:
-                return r
-        return None
+        return self._recurring.by_id(rec_id)
 
     def add_recurring(self, rec: RecurringTask) -> RecurringTask:
-        items = self._load_recurring()
-        items.append(rec.to_dict())
-        self._save_recurring(items)
-        return rec
+        return self._recurring.add(rec)
 
     def update_recurring(self, rec: RecurringTask) -> RecurringTask:
-        items = self._load_recurring()
-        for i, r in enumerate(items):
-            if r['id'] == rec.id:
-                items[i] = rec.to_dict()
-                break
-        self._save_recurring(items)
-        return rec
+        return self._recurring.update(rec)
 
     def delete_recurring(self, rec_id: str) -> bool:
-        items = self._load_recurring()
-        before = len(items)
-        items = [r for r in items if r['id'] != rec_id]
-        if len(items) < before:
-            self._save_recurring(items)
-            return True
-        return False
+        return self._recurring.delete(rec_id)
 
     # ── Notifications ──
-
-    def _notifications_path(self) -> Path:
-        return self.db_path.parent / (self.db_path.stem + "_notifications.json")
-
-    def _load_notifications(self) -> list[dict]:
-        path = self._notifications_path()
-        return _read_json_list(path)
-
-    def _save_notifications(self, items: list[dict]) -> None:
-        _write_json_list(self._notifications_path(), items)
+    # CRUD plus a few read/unread helpers that need raw-dict access.
 
     def get_all_notifications(self) -> list[Notification]:
-        return _parse_each(self._load_notifications(), Notification.from_dict, "notification")
+        return self._notifications.all()
 
     def get_unread_notifications(self) -> list[Notification]:
         return [n for n in self.get_all_notifications() if not n.is_read]
 
     def add_notification(self, notification: Notification) -> Notification:
-        items = self._load_notifications()
-        items.append(notification.to_dict())
-        self._save_notifications(items)
-        return notification
+        return self._notifications.add(notification)
+
+    def delete_notification(self, notif_id: str) -> bool:
+        return self._notifications.delete(notif_id)
 
     def mark_notification_read(self, notif_id: str) -> bool:
-        items = self._load_notifications()
+        items = self._notifications.load_raw()
         for n in items:
             if n['id'] == notif_id:
                 n['is_read'] = True
-                self._save_notifications(items)
+                self._notifications.save_raw(items)
                 return True
         return False
 
     def mark_all_notifications_read(self) -> int:
-        items = self._load_notifications()
-        count = 0
-        for n in items:
-            if not n['is_read']:
+        items = self._notifications.load_raw()
+        count = sum(1 for n in items if not n['is_read'])
+        if count:
+            for n in items:
                 n['is_read'] = True
-                count += 1
-        if count > 0:
-            self._save_notifications(items)
+            self._notifications.save_raw(items)
         return count
-
-    def delete_notification(self, notif_id: str) -> bool:
-        items = self._load_notifications()
-        before = len(items)
-        items = [n for n in items if n['id'] != notif_id]
-        if len(items) < before:
-            self._save_notifications(items)
-            return True
-        return False
 
     def clear_old_notifications(self, max_count: int = 100) -> int:
         """Keep only the last max_count notifications, delete older ones."""
-        items = self._load_notifications()
+        items = self._notifications.load_raw()
         if len(items) <= max_count:
             return 0
         items = items[-max_count:]
-        self._save_notifications(items)
+        self._notifications.save_raw(items)
         return len(items)
 
     # ── Data Integrity ──
@@ -641,19 +543,23 @@ class TaskRepository:
 
     # ── Export / Import ──
 
+    def _collections(self) -> dict[str, "_JsonCollection"]:
+        return {
+            "sprints": self._sprints,
+            "versions": self._versions,
+            "templates": self._templates,
+            "categories": self._categories,
+            "recurring": self._recurring,
+            "notifications": self._notifications,
+        }
+
     def export_all(self) -> dict:
         """Export all data as a dict for JSON serialization."""
-        return {
-            "tasks": self._load_tasks(),
-            "sprints": self._load_sprints(),
-            "versions": self._load_versions(),
-            "templates": self._load_templates(),
-            "categories": self._load_categories(),
-            "recurring": self._load_recurring(),
-            "notifications": self._load_notifications(),
-            "exported_at": datetime.now().isoformat(),
-            "version": "0.0.0.0.1",
-        }
+        out = {"tasks": self._load_tasks()}
+        out.update({key: coll.load_raw() for key, coll in self._collections().items()})
+        out["exported_at"] = datetime.now().isoformat()
+        out["version"] = "0.0.0.0.1"
+        return out
 
     def import_all(self, data: dict, overwrite: bool = False) -> dict:
         """Import all data from a dict (merge or replace).
@@ -666,14 +572,10 @@ class TaskRepository:
         Returns:
             Dict with counts per entity imported.
         """
-        entity_keys = [
-            ("tasks", self._load_tasks, self._save_tasks),
-            ("sprints", self._load_sprints, self._save_sprints),
-            ("versions", self._load_versions, self._save_versions),
-            ("templates", self._load_templates, self._save_templates),
-            ("categories", self._load_categories, self._save_categories),
-            ("recurring", self._load_recurring, self._save_recurring),
-            ("notifications", self._load_notifications, self._save_notifications),
+        entity_keys = [("tasks", self._load_tasks, self._save_tasks)]
+        entity_keys += [
+            (key, coll.load_raw, coll.save_raw)
+            for key, coll in self._collections().items()
         ]
 
         result = {}
