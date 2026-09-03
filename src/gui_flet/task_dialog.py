@@ -34,31 +34,39 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         text_size=14, border_radius=8, width=200,
     )
 
-    # Date pickers with calendar
-    start_date_value = (task.start_date or "") if task else ""
-    due_date_value = (task.due_date or "") if task else ""
+    # ── Dates (date picker) + optional time (ЧЧ:ММ text field) ──
+    def _split(dt_str: str):
+        d = date_part(dt_str) or ""
+        t = ""
+        p = parse_dt(dt_str)
+        if p and has_time(dt_str):
+            t = p.strftime("%H:%M")
+        return d, t
+
+    start_date_value, start_time_value = _split(task.start_date if task else "")
+    due_date_value, due_time_value = _split(task.due_date if task else "")
 
     start_display = ft.TextField(
-        label="Дата начала",
-        value=start_date_value,
+        label="Дата начала", value=start_date_value,
         text_size=14, border_radius=8, read_only=True,
-        suffix_icon=ic("calendar_today"),
-        width=200,
+        suffix_icon=ic("calendar_today"), width=150,
     )
-
+    start_time_field = ft.TextField(
+        label="Время", value=start_time_value, hint_text="ЧЧ:ММ",
+        text_size=14, border_radius=8, width=90,
+    )
     due_display = ft.TextField(
-        label="Дедлайн",
-        value=due_date_value,
+        label="Дедлайн", value=due_date_value,
         text_size=14, border_radius=8, read_only=True,
-        suffix_icon=ic("calendar_today"),
-        width=200,
+        suffix_icon=ic("calendar_today"), width=150,
+    )
+    due_time_field = ft.TextField(
+        label="Время", value=due_time_value, hint_text="ЧЧ:ММ",
+        text_size=14, border_radius=8, width=90,
     )
 
     def _parse_or_now(s: str) -> datetime:
-        try:
-            return datetime.strptime(s, "%Y-%m-%d") if s else datetime.now()
-        except ValueError:
-            return datetime.now()
+        return parse_dt(s) or datetime.now()
 
     def pick_start_date(e):
         def date_changed(ev):
@@ -69,10 +77,8 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             start_display.update()
 
         page.show_dialog(ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2035, 12, 31),
-            value=_parse_or_now(start_date_value),
-            on_change=date_changed,
+            first_date=datetime(2020, 1, 1), last_date=datetime(2035, 12, 31),
+            value=_parse_or_now(start_date_value), on_change=date_changed,
         ))
 
     def pick_due_date(e):
@@ -84,10 +90,8 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             due_display.update()
 
         page.show_dialog(ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2035, 12, 31),
-            value=_parse_or_now(due_date_value),
-            on_change=date_changed,
+            first_date=datetime(2020, 1, 1), last_date=datetime(2035, 12, 31),
+            value=_parse_or_now(due_date_value), on_change=date_changed,
         ))
 
     start_display.on_click = pick_start_date
@@ -146,16 +150,20 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             error_label.update()
             return
 
-        start_val = start_date_value.strip() or None
-        due_val = due_date_value.strip() or None
-        if start_val and not _validate_date(start_val):
-            error_label.value = "Формат даты: YYYY-MM-DD"
-            error_label.update()
-            return
-        if due_val and not _validate_date(due_val):
-            error_label.value = "Формат даты: YYYY-MM-DD"
-            error_label.update()
-            return
+        s_time = (start_time_field.value or "").strip()
+        d_time = (due_time_field.value or "").strip()
+        start_val = normalize(start_date_value, s_time)
+        due_val = normalize(due_date_value, d_time)
+        if s_time and not start_date_value.strip():
+            error_label.value = "Сначала выберите дату начала"
+            error_label.update(); return
+        if d_time and not due_date_value.strip():
+            error_label.value = "Сначала выберите дату дедлайна"
+            error_label.update(); return
+        if (s_time and start_val and " " not in start_val) or \
+           (d_time and due_val and " " not in due_val):
+            error_label.value = "Время в формате ЧЧ:ММ (например 14:30)"
+            error_label.update(); return
 
         try:
             time_val = float(time_field.value.strip() or "0")
@@ -196,7 +204,11 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     def on_cancel(e):
         page.pop_dialog()
 
-    dates_row = ft.Row([start_display, ft.Container(width=16), due_display], spacing=0)
+    dates_row = ft.Row([
+        start_display, ft.Container(width=6), start_time_field,
+        ft.Container(width=16),
+        due_display, ft.Container(width=6), due_time_field,
+    ], spacing=0)
     prio_type_row = ft.Row([priority_field, ft.Container(width=16), task_type_field], spacing=0)
     time_sp_row = ft.Row([time_field, ft.Container(width=16), story_points_field], spacing=0)
 

@@ -45,6 +45,35 @@ def _format_time(hours: float) -> str:
     return f"{h}{L.UNIT_HOURS} {m}{L.UNIT_MINUTES}"
 
 
+def _deadline_badge(task, app):
+    """A prominent chip when a task is overdue or its deadline is within the
+    configured warning window. Returns an ft.Container or None."""
+    if not task.due_date or task.status.value == "Done":
+        return None
+    secs = task.seconds_until_due()
+    if secs is None:
+        return None
+    try:
+        window = app.notify_hours_before() * 3600
+    except Exception:
+        window = 24 * 3600
+    if secs < 0:
+        text, bg = "Просрочено", "#F44336"
+    elif secs <= window:
+        hrs = secs / 3600
+        text = "< 1 ч" if hrs < 1 else f"через {int(hrs)} ч" if hrs < 48 else f"через {int(hrs // 24)} дн."
+        bg = "#ff9f0a"
+    else:
+        return None
+    return ft.Container(
+        content=ft.Row([ft.Icon(ic("schedule"), size=10, color="#000000"),
+                        ft.Text(text, size=9, color="#000000", weight=ft.FontWeight.BOLD)],
+                       spacing=3, tight=True),
+        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+        bgcolor=bg, border_radius=4,
+    )
+
+
 class TaskCard:
     """A draggable task card with tags and subtask progress."""
 
@@ -101,6 +130,9 @@ class TaskCard:
         type_colors = {"Bug": "#ff453a", "Story": "#bf5af2", "Epic": "#ff9f0a", "Sub-task": "#30d158"}
         type_color = type_colors.get(task.task_type, "#86868b")
         header_right = []
+        _dbadge = _deadline_badge(task, app)
+        if _dbadge is not None:
+            header_right.append(_dbadge)
         if task.task_type != "Task":
             header_right.append(ft.Container(
                 content=ft.Text(L.task_type(task.task_type), size=9, color=type_color, weight=ft.FontWeight.W_600),

@@ -526,55 +526,58 @@ class AutoUpdater:
             logger.warning("Could not update version.txt: %s", exc)
 
     def _relaunch_after_update(self) -> None:
-        """Swap in the staged executable and restart, via an external helper
-        script so the running process can exit and release its own file lock."""
+        """Swap the staged executable into place and start it detached.
+
+        Windows lets you *rename* a running .exe, so we move the current one
+        aside (deleted on next launch), drop the new one in, then launch it
+        with ShellExecute (`os.startfile`) which is fully detached from this
+        dying process. No helper script, no job-object surprises.
+        """
         if not self.current_exe:
             return
-        staged = self.app_dir / f"{self.current_exe.name}.updated"
         target = self.current_exe
+        staged = self.app_dir / f"{target.name}.updated"
         if not staged.exists():
             return
 
+        old = target.with_name(target.name + ".old")
+        try:
+            if old.exists():
+                old.unlink()
+        except OSError:
+            pass
+        try:
+            os.replace(target, old)      # rename the running exe out of the way
+            os.replace(staged, target)   # new exe into place
+        except OSError as exc:
+            logger.error("Could not swap in the update: %s", exc)
+            return
+
         import subprocess as sp
-        if sys.platform == "win32":
-            helper = self.app_dir / "update_restart.cmd"
-            log_path = self.app_dir / "logs" / "update_restart.log"
-            helper.write_text(
-                "@echo off\r\n"
-                "setlocal\r\n"
-                f'set "LOG={log_path}"\r\n'
-                f'set "TGT={target}"\r\n'
-                f'set "SRC={staged}"\r\n'
-                'echo [%date% %time%] helper started > "%LOG%"\r\n'
-                "ping -n 4 127.0.0.1 >nul\r\n"
-                'move /Y "%SRC%" "%TGT%" >nul 2>&1\r\n'
-                'if errorlevel 1 (\r\n'
-                '  ping -n 4 127.0.0.1 >nul\r\n'
-                '  move /Y "%SRC%" "%TGT%" >nul 2>&1\r\n'
-                ')\r\n'
-                'echo [%date% %time%] move rc=%errorlevel% >> "%LOG%"\r\n'
-                "ping -n 3 127.0.0.1 >nul\r\n"  # let AV finish scanning the new file
-                'start "" "%TGT%" --no-update\r\n'
-                'echo [%date% %time%] relaunched via start >> "%LOG%"\r\n'
-                'del /f /q "%~f0" >nul 2>&1\r\n',
-                encoding="utf-8",
-            )
-            sp.Popen(["cmd", "/c", str(helper)],
-                     creationflags=getattr(sp, "CREATE_NEW_CONSOLE", 0),
-                     close_fds=True, cwd=str(self.app_dir))
-        else:
-            helper = self.app_dir / "update_restart.sh"
-            helper.write_text(
-                "#!/bin/sh\n"
-                "sleep 2\n"
-                f'mv -f "{staged}" "{target}" 2>/dev/null || (sleep 2 && mv -f "{staged}" "{target}")\n'
-                f'chmod +x "{target}" 2>/dev/null\n'
-                f'"{target}" &\n'
-                'rm -f "$0"\n',
-                encoding="utf-8",
-            )
-            helper.chmod(0o755)
-            sp.Popen(["/bin/sh", str(helper)], start_new_session=True)
+        devnull = sp.DEVNULL
+        try:
+            if sys.platform == "win32":
+                flags = (getattr(sp, "DETACHED_PROCESS", 0x08)
+                         | getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0x200)
+                         | getattr(sp, "CREATE_BREAKAWAY_FROM_JOB", 0x1000000))
+                try:
+                    sp.Popen([str(target), "--no-update"], creationflags=flags,
+                             close_fds=True, cwd=str(self.app_dir),
+                             stdin=devnull, stdout=devnull, stderr=devnull)
+                except OSError:
+                    # job may forbid breakaway — retry without that flag
+                    sp.Popen([str(target), "--no-update"],
+                             creationflags=getattr(sp, "DETACHED_PROCESS", 0x08),
+                             close_fds=True, cwd=str(self.app_dir),
+                             stdin=devnull, stdout=devnull, stderr=devnull)
+            else:
+                target.chmod(0o755)
+                sp.Popen([str(target), "--no-update"], start_new_session=True,
+                         cwd=str(self.app_dir),
+                         stdin=devnull, stdout=devnull, stderr=devnull)
+        except OSError as exc:
+            logger.error("Update installed but relaunch failed (%s); "
+                         "restart the app manually.", exc)
 
     def _install_frozen_update(self, source_folder: Path, latest_version: str) -> bool:
         if not self.current_exe:

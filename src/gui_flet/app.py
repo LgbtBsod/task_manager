@@ -11,6 +11,15 @@ APP_DIR = Path(__file__).parent.parent.parent
 DB_PATH = APP_DIR / "data" / "db" / "tasks.json"
 
 
+def _app_version() -> str:
+    try:
+        from utils._version import get_version
+        v = get_version()
+        return v if v and v != "unknown" else "dev"
+    except Exception:
+        return "dev"
+
+
 def ic(name):
     """Resolve a Material icon name to the ``ft.Icons`` enum member.
 
@@ -87,10 +96,12 @@ class TaskManagerApp:
 
     def __init__(self):
         self.service = None
+        self.settings = None
         self.page: Optional[ft.Page] = None
         self.current_view: str = "kanban"
         self._search_query: str = ""
         self._sort_mode: str = "default"
+        self._notified_overdue: set = set()
 
     def init_service(self):
         import sys
@@ -99,8 +110,16 @@ class TaskManagerApp:
             sys.path.insert(0, str(src_path))
         from core.repository import TaskRepository
         from core.service import TaskService
+        from core.settings import SettingsStore
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.service = TaskService(repository=TaskRepository(db_path=str(DB_PATH)))
+        self.settings = SettingsStore(str(DB_PATH.parent / "settings.json"))
+
+    def notify_hours_before(self) -> int:
+        try:
+            return int(self.settings.get("notify_hours_before"))
+        except (TypeError, ValueError, AttributeError):
+            return 24
 
     def main(self, page: ft.Page):
         self.init_service()
@@ -151,6 +170,59 @@ class TaskManagerApp:
             )
         self.refresh_status_bar()
         page.update()
+
+        # In-app deadline checker.
+        try:
+            page.run_task(self._deadline_watcher)
+        except Exception:
+            pass
+
+    async def _deadline_watcher(self):
+        """Periodically flag tasks nearing their deadline and pop up overdue ones."""
+        import asyncio
+        while True:
+            try:
+                interval = int(self.settings.get("notify_check_seconds") or 60)
+            except (TypeError, ValueError):
+                interval = 60
+            await asyncio.sleep(max(15, interval))
+            if not self.settings.get("notifications_enabled"):
+                continue
+            try:
+                self._check_deadlines()
+            except Exception:
+                pass
+
+    def _check_deadlines(self):
+        from core.models import TaskStatus
+        just_passed = []
+        for t in self.service.get_all_tasks():
+            if t.status == TaskStatus.DONE or not t.due_date:
+                continue
+            secs = t.seconds_until_due()
+            if secs is None:
+                continue
+            if secs < 0 and t.id not in self._notified_overdue:
+                self._notified_overdue.add(t.id)
+                just_passed.append(t)
+        if just_passed:
+            self._popup_overdue(just_passed)
+        # keep "скоро" badges fresh
+        if self.current_view == "kanban":
+            self.refresh_all()
+
+    def _popup_overdue(self, tasks):
+        names = "\n".join(f"•  {t.title}" for t in tasks[:8])
+        extra = f"\n… и ещё {len(tasks) - 8}" if len(tasks) > 8 else ""
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([ft.Icon(ic("warning"), color=COLORS["accent_red"]),
+                          ft.Text("Наступил срок задач")], spacing=8),
+            content=ft.Text(names + extra),
+            actions=[ft.TextButton("Понятно", on_click=lambda e: self.page.pop_dialog())],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.show_dialog(dlg)
 
     def _build_top_bar(self, page: ft.Page):
         self.nav_buttons = {}
@@ -221,6 +293,9 @@ class TaskManagerApp:
                     ft.Container(expand=True),
                     self.search_field,
                     self.sort_dropdown,
+                    ft.IconButton(icon=ic("notifications_none"), icon_color=COLORS["text_secondary"],
+                                  tooltip="Уведомления о сроках",
+                                  on_click=lambda e: self.show_settings_dialog()),
                     self.add_button,
                 ],
                 spacing=4, alignment=ft.MainAxisAlignment.START,
@@ -235,7 +310,12 @@ class TaskManagerApp:
         self.status_text = ft.Text("\u0413\u043e\u0442\u043e\u0432", size=11, color=COLORS["text_secondary"])
         status_bar = ft.Container(
             content=ft.Row(
-                controls=[self.status_text, ft.Container(expand=True)], spacing=0,
+                controls=[
+                    self.status_text,
+                    ft.Container(expand=True),
+                    ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
+                ],
+                spacing=0,
             ),
             padding=ft.Padding.symmetric(horizontal=16, vertical=6),
             bgcolor=COLORS["bg_card"],
@@ -330,6 +410,53 @@ class TaskManagerApp:
     def show_create_dialog(self):
         from .task_dialog import show_task_dialog
         show_task_dialog(self.page, title="\u041d\u043e\u0432\u0430\u044f \u0437\u0430\u0434\u0430\u0447\u0430", on_save=self._on_create_task)
+
+    def show_settings_dialog(self):
+        s = self.settings
+        enabled = ft.Switch(value=bool(s.get("notifications_enabled")),
+                            label="\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u044f\u0442\u044c \u043e \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0435\u043d\u0438\u0438 \u0441\u0440\u043e\u043a\u043e\u0432")
+        hours = ft.TextField(
+            label="\u0417\u0430 \u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0447\u0430\u0441\u043e\u0432 \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0430\u0442\u044c",
+            value=str(s.get("notify_hours_before")),
+            width=200, text_size=14, border_radius=8,
+        )
+        err = ft.Text("", size=12, color=COLORS["accent_red"])
+
+        def save(e):
+            try:
+                h = int(hours.value.strip())
+                if not (1 <= h <= 24 * 30):
+                    raise ValueError
+            except ValueError:
+                err.value = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0447\u0438\u0441\u043b\u043e \u0447\u0430\u0441\u043e\u0432 \u043e\u0442 1 \u0434\u043e 720"
+                err.update()
+                return
+            s.update(notifications_enabled=enabled.value, notify_hours_before=h)
+            self._notified_overdue.clear()
+            self.page.pop_dialog()
+            self.refresh_all()
+            self._show_snackbar("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b")
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u043e \u0441\u0440\u043e\u043a\u0430\u0445", size=18, weight=ft.FontWeight.BOLD),
+            content=ft.Column([
+                enabled,
+                ft.Container(height=8),
+                hours,
+                ft.Text("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441 \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0430\u044e\u0449\u0438\u043c\u0441\u044f \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u043e\u043c \u043f\u043e\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044e\u0442\u0441\u044f; "
+                        "\u043a\u043e\u0433\u0434\u0430 \u0441\u0440\u043e\u043a \u043d\u0430\u0441\u0442\u0443\u043f\u0430\u0435\u0442 \u2014 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u043a\u043d\u043e.",
+                        size=11, color=COLORS["text_secondary"]),
+                err,
+            ], tight=True, width=360, spacing=6),
+            actions=[
+                ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=lambda e: self.page.pop_dialog()),
+                ft.Button("\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", on_click=save,
+                          style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff")),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.show_dialog(dlg)
 
     def _on_create_task(self, **kwargs):
         try:

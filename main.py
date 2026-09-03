@@ -87,10 +87,19 @@ def main():
     install_error_handler(str(app_dir))
 
     args = sys.argv[1:]
+    if getattr(sys, "frozen", False):
+        # Clean up the previous executable left behind by a self-update.
+        try:
+            old_exe = Path(sys.executable).with_name(Path(sys.executable).name + ".old")
+            if old_exe.exists():
+                old_exe.unlink()
+        except OSError:
+            pass
+
     if getattr(sys, "frozen", False) and "--no-update" not in args:
-        # Self-update: if a newer GitHub release exists, download + stage it and
-        # let the relaunch helper take over (we return so the old process exits).
-        # Any failure here must never block the app from starting.
+        # Self-update: if a newer GitHub release exists, download it, swap the
+        # binary and relaunch (we return so this old process exits). Any
+        # failure here must never block the app from starting.
         try:
             from utils.updater import check_updates
             if check_updates("LgbtBsod", "task_manager", auto=True):
