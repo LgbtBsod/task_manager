@@ -526,13 +526,13 @@ class AutoUpdater:
             logger.warning("Could not update version.txt: %s", exc)
 
     def _relaunch_after_update(self) -> None:
-        """Swap the staged executable into place and start it detached.
+        """Swap the staged executable into place and restart it.
 
         Windows lets you *rename* a running .exe, so we move the current one
-        aside (deleted on next launch), drop the new one in, then spawn it
-        directly with DETACHED_PROCESS + CREATE_BREAKAWAY_FROM_JOB so the new
-        process outlives this one (and PyInstaller's job object). No helper
-        script.
+        aside (deleted on next launch) and drop the new one in. The restart
+        goes through ``explorer.exe`` running a tiny .cmd: explorer is outside
+        this process's PyInstaller job object, so the new instance survives
+        our exit (a direct DETACHED spawn is killed with the job).
         """
         if not self.current_exe:
             return
@@ -555,27 +555,22 @@ class AutoUpdater:
             return
 
         import subprocess as sp
-        devnull = sp.DEVNULL
         try:
             if sys.platform == "win32":
-                flags = (getattr(sp, "DETACHED_PROCESS", 0x08)
-                         | getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0x200)
-                         | getattr(sp, "CREATE_BREAKAWAY_FROM_JOB", 0x1000000))
-                try:
-                    sp.Popen([str(target), "--no-update"], creationflags=flags,
-                             close_fds=True, cwd=str(self.app_dir),
-                             stdin=devnull, stdout=devnull, stderr=devnull)
-                except OSError:
-                    # job may forbid breakaway — retry without that flag
-                    sp.Popen([str(target), "--no-update"],
-                             creationflags=getattr(sp, "DETACHED_PROCESS", 0x08),
-                             close_fds=True, cwd=str(self.app_dir),
-                             stdin=devnull, stdout=devnull, stderr=devnull)
+                helper = self.app_dir / "update_restart.cmd"
+                helper.write_text(
+                    "@echo off\r\n"
+                    "ping -n 3 127.0.0.1 >nul\r\n"
+                    f'start "" "{target}" --no-update\r\n'
+                    'del /f /q "%~f0" >nul 2>&1\r\n',
+                    encoding="utf-8",
+                )
+                sp.Popen(["explorer.exe", str(helper)], close_fds=True)
             else:
                 target.chmod(0o755)
                 sp.Popen([str(target), "--no-update"], start_new_session=True,
                          cwd=str(self.app_dir),
-                         stdin=devnull, stdout=devnull, stderr=devnull)
+                         stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
         except OSError as exc:
             logger.error("Update installed but relaunch failed (%s); "
                          "restart the app manually.", exc)
