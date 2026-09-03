@@ -455,25 +455,49 @@ class TaskManagerApp:
             from .update_ui import check_now
             check_now(self)
 
+        data_dir = str(DB_PATH.parent)
+
+        def open_data_dir(e):
+            try:
+                import subprocess as _sp, sys as _sys
+                if _sys.platform == "win32":
+                    _sp.Popen(["explorer.exe", data_dir])
+                elif _sys.platform == "darwin":
+                    _sp.Popen(["open", data_dir])
+                else:
+                    _sp.Popen(["xdg-open", data_dir])
+            except OSError:
+                self._show_snackbar(data_dir)
+
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", size=18, weight=ft.FontWeight.BOLD),
             content=ft.Column([
+                ft.Text("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", size=12, weight=ft.FontWeight.BOLD,
+                        color=COLORS["text_secondary"]),
                 enabled,
-                ft.Container(height=8),
                 hours,
                 ft.Text("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441 \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0430\u044e\u0449\u0438\u043c\u0441\u044f \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u043e\u043c \u043f\u043e\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044e\u0442\u0441\u044f; "
                         "\u043a\u043e\u0433\u0434\u0430 \u0441\u0440\u043e\u043a \u043d\u0430\u0441\u0442\u0443\u043f\u0430\u0435\u0442 \u2014 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u043a\u043d\u043e.",
                         size=11, color=COLORS["text_secondary"]),
                 ft.Divider(color=COLORS["border_color"]),
+                ft.Text("\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f", size=12, weight=ft.FontWeight.BOLD,
+                        color=COLORS["text_secondary"]),
                 auto_updates,
                 ft.Row([
                     ft.TextButton("\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0441\u0435\u0439\u0447\u0430\u0441", icon=ic("refresh"),
                                   on_click=check_updates_click),
                     ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(color=COLORS["border_color"]),
+                ft.Text("\u0414\u0430\u043d\u043d\u044b\u0435", size=12, weight=ft.FontWeight.BOLD,
+                        color=COLORS["text_secondary"]),
+                ft.Text(data_dir, size=11, color=COLORS["text_secondary"],
+                        selectable=True, max_lines=2),
+                ft.TextButton("\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u043f\u043a\u0443 \u0441 \u0434\u0430\u043d\u043d\u044b\u043c\u0438", icon=ic("folder_open"),
+                              on_click=open_data_dir),
                 err,
-            ], tight=True, width=360, spacing=6),
+            ], tight=True, width=380, spacing=6, scroll=ft.ScrollMode.AUTO),
             actions=[
                 ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=lambda e: self.page.pop_dialog()),
                 ft.Button("\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", on_click=save,
