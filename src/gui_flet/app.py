@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import labels as L
+from .palette import COLORS, apply as apply_palette, build_theme, resolve_dark
 from core.models import TaskStatus
 
 APP_DIR = Path(__file__).parent.parent.parent
@@ -31,64 +32,6 @@ def ic(name):
     if name is None or not isinstance(name, str):
         return name  # already an ft.Icons member (or None)
     return getattr(ft.Icons, name.upper().replace("-", "_"), None)
-
-DARK_THEME = ft.Theme(
-    color_scheme_seed="#0a84ff",
-    color_scheme=ft.ColorScheme(
-        primary="#0a84ff",
-        on_primary="#ffffff",
-        primary_container="#1c3a5e",
-        on_primary_container="#d0e4ff",
-        secondary="#ff9f0a",
-        on_secondary="#000000",
-        secondary_container="#4a2d00",
-        on_secondary_container="#ffd980",
-        tertiary="#30d158",
-        on_tertiary="#000000",
-        tertiary_container="#003d13",
-        on_tertiary_container="#a0f5b0",
-        error="#ff453a",
-        on_error="#ffffff",
-        error_container="#93000a",
-        on_error_container="#ffdad6",
-        surface="#0a0a0a",
-        on_surface="#f5f5f7",
-        on_surface_variant="#86868b",
-        surface_container="#1c1c1e",
-        surface_container_low="#161618",
-        surface_container_high="#2c2c2e",
-        outline="#38383a",
-        outline_variant="#48484a",
-    ),
-    text_theme=ft.TextTheme(
-        body_large=ft.TextStyle(size=14, color="#f5f5f7"),
-        body_medium=ft.TextStyle(size=12, color="#f5f5f7"),
-        body_small=ft.TextStyle(size=11, color="#86868b"),
-        label_large=ft.TextStyle(size=14, weight=ft.FontWeight.BOLD, color="#f5f5f7"),
-        label_medium=ft.TextStyle(size=12, color="#f5f5f7"),
-        label_small=ft.TextStyle(size=11, color="#86868b"),
-        title_large=ft.TextStyle(size=22, weight=ft.FontWeight.BOLD, color="#f5f5f7"),
-        title_medium=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color="#f5f5f7"),
-        title_small=ft.TextStyle(size=14, weight=ft.FontWeight.W_600, color="#f5f5f7"),
-        headline_medium=ft.TextStyle(size=28, weight=ft.FontWeight.BOLD, color="#f5f5f7"),
-    ),
-)
-
-COLORS = {
-    "bg_dark": "#0a0a0a",
-    "bg_card": "#1c1c1e",
-    "bg_card_hover": "#2c2c2e",
-    "bg_button": "#3a3a3c",
-    "text_primary": "#f5f5f7",
-    "text_secondary": "#86868b",
-    "accent_blue": "#0a84ff",
-    "accent_green": "#30d158",
-    "accent_orange": "#ff9f0a",
-    "accent_red": "#ff453a",
-    "accent_purple": "#bf5af2",
-    "border_color": "#38383a",
-}
-
 
 _NAV_PAD = ft.Padding.symmetric(horizontal=16, vertical=8)
 _NAV_TEXT = ft.TextStyle(size=13, weight=ft.FontWeight.W_500)
@@ -138,17 +81,54 @@ class TaskManagerApp:
         except (TypeError, ValueError, AttributeError):
             return 24
 
+    def _apply_theme(self, page: ft.Page) -> None:
+        """Rebuild the palette + Flet themes from the current settings.
+
+        For ``"system"`` mode the effective brightness comes from
+        ``page.platform_brightness`` so our ``COLORS`` dict and Flet's own
+        widget chrome agree.
+        """
+        mode = self.settings.get("theme_mode") or "dark"
+        accent = self.settings.get("accent_color") or "#0a84ff"
+        system_is_dark = getattr(page, "platform_brightness", None) != ft.Brightness.LIGHT
+        apply_palette(mode, accent, system_is_dark=system_is_dark)
+        page.theme = build_theme(accent, dark=False)
+        page.dark_theme = build_theme(accent, dark=True)
+        page.theme_mode = ft.ThemeMode(mode)   # "dark" | "light" | "system"
+        page.bgcolor = COLORS["bg_dark"]
+
+    def set_theme(self, *, mode: str | None = None, accent: str | None = None) -> None:
+        """Apply a new theme mode / accent, persist it, and repaint every view."""
+        changes = {}
+        if mode is not None:
+            changes["theme_mode"] = mode
+        if accent is not None:
+            changes["accent_color"] = accent
+        if changes:
+            self.settings.update(**changes)
+        self._apply_theme(self.page)
+        # Views cache COLORS[...] at build time -> rebuild + remount them.
+        for v in self.views_map.values():
+            v.build()
+        if self.page is not None and hasattr(self, "_view_host_index"):
+            self.page.controls[self._view_host_index] = self.views_map[self.current_view].container
+        self._build_top_bar(self.page, replace=True)
+        self._build_status_bar(self.page, replace=True)
+        self.refresh_all()
+        self.page.update()
+
     def main(self, page: ft.Page):
         self.init_service()
         self.page = page
 
         page.title = L.APP_TITLE
-        page.theme = DARK_THEME
-        page.dark_theme = DARK_THEME
-        page.theme_mode = ft.ThemeMode.DARK
-        page.bgcolor = COLORS["bg_dark"]
         page.padding = 0
         page.spacing = 0
+        self._apply_theme(page)
+        # Re-theme live when the OS flips light/dark and we're on "system".
+        page.on_platform_brightness_change = lambda e: (
+            self.set_theme() if self.settings.get("theme_mode") == "system" else None
+        )
 
         from .kanban_view import KanbanView
         from .gantt_view import GanttView
@@ -236,7 +216,17 @@ class TaskManagerApp:
         )
         self.page.show_dialog(dlg)
 
-    def _build_top_bar(self, page: ft.Page):
+    def _theme_toggle_button(self) -> ft.IconButton:
+        mode = self.settings.get("theme_mode") or "dark"
+        icon = {"dark": "dark_mode", "light": "light_mode", "system": "brightness_auto"}[mode]
+        nxt = {"dark": "light", "light": "system", "system": "dark"}[mode]
+        return ft.IconButton(
+            icon=ic(icon), icon_color=COLORS["text_secondary"],
+            tooltip=f"Тема: {mode} → {nxt}",
+            on_click=lambda e: self.set_theme(mode=nxt),
+        )
+
+    def _build_top_bar(self, page: ft.Page, replace: bool = False):
         self.nav_buttons = {}
         nav_items = [
             ("kanban", L.NAV["kanban"], "view_kanban"),
@@ -306,8 +296,9 @@ class TaskManagerApp:
                     ft.Container(expand=True),
                     self.search_field,
                     self.sort_dropdown,
-                    ft.IconButton(icon=ic("notifications_none"), icon_color=COLORS["text_secondary"],
-                                  tooltip="Уведомления о сроках",
+                    self._theme_toggle_button(),
+                    ft.IconButton(icon=ic("settings"), icon_color=COLORS["text_secondary"],
+                                  tooltip="Настройки",
                                   on_click=lambda e: self.show_settings_dialog()),
                     self.add_button,
                 ],
@@ -317,9 +308,13 @@ class TaskManagerApp:
             padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             bgcolor=COLORS["bg_card"],
         )
-        page.add(top_bar)
+        if replace and getattr(self, "_top_bar_index", None) is not None:
+            page.controls[self._top_bar_index] = top_bar
+        else:
+            self._top_bar_index = len(page.controls)
+            page.add(top_bar)
 
-    def _build_status_bar(self, page: ft.Page):
+    def _build_status_bar(self, page: ft.Page, replace: bool = False):
         self.status_text = ft.Text("\u0413\u043e\u0442\u043e\u0432", size=11, color=COLORS["text_secondary"])
         status_bar = ft.Container(
             content=ft.Row(
@@ -333,7 +328,11 @@ class TaskManagerApp:
             padding=ft.Padding.symmetric(horizontal=16, vertical=6),
             bgcolor=COLORS["bg_card"],
         )
-        page.add(status_bar)
+        if replace and getattr(self, "_status_bar_index", None) is not None:
+            page.controls[self._status_bar_index] = status_bar
+        else:
+            self._status_bar_index = len(page.controls)
+            page.add(status_bar)
 
     def switch_view(self, view_name: str):
         view = self.views_map.get(view_name)
@@ -431,6 +430,56 @@ class TaskManagerApp:
         )
         err = ft.Text("", size=12, color=COLORS["accent_red"])
 
+        # \u2500\u2500 Theme \u2500\u2500 mode buttons apply on Save; swatches apply on click.
+        from core.settings import ACCENT_PRESETS
+
+        chosen = {"mode": s.get("theme_mode") or "dark",
+                  "accent": s.get("accent_color") or "#0a84ff"}
+
+        mode_buttons: dict[str, ft.Button] = {}
+
+        def _mode_style(active: bool) -> ft.ButtonStyle:
+            return ft.ButtonStyle(
+                bgcolor=chosen["accent"] if active else COLORS["bg_button"],
+                color="#ffffff" if active else COLORS["text_primary"],
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            )
+
+        def _pick_mode(m: str):
+            chosen["mode"] = m
+            for k, b in mode_buttons.items():
+                b.style = _mode_style(k == m)
+                b.update()
+
+        for m, lbl in (("dark", "\u0422\u0451\u043c\u043d\u0430\u044f"), ("light", "\u0421\u0432\u0435\u0442\u043b\u0430\u044f"), ("system", "\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u0430\u044f")):
+            mode_buttons[m] = ft.Button(content=lbl, style=_mode_style(m == chosen["mode"]),
+                                        on_click=lambda e, mm=m: _pick_mode(mm))
+        mode_row = ft.Row(list(mode_buttons.values()), spacing=6)
+
+        swatches: list[ft.Container] = []
+
+        def _pick_accent(hex_: str):
+            chosen["accent"] = hex_
+            for sw in swatches:
+                sw.border = ft.Border.all(
+                    2, COLORS["text_primary"] if sw.bgcolor.lower() == hex_.lower()
+                    else ft.Colors.TRANSPARENT)
+                sw.update()
+            for k, b in mode_buttons.items():
+                b.style = _mode_style(k == chosen["mode"])
+                b.update()
+            self.set_theme(accent=hex_)   # accent preview is safe & instant
+
+        for hex_ in ACCENT_PRESETS.values():
+            sel = (chosen["accent"] or "").lower() == hex_.lower()
+            sw = ft.Container(
+                width=26, height=26, bgcolor=hex_, border_radius=13,
+                border=ft.Border.all(2, COLORS["text_primary"] if sel else ft.Colors.TRANSPARENT),
+                tooltip=hex_, on_click=lambda e, h=hex_: _pick_accent(h),
+            )
+            swatches.append(sw)
+        accent_row = ft.Row(swatches, spacing=8, wrap=True)
+
         def save(e):
             try:
                 h = int(hours.value.strip())
@@ -444,7 +493,10 @@ class TaskManagerApp:
                      check_updates_on_start=auto_updates.value)
             self._notified_overdue.clear()
             self.page.pop_dialog()
-            self.refresh_all()
+            if chosen["mode"] != s.get("theme_mode") or chosen["accent"] != s.get("accent_color"):
+                self.set_theme(mode=chosen["mode"], accent=chosen["accent"])
+            else:
+                self.refresh_all()
             self._show_snackbar("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b")
 
         def check_updates_click(e):
@@ -476,6 +528,12 @@ class TaskManagerApp:
                 ft.Text("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441 \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0430\u044e\u0449\u0438\u043c\u0441\u044f \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u043e\u043c \u043f\u043e\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044e\u0442\u0441\u044f; "
                         "\u043a\u043e\u0433\u0434\u0430 \u0441\u0440\u043e\u043a \u043d\u0430\u0441\u0442\u0443\u043f\u0430\u0435\u0442 \u2014 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u043a\u043d\u043e.",
                         size=11, color=COLORS["text_secondary"]),
+                ft.Divider(color=COLORS["border_color"]),
+                ft.Text("\u0422\u0435\u043c\u0430", size=12, weight=ft.FontWeight.BOLD,
+                        color=COLORS["text_secondary"]),
+                mode_row,
+                ft.Text("\u0410\u043a\u0446\u0435\u043d\u0442\u043d\u044b\u0439 \u0446\u0432\u0435\u0442", size=11, color=COLORS["text_secondary"]),
+                accent_row,
                 ft.Divider(color=COLORS["border_color"]),
                 ft.Text("\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f", size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),
