@@ -95,6 +95,32 @@ def get_db_path() -> str:
     return str(get_data_dir() / "tasks.json")
 
 
+def _cleanup_update_leftovers(app_dir: Path, log) -> None:
+    """Remove files a self-update leaves behind. The VBS relaunch helper does
+    this itself, but a hard-killed helper or an AV-quarantined script can leave
+    the old binary / staged binary / helper script around — sweep them here too,
+    with a couple of retries in case the previous process only just released the
+    handle.
+    """
+    import time
+    exe = Path(sys.executable)
+    stale = [
+        exe.with_name(exe.name + ".old"),
+        exe.with_name(exe.name + ".updated"),
+        app_dir / "update_restart.vbs",
+        app_dir / "update_restart.cmd",
+    ]
+    for path in stale:
+        for attempt in range(3):
+            try:
+                if path.exists():
+                    path.unlink()
+                    log.info(f"Removed update leftover: {path.name}")
+                break
+            except OSError:
+                time.sleep(0.3 * (attempt + 1))
+
+
 def main():
     app_dir = get_app_dir()
     db_path = get_db_path()
@@ -116,13 +142,7 @@ def main():
 
     args = sys.argv[1:]
     if getattr(sys, "frozen", False):
-        # Clean up the previous executable left behind by a self-update.
-        try:
-            old_exe = Path(sys.executable).with_name(Path(sys.executable).name + ".old")
-            if old_exe.exists():
-                old_exe.unlink()
-        except OSError:
-            pass
+        _cleanup_update_leftovers(app_dir, log)
 
     if getattr(sys, "frozen", False) and "--force-update" in args:
         # Opt-in CLI path: download + install now, before the GUI, then exit

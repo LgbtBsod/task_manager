@@ -556,13 +556,11 @@ class AutoUpdater:
             logger.warning("Could not update version.txt: %s", exc)
 
     def _relaunch_after_update(self) -> None:
-        """Swap the staged executable into place and restart it.
+        """Hand the binary swap + restart to a detached helper.
 
-        Windows lets you *rename* a running .exe, so we move the current one
-        aside (deleted on next launch) and drop the new one in. The restart
-        goes through ``explorer.exe`` running a tiny .cmd: explorer is outside
-        this process's PyInstaller job object, so the new instance survives
-        our exit (a direct DETACHED spawn is killed with the job).
+        The helper waits for THIS process to exit before touching the .exe, so
+        the file is never swapped while it is still locked (the cause of the
+        stuck ``TaskManager.exe.old`` and zombie processes users saw).
         """
         if not self.current_exe:
             return
@@ -571,36 +569,71 @@ class AutoUpdater:
         if not staged.exists():
             return
 
-        old = target.with_name(target.name + ".old")
-        try:
-            if old.exists():
-                old.unlink()
-        except OSError:
-            pass
-        try:
-            os.replace(target, old)      # rename the running exe out of the way
-            os.replace(staged, target)   # new exe into place
-        except OSError as exc:
-            logger.error("Could not swap in the update: %s", exc)
-            return
+        if sys.platform == "win32":
+            self._relaunch_windows(target, staged)
+        else:
+            self._relaunch_posix(target, staged)
 
+    def _relaunch_windows(self, target: Path, staged: Path) -> None:
+        """Detached VBScript: wait for the old process tree to die, replace the
+        binary (retrying until it is unlocked), start it, delete every leftover.
+
+        Launched via ``explorer.exe`` because a PyInstaller one-file build runs
+        inside a job object that kills any directly-spawned child; explorer is
+        outside that job. VBScript, not .cmd, so there is no console flash.
+        """
+        import subprocess as sp
+
+        pid, ppid = os.getpid(), os.getppid()
+        old = target.with_name(target.name + ".old")
+        t, s, o = str(target), str(staged), str(old)
+        vbs = self.app_dir / "update_restart.vbs"
+        script = (
+            'Dim fso, sh, wmi, i\r\n'
+            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+            'Set sh  = CreateObject("WScript.Shell")\r\n'
+            'Set wmi = GetObject("winmgmts:root\\cimv2")\r\n'
+            'Function Running(p)\r\n'
+            '  Running = (wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId=" & p).Count > 0)\r\n'
+            'End Function\r\n'
+            f'For i = 1 To 120\r\n'
+            f'  If (Not Running({pid})) And (Not Running({ppid})) Then Exit For\r\n'
+            '  WScript.Sleep 500\r\n'
+            'Next\r\n'
+            'On Error Resume Next\r\n'
+            'For i = 1 To 60\r\n'
+            f'  fso.DeleteFile "{t}", True\r\n'
+            f'  If Not fso.FileExists("{t}") Then Exit For\r\n'
+            '  WScript.Sleep 500\r\n'
+            'Next\r\n'
+            f'fso.MoveFile "{s}", "{t}"\r\n'
+            f'If Not fso.FileExists("{t}") Then fso.CopyFile "{s}", "{t}", True\r\n'
+            f'sh.Run """{t}"" --no-update", 0, False\r\n'
+            f'fso.DeleteFile "{o}", True\r\n'
+            f'fso.DeleteFile "{s}", True\r\n'
+            'fso.DeleteFile WScript.ScriptFullName, True\r\n'
+        )
+        try:
+            # UTF-16 LE + BOM: wscript reads it correctly even if a path has
+            # non-ASCII characters (Cyrillic user folder, etc.).
+            vbs.write_text(script, encoding="utf-16")
+            sp.Popen(["explorer.exe", str(vbs)], close_fds=True)
+            logger.info("Relaunch helper started; exiting for swap.")
+        except OSError as exc:
+            logger.error("Relaunch helper failed to start (%s); "
+                         "the update is downloaded — restart the app manually.", exc)
+
+    def _relaunch_posix(self, target: Path, staged: Path) -> None:
+        """POSIX keeps a running binary alive via its open inode, so we can
+        replace the file in place and just spawn the new one detached."""
         import subprocess as sp
         try:
-            if sys.platform == "win32":
-                helper = self.app_dir / "update_restart.cmd"
-                helper.write_text(
-                    "@echo off\r\n"
-                    "ping -n 3 127.0.0.1 >nul\r\n"
-                    f'start "" "{target}" --no-update\r\n'
-                    'del /f /q "%~f0" >nul 2>&1\r\n',
-                    encoding="utf-8",
-                )
-                sp.Popen(["explorer.exe", str(helper)], close_fds=True)
-            else:
-                target.chmod(0o755)
-                sp.Popen([str(target), "--no-update"], start_new_session=True,
-                         cwd=str(self.app_dir),
-                         stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            os.replace(staged, target)   # atomic; the running process is unaffected
+            target.chmod(0o755)
+            sp.Popen([str(target), "--no-update"], start_new_session=True,
+                     cwd=str(self.app_dir),
+                     stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            logger.info("Update swapped in; new instance spawned.")
         except OSError as exc:
             logger.error("Update installed but relaunch failed (%s); "
                          "restart the app manually.", exc)
