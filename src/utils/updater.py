@@ -529,9 +529,10 @@ class AutoUpdater:
         """Swap the staged executable into place and start it detached.
 
         Windows lets you *rename* a running .exe, so we move the current one
-        aside (deleted on next launch), drop the new one in, then launch it
-        with ShellExecute (`os.startfile`) which is fully detached from this
-        dying process. No helper script, no job-object surprises.
+        aside (deleted on next launch), drop the new one in, then spawn it
+        directly with DETACHED_PROCESS + CREATE_BREAKAWAY_FROM_JOB so the new
+        process outlives this one (and PyInstaller's job object). No helper
+        script.
         """
         if not self.current_exe:
             return
