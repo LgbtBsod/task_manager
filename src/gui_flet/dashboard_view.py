@@ -1,9 +1,12 @@
 """Dashboard view with statistics, priority breakdown, type breakdown, team workload, and progress tracking."""
-import flet as ft
+from collections import Counter
 from typing import Optional, TYPE_CHECKING
+
+import flet as ft
 
 from .app import COLORS, ic
 from . import labels as L
+from core.models import Priority
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -41,39 +44,9 @@ class StatCard(ft.Container):
             self._subtitle_label.value = subtitle
 
 
-class PriorityBar(ft.Container):
-    """A horizontal bar showing count and proportion for a priority level."""
+class BreakdownBar(ft.Container):
+    """A horizontal count/proportion bar for one category (priority, type, …)."""
 
-    def __init__(self, label: str, color: str, count: int, total: int, **kwargs):
-        super().__init__(**kwargs)
-        self.label = label
-        self.color = color
-        self.count = count
-        self.total = total
-        self.content = self._build()
-
-    def _build(self) -> ft.Control:
-        pct = (self.count / self.total * 100) if self.total > 0 else 0
-        self._count_text = ft.Text(f"{self.label}: {self.count}", size=13, color=COLORS["text_primary"])
-        self._pct_text = ft.Text(f"{pct:.0f}%", size=12, color=COLORS["text_secondary"])
-        self._bar = ft.Container(height=8, width=max(pct * 3, 0), bgcolor=self.color, border_radius=4)
-        return ft.Column([
-            ft.Row([self._count_text, ft.Container(expand=True), self._pct_text], spacing=8),
-            ft.Container(content=self._bar, bgcolor=COLORS["bg_button"], border_radius=4, height=8,
-                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
-        ], spacing=4)
-
-    def update_data(self, count: int, total: int):
-        self.count = count
-        self.total = total
-        pct = (count / total * 100) if total > 0 else 0
-        self._count_text.value = f"{self.label}: {count}"
-        self._pct_text.value = f"{pct:.0f}%"
-        self._bar.width = max(pct * 3, 0)
-
-
-class TypeBar(ft.Container):
-    """A horizontal bar for task type breakdown."""
     def __init__(self, label: str, color: str, count: int, total: int, **kwargs):
         super().__init__(**kwargs)
         self.label = label
@@ -112,8 +85,8 @@ class DashboardView:
         self.stat_done: Optional[StatCard] = None
         self.stat_progress: Optional[StatCard] = None
         self.stat_overdue: Optional[StatCard] = None
-        self.prio_bars: dict[str, PriorityBar] = {}
-        self.type_bars: dict[str, TypeBar] = {}
+        self.prio_bars: dict[str, BreakdownBar] = {}
+        self.type_bars: dict[str, BreakdownBar] = {}
         self._status_bars: dict[str, ft.Container] = {}
         self._status_labels: dict[str, ft.Text] = {}
 
@@ -128,15 +101,15 @@ class DashboardView:
                                       bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
 
         prio_section = []
-        for prio, color in [("Low", "#4CAF50"), ("Medium", "#FF9800"), ("High", "#F44336"), ("Critical", "#FF1744")]:
-            bar = PriorityBar(L.priority(prio), color, 0, 1, padding=ft.Padding.only(bottom=12))
-            self.prio_bars[prio] = bar
+        for p in Priority:
+            bar = BreakdownBar(L.priority(p.value), p.color, 0, 1, padding=ft.Padding.only(bottom=12))
+            self.prio_bars[p.value] = bar
             prio_section.append(bar)
 
         type_section = []
         type_config = [("Task", "#86868b"), ("Bug", "#ff453a"), ("Story", "#bf5af2"), ("Epic", "#ff9f0a"), ("Sub-task", "#30d158")]
         for ttype, color in type_config:
-            bar = TypeBar(L.task_type(ttype), color, 0, 1, padding=ft.Padding.only(bottom=12))
+            bar = BreakdownBar(L.task_type(ttype), color, 0, 1, padding=ft.Padding.only(bottom=12))
             self.type_bars[ttype] = bar
             type_section.append(bar)
 
@@ -234,14 +207,11 @@ class DashboardView:
             self.stat_progress.set_value(str(stats["by_status"]["in_progress"]))
             self.stat_overdue.set_value(str(stats["overdue"]))
 
-        for prio, key in [("Low", "low"), ("Medium", "medium"), ("High", "high"), ("Critical", "critical")]:
-            if prio in self.prio_bars:
-                self.prio_bars[prio].update_data(stats['by_priority'].get(key, 0), total)
+        for p in Priority:
+            if bar := self.prio_bars.get(p.value):
+                bar.update_data(stats['by_priority'].get(p.value.lower(), 0), total)
 
-        all_tasks = self.app.service.get_all_tasks()
-        type_counts = {}
-        for t in all_tasks:
-            type_counts[t.task_type] = type_counts.get(t.task_type, 0) + 1
+        type_counts = Counter(t.task_type for t in self.app.service.get_all_tasks())
         for ttype, bar in self.type_bars.items():
             bar.update_data(type_counts.get(ttype, 0), total)
 
