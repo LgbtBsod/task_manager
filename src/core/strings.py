@@ -146,10 +146,9 @@ class UI:
     SET_HOURS_BEFORE = "Часов до срока"
     SET_NOTIFY_HINT = ("Карточки с приближающимся дедлайном подсвечиваются; когда "
                        "срок наступает — появляется окно.")
-    SET_THEME = "Тема · SAP Horizon"
-    SET_THEME_DARK = "Вечер"        # Evening Horizon
-    SET_THEME_LIGHT = "Утро"        # Morning Horizon
-    SET_THEME_SYSTEM = "Системная"
+    SET_THEME = "Тема"
+    # theme_mode value -> RU label. "Вечер"/"Утро" == SAP Horizon Evening/Morning.
+    THEME_MODE_LABEL = {"dark": "Вечер", "light": "Утро", "system": "Системная"}
     SET_ACCENT = "Акцентный цвет"
     SET_COLORS = "Цвета интерфейса"
     SET_COLORS_HINT = "Пусто — цвет темы. Кликните образец для палитры, или введите #rrggbb."
@@ -164,7 +163,7 @@ class UI:
     SET_SAVED = "Настройки сохранены"
 
     # theme toggle button tooltip
-    THEME_SWITCH = "Тема: {mode} → {next}"
+    THEME_SWITCH = "Тема: {mode} → {next}"   # mode/next pre-localised by the caller
 
     # status bar
     SB_READY = "Готов"

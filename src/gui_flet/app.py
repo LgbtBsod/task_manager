@@ -188,7 +188,8 @@ class TaskManagerApp:
         nxt = {"dark": "light", "light": "system", "system": "dark"}[mode]
         return ft.IconButton(
             icon=ic(icon), icon_color=COLORS["text_secondary"],
-            tooltip=L.UI.THEME_SWITCH.format(mode=mode, next=nxt),
+            tooltip=L.UI.THEME_SWITCH.format(mode=L.UI.THEME_MODE_LABEL[mode],
+                                             next=L.UI.THEME_MODE_LABEL[nxt]),
             on_click=lambda e: self.set_theme(mode=nxt),
         )
 
@@ -413,8 +414,7 @@ class TaskManagerApp:
                 b.style = _mode_style(k == m)
                 b.update()
 
-        for m, lbl in (("dark", L.UI.SET_THEME_DARK), ("light", L.UI.SET_THEME_LIGHT),
-                       ("system", L.UI.SET_THEME_SYSTEM)):
+        for m, lbl in L.UI.THEME_MODE_LABEL.items():
             mode_buttons[m] = ft.Button(content=lbl, style=_mode_style(m == chosen["mode"]),
                                         on_click=lambda e, mm=m: _pick_mode(mm))
         mode_row = ft.Row(list(mode_buttons.values()), spacing=6)
