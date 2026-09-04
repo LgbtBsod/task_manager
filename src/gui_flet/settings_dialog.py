@@ -350,6 +350,11 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
         from .update_ui import check_now
         check_now(app)
 
+    def open_recurring(e):
+        cancel()   # close Settings first — reverts any un-saved live preview
+        from .recurring_dialog import show_recurring_dialog
+        show_recurring_dialog(app)
+
     data_dir = str(paths.data_dir)
 
     def open_data_dir(e):
@@ -396,6 +401,8 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
         auto_close_epic,
         ft.Divider(color=COLORS["border_color"]),
         tags_expander,
+        ft.Divider(color=COLORS["border_color"]),
+        ft.TextButton(L.UI.REC_MANAGE, icon=ic("event_repeat"), on_click=open_recurring),
     ])
 
     system_section = _category(L.UI.SET_CATEGORY_SYSTEM, [

@@ -32,15 +32,32 @@ class DeadlineWatcher:
         self._notified.clear()
 
     async def run(self) -> None:
+        # Once immediately — a session shorter than the check interval
+        # shouldn't silently miss a task whose recurrence already came due.
+        try:
+            self._generate_recurring()
+        except Exception:
+            log.debug("recurring-task generation failed", exc_info=True)
         while True:
             # notify_check_seconds is a pydantic int in [15, 3600] — no guard needed.
             await asyncio.sleep(self.settings.get("notify_check_seconds"))
+            try:
+                self._generate_recurring()
+            except Exception:
+                log.debug("recurring-task generation failed", exc_info=True)
             if not self.settings.get("notifications_enabled"):
                 continue
             try:
                 self._check()
             except Exception:
                 log.debug("deadline check failed", exc_info=True)
+
+    def _generate_recurring(self) -> None:
+        """Stamp out any recurring task whose period has come due. Runs on
+        the same tick as the deadline check — a recurring-task definition is
+        just config until something calls this periodically."""
+        if self.service.generate_recurring_tasks():
+            self._on_refresh()
 
     def _check(self) -> None:
         from core.models import TaskStatus

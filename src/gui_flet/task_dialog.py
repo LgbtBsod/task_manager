@@ -189,7 +189,9 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         def date_changed(ev):
             nonlocal start_date_value
             v = ev.control.value
-            start_date_value = v.strftime("%Y-%m-%d") if v else ""
+            # See pick_due_date below — DatePicker's value is UTC-tagged, so
+            # it must be normalized to local time before formatting.
+            start_date_value = v.astimezone().strftime("%Y-%m-%d") if v else ""
             start_display.value = start_date_value
             start_display.update()
 
@@ -202,7 +204,11 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         def date_changed(ev):
             nonlocal due_date_value
             v = ev.control.value
-            due_date_value = v.strftime("%Y-%m-%d") if v else ""
+            # A user in a timezone ahead of UTC (e.g. UTC+4) who picks "Sep 1"
+            # gets back an instant equivalent to "Aug 31 20:00 UTC" — printing
+            # that directly shows the wrong calendar day, one short of what
+            # was actually clicked, so convert to local time first.
+            due_date_value = v.astimezone().strftime("%Y-%m-%d") if v else ""
             due_display.value = due_date_value
             due_display.update()
 

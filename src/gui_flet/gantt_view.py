@@ -135,7 +135,7 @@ class GanttView:
         for d in range(0, td + 1, step):
             date_obj = self._min_date + timedelta(days=d)
             date_str = date_obj.strftime("%d.%m")
-            weekday = date_obj.strftime("%a")
+            weekday = L.weekday_short(date_obj)
             is_today = (date_obj == today)
             header_cells.append(ft.Container(
                 content=ft.Column([

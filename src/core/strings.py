@@ -31,6 +31,17 @@ PRIORITY_LABEL = {
     "High": "Высокий",
     "Critical": "Критический",
 }
+FREQUENCY_LABEL = {
+    "daily": "Ежедневно",
+    "weekly": "Еженедельно",
+    "biweekly": "Раз в 2 недели",
+    "monthly": "Ежемесячно",
+    "quarterly": "Ежеквартально",
+}
+# date.weekday() index (0=Monday) -> RU abbreviation. Hand-rolled rather than
+# strftime("%a"), which follows the OS/CI locale (typically C/English) and
+# would silently leak English weekday names into an otherwise all-Russian UI.
+WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 TASK_TYPE_LABEL = {
     "Task": "Задача",
     "Bug": "Ошибка",
@@ -238,6 +249,21 @@ class UI:
     PT_ADD_STEP = "Добавить шаг"
     PT_SAVE = "Сохранить шаблон"
 
+    # recurring tasks: a schedule that auto-generates a task each period
+    REC_MANAGE = "Повторяющиеся задачи"
+    REC_MANAGE_HINT = "Настройте один раз — задача будет создаваться заново каждый период."
+    REC_TITLE_DIALOG = "Повторяющиеся задачи"
+    REC_EMPTY = "Повторяющихся задач пока нет — создайте первую ниже."
+    REC_NEXT = "Следующая: {date}"
+    REC_NO_BASE_DATE = "Нет опорной даты"
+    REC_NEW = "Новая повторяющаяся задача"
+    REC_TITLE = "Название"
+    REC_FREQUENCY = "Периодичность"
+    REC_BASE_DATE = "Опорная дата"
+    REC_PRIORITY = "Приоритет"
+    REC_ADD = "Добавить"
+    REC_PICK_DATE_FIRST = "Укажите опорную дату"
+
     SET_UPDATES = "Обновления"
     SET_CHECK_ON_START = "Проверять обновления при запуске"
     SET_CHECK_NOW = "Проверить сейчас"
@@ -310,6 +336,15 @@ def status(value: str) -> str:
 
 def priority(value: str) -> str:
     return PRIORITY_LABEL.get(value, value)
+
+
+def frequency(value: str) -> str:
+    return FREQUENCY_LABEL.get(value, value)
+
+
+def weekday_short(d) -> str:
+    """RU weekday abbreviation for a ``date``/``datetime`` — see WEEKDAY_SHORT."""
+    return WEEKDAY_SHORT[d.weekday()]
 
 
 def task_type(value: str) -> str:

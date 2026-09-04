@@ -86,3 +86,42 @@ def test_monthly_recurrence_uses_calendar_months_not_fixed_30_days():
 def test_quarterly_recurrence_uses_calendar_months():
     rec = RecurringTask(title="review", frequency="quarterly", base_due_date="2026-01-31")
     assert rec.next_due_date(after_date="2026-03-01") == "2026-04-30"
+
+
+def test_recurring_dialog_module_imports_clean():
+    from gui_flet.recurring_dialog import show_recurring_dialog
+    assert callable(show_recurring_dialog)
+
+
+class _FakeSettings:
+    """Minimal stand-in for AppSettings — DeadlineWatcher only calls .get()."""
+    def __init__(self, **values):
+        self._values = values
+
+    def get(self, key):
+        return self._values[key]
+
+
+def _watcher(svc):
+    from gui_flet.deadline_watcher import DeadlineWatcher
+    refreshes = {"n": 0}
+    watcher = DeadlineWatcher(
+        service=svc, settings=_FakeSettings(notifications_enabled=False, notify_check_seconds=60),
+        page=None, on_refresh=lambda: refreshes.__setitem__("n", refreshes["n"] + 1))
+    return watcher, refreshes
+
+
+def test_watcher_generates_due_recurring_tasks_and_refreshes():
+    s = _svc()
+    s.create_recurring_task("Еженедельный отчёт", frequency="weekly", base_due_date=_days_ago(10))
+    watcher, refreshes = _watcher(s)
+    watcher._generate_recurring()
+    assert len(s.get_all_tasks()) == 1
+    assert refreshes["n"] == 1
+
+
+def test_watcher_does_not_refresh_when_nothing_is_due():
+    s = _svc()
+    watcher, refreshes = _watcher(s)   # no recurring definitions at all
+    watcher._generate_recurring()
+    assert refreshes["n"] == 0

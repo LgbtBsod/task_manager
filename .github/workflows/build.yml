@@ -13,7 +13,14 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows-specific paths (self-update's binary swap, single-instance port
+    # handling) were only ever exercised by the build job's packaging step,
+    # never by the test suite itself — run tests on both platforms.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

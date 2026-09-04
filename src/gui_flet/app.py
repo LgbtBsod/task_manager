@@ -130,6 +130,13 @@ class TaskManagerApp:
         page.title = L.APP_TITLE
         page.padding = 0
         page.spacing = 0
+        # The whole UI is hardcoded Russian (no i18n system) — force Flutter's
+        # own built-in widgets (DatePicker's "Select date"/Cancel/OK, etc.) to
+        # match instead of falling back to the visitor's OS/browser locale.
+        page.locale_configuration = ft.LocaleConfiguration(
+            supported_locales=[ft.Locale("ru", "RU")],
+            current_locale=ft.Locale("ru", "RU"),
+        )
         self._apply_theme(page)
         # Re-theme live when the OS flips light/dark and we're on "system".
         page.on_platform_brightness_change = lambda e: (
@@ -345,6 +352,7 @@ class TaskManagerApp:
             tasks = [t for t in tasks
                      if q in t.title.lower()
                      or q in t.description.lower()
+                     or q in (t.assignee or "").lower()
                      or any(q in tag for tag in t.tags)]
         if self._sort_mode == "priority":
             tasks = sorted(tasks, key=lambda t: t.priority.sort_index)
