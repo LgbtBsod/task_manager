@@ -6,20 +6,24 @@ audit history, bulk operations, search, clone, assignee management.
 
 import json
 import logging
-from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable, Optional, List
 
 from .models import (
     Task, TaskStatus, Priority, TaskModel, SubTask,
-    LinkType, TaskType, Urgency,
-    Resolution, Sprint, SprintStatus,
-    VersionRelease, WORKFLOW_TRANSITIONS,
-    TaskTemplate, Category, Notification, RecurringTask, RecurrenceFrequency,
+    LinkType, TaskType, Urgency, Resolution, WORKFLOW_TRANSITIONS,
 )
 from .repository import TaskRepository
 
 log = logging.getLogger(__name__)
+
+
+def _to_priority(value: str) -> Priority:
+    """A stored priority string → ``Priority``; unknown values fall back to MEDIUM."""
+    try:
+        return Priority(value)
+    except ValueError:
+        return Priority.MEDIUM
 
 
 class TaskService:
@@ -316,9 +320,8 @@ class TaskService:
         if not self.repo.get_by_id(target_task_id):
             raise ValueError(f"Target task {target_task_id} not found")
         # Validate link type
-        valid_types = {lt.value for lt in LinkType}
-        if link_type not in valid_types:
-            raise ValueError(f"Invalid link_type. Must be one of: {valid_types}")
+        if link_type not in LinkType:                       # Enum value-membership (3.12+)
+            raise ValueError(f"Invalid link_type. Must be one of: {[lt.value for lt in LinkType]}")
 
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -625,16 +628,13 @@ class TaskService:
 
     def set_task_rank(self, task_id: str, rank: int) -> Optional[Task]:
         """Set manual rank for a task (lower = higher priority in backlog)."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        old_rank = task.rank
-        task.rank = max(0, rank)
-        task.record_change("rank", str(old_rank), str(task.rank))
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Task {task_id} rank: {old_rank} -> {task.rank}")
-        return updated
+        def m(task: Task):
+            old_rank = task.rank
+            task.rank = max(0, rank)
+            task.record_change("rank", str(old_rank), str(task.rank))
+            log.info(f"Task {task_id} rank: {old_rank} -> {task.rank}")
+
+        return self._edit(task_id, m)
 
     def get_backlog(self) -> List[Task]:
         """Get all Todo tasks sorted by rank (backlog view)."""
@@ -665,41 +665,31 @@ class TaskService:
     # ── Resolution ──
 
     def set_resolution(self, task_id: str, resolution: str) -> Optional[Task]:
-        """Set resolution for a task (Jira-style)."""
-        valid = {r.value for r in Resolution}
-        if resolution not in valid:
-            raise ValueError(f"Invalid resolution. Must be one of: {valid}")
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        old_res = task.resolution or ""
-        task.resolution = resolution
-        task.record_change("resolution", old_res, resolution)
-        # Auto-set status to Done if resolution is set
-        old_status = task.status.value
-        if task.status != TaskStatus.DONE:
-            task.status = TaskStatus.DONE
-            task.record_change("status", old_status, TaskStatus.DONE.value)
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Resolution for {task_id}: {resolution}")
-        return updated
+        """Set a task's resolution (Jira-style); moves it to Done."""
+        if resolution not in Resolution:                    # Enum value-membership (3.12+)
+            raise ValueError(f"Invalid resolution. Must be one of: {[r.value for r in Resolution]}")
+
+        def m(task: Task):
+            task.record_change("resolution", task.resolution or "", resolution)
+            task.resolution = resolution
+            if task.status != TaskStatus.DONE:
+                task.record_change("status", task.status.value, TaskStatus.DONE.value)
+                task.status = TaskStatus.DONE
+            log.info(f"Resolution for {task_id}: {resolution}")
+
+        return self._edit(task_id, m)
 
     def clear_resolution(self, task_id: str) -> Optional[Task]:
-        """Clear resolution and move task back to In Progress."""
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        old_res = task.resolution or ""
-        task.resolution = None
-        task.record_change("resolution", old_res, "")
-        if task.status == TaskStatus.DONE:
-            task.status = TaskStatus.IN_PROGRESS
-            task.record_change("status", TaskStatus.DONE.value, TaskStatus.IN_PROGRESS.value)
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Resolution cleared for {task_id}")
-        return updated
+        """Clear resolution and move a Done task back to In Progress."""
+        def m(task: Task):
+            task.record_change("resolution", task.resolution or "", "")
+            task.resolution = None
+            if task.status == TaskStatus.DONE:
+                task.record_change("status", TaskStatus.DONE.value, TaskStatus.IN_PROGRESS.value)
+                task.status = TaskStatus.IN_PROGRESS
+            log.info(f"Resolution cleared for {task_id}")
+
+        return self._edit(task_id, m)
 
     # ── Export / Import ──
 
@@ -773,16 +763,14 @@ class TaskService:
         """Set the original time estimate for a task."""
         if hours < 0:
             raise ValueError("Estimate must be non-negative")
-        task = self.repo.get_by_id(task_id)
-        if not task:
-            return None
-        old_est = task.original_estimate
-        task.original_estimate = round(hours, 2)
-        task.record_change("original_estimate", str(old_est), str(task.original_estimate))
-        task.update_timestamp()
-        updated = self.repo.update(task)
-        log.info(f"Estimate for {task_id}: {old_est}h -> {task.original_estimate}h")
-        return updated
+
+        def m(task: Task):
+            old_est = task.original_estimate
+            task.original_estimate = round(hours, 2)
+            task.record_change("original_estimate", str(old_est), str(task.original_estimate))
+            log.info(f"Estimate for {task_id}: {old_est}h -> {task.original_estimate}h")
+
+        return self._edit(task_id, m)
 
     def get_time_remaining(self, task_id: str) -> Optional[dict]:
         """Get time tracking info: original_estimate, time_spent, remaining, over."""
@@ -854,7 +842,7 @@ class TaskService:
             title=title_override or tpl.name,
             description=tpl.description,
             task_type=tpl.task_type,
-            priority=Priority(tpl.priority) if tpl.priority in {p.value for p in Priority} else Priority.MEDIUM,
+            priority=_to_priority(tpl.priority),
             tags=list(tpl.tags),
             labels=list(tpl.labels),
             components=list(tpl.components),
@@ -868,7 +856,6 @@ class TaskService:
         definition per call (a launch-time catch-up).
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        prio_values = {p.value for p in Priority}
         created: List[Task] = []
         for rec in self.repo.get_all_recurring():
             if not rec.is_active:
@@ -879,7 +866,7 @@ class TaskService:
             task = self.create_task(
                 title=rec.title, description=rec.description,
                 task_type=rec.task_type,
-                priority=Priority(rec.priority) if rec.priority in prio_values else Priority.MEDIUM,
+                priority=_to_priority(rec.priority),
                 tags=list(rec.tags), labels=list(rec.labels),
                 original_estimate=rec.estimate_hours, due_date=occ,
             )
