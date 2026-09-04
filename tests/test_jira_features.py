@@ -23,6 +23,7 @@ from core.models import (
 from core.repository import TaskRepository
 from core.service import TaskService
 from utils.error_handler import ErrorContext, write_error_log, install_error_handler
+import utils.error_handler as _eh
 
 
 class TestResults:
@@ -519,93 +520,93 @@ def test_import_with_sprints_and_tasks(r):
 
 def test_error_context(r):
     ctx = ErrorContext()
+    ctx.clear()
     ctx.set('gui_mode', 'flet')
     ctx.set('app_dir', '/tmp/test')
-    r.ok('get value') if ctx.get('gui_mode') == 'flet' else r.fail('get', ctx.get('gui_mode'))
-    r.ok('default value') if ctx.get('nonexistent', 'def') == 'def' else r.fail('default', ctx.get('nonexistent', 'def'))
-    d = ctx.to_dict()
-    r.ok('to_dict has 2 keys') if len(d) == 2 else r.fail('to_dict', d)
+    assert ctx.get('gui_mode') == 'flet'
+    assert ctx.get('nonexistent', 'def') == 'def'
+    assert ctx.to_dict() == {'gui_mode': 'flet', 'app_dir': '/tmp/test'}
+    ctx.set('count', 3)                       # non-str coerced
+    assert ctx.get('count') == '3'
     ctx.clear()
-    r.ok('clear empties') if len(ctx.to_dict()) == 0 else r.fail('clear', ctx.to_dict())
+    assert ctx.to_dict() == {}
 
 
-def test_error_context_singleton(r):
-    c1 = ErrorContext()
-    c2 = ErrorContext()
-    c1.set('key', 'val')
-    r.ok('singleton shared') if c2.get('key') == 'val' else r.fail('singleton', c2.get('key'))
-    c1.clear()
+def test_error_context_shared_store(r):
+    """Every instance reads/writes one process-global dict (no __new__ magic)."""
+    ErrorContext().clear()
+    ErrorContext().set('key', 'val')
+    assert ErrorContext().get('key') == 'val'
+    assert type(ErrorContext()) is ErrorContext   # plain class, not a cached singleton
+    ErrorContext().clear()
 
 
 def test_install_error_handler(r):
     tmp_dir = tempfile.mkdtemp()
-    logs_dir = install_error_handler(tmp_dir)
-    r.ok('returns logs dir') if logs_dir.exists() else r.fail('logs dir', 'not found')
-    r.ok('excepthook installed') if sys.excepthook is not None else r.fail('hook', 'not set')
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    old_hook = sys.excepthook
+    try:
+        logs_dir = install_error_handler(tmp_dir)
+        assert logs_dir.exists()
+        assert logs_dir == Path(tmp_dir) / 'logs'
+        assert sys.excepthook is _eh._crash_handler
+    finally:
+        sys.excepthook = old_hook
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_write_error_log(r):
     tmp_dir = tempfile.mkdtemp()
-    error_path = write_error_log(
-        "Test error message",
-        app_dir=tmp_dir,
-        context={"test_key": "test_value"},
-    )
-    r.ok('error log file created') if os.path.exists(error_path) else r.fail('file', 'not found')
-    r.ok('file is error_log.txt') if error_path.name == 'error_log.txt' else r.fail('name', error_path.name)
-    with open(error_path, 'r') as f:
-        content = f.read()
-    r.ok('contains error message') if 'Test error message' in content else r.fail('msg', 'missing')
-    r.ok('contains traceback') if 'TRACEBACK' in content else r.fail('tb', 'missing')
-    r.ok('contains context') if 'test_key' in content else r.fail('ctx', 'missing')
-    r.ok('contains Python version') if 'Python' in content else r.fail('python', 'missing')
-    r.ok('contains platform') if 'Platform' in content else r.fail('platform', 'missing')
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    try:
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            error_path = write_error_log(
+                "Test error message", app_dir=tmp_dir,
+                context={"test_key": "test_value"})
+        assert error_path.name == 'error_log.txt'
+        content = error_path.read_text(encoding='utf-8')
+        for token in ('Test error message', '--- TRACEBACK ---', 'ValueError: boom',
+                      'test_key: test_value', 'Python:', 'Platform:'):
+            assert token in content, token
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_write_error_log_append(r):
     tmp_dir = tempfile.mkdtemp()
-    write_error_log("First error", app_dir=tmp_dir)
-    write_error_log("Second error", app_dir=tmp_dir)
-    path = Path(tmp_dir) / 'logs' / 'error_log.txt'
-    with open(path, 'r') as f:
-        content = f.read()
-    r.ok('appends both errors') if 'First error' in content and 'Second error' in content else r.fail('append', 'missing')
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-def test_enhanced_crash_handler(r):
-    """Test the enhanced crash handler writes files correctly."""
-    tmp_dir = tempfile.mkdtemp()
-    from utils.error_handler import install_error_handler, _LOGS_DIR
-
-    old_hook = sys.excepthook
-    install_error_handler(tmp_dir)
-
-    # Trigger the crash handler
     try:
-        raise RuntimeError("Test crash for error handler")
-    except RuntimeError:
-        sys.excepthook(*sys.exc_info())
+        write_error_log("First error", app_dir=tmp_dir)
+        write_error_log("Second error", app_dir=tmp_dir)
+        content = (Path(tmp_dir) / 'logs' / 'error_log.txt').read_text(encoding='utf-8')
+        assert 'First error' in content and 'Second error' in content
+        assert content.count('--- TRACEBACK ---') == 2
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    error_log = Path(tmp_dir) / 'logs' / 'error_log.txt'
-    r.ok('crash handler creates error_log.txt') if os.path.exists(error_log) else r.fail('crash file', 'not found')
 
-    with open(error_log, 'r') as f:
-        content = f.read()
-    r.ok('contains CRASH') if 'CRASH' in content else r.fail('crash header', 'missing')
-    r.ok('contains RuntimeError') if 'RuntimeError' in content else r.fail('exc type', 'missing')
-    r.ok('contains Test crash') if 'Test crash for error handler' in content else r.fail('exc msg', 'missing')
-    r.ok('contains MODULES') if 'MODULES' in content else r.fail('modules', 'missing')
-    r.ok('contains THREADS') if 'THREADS' in content else r.fail('threads', 'missing')
+def test_crash_handler_writes_full_dump(r):
+    tmp_dir = tempfile.mkdtemp()
+    old_hook = sys.excepthook
+    try:
+        install_error_handler(tmp_dir)
+        try:
+            raise RuntimeError("Test crash for error handler")
+        except RuntimeError:
+            sys.excepthook(*sys.exc_info())
 
-    # Check that a per-crash file was also created
-    crash_files = list(Path(tmp_dir).glob('logs/crash_*.log'))
-    r.ok('per-crash file created') if len(crash_files) >= 1 else r.fail('crash file', f'found {len(crash_files)}')
+        error_log = Path(tmp_dir) / 'logs' / 'error_log.txt'
+        content = error_log.read_text(encoding='utf-8')
+        for token in ('CRASH', 'RuntimeError: Test crash for error handler',
+                      '--- TRACEBACK ---', '--- LOCALS', 'MODULES', 'THREADS'):
+            assert token in content, token
 
-    sys.excepthook = old_hook
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+        crash_files = list(Path(tmp_dir).glob('logs/crash_*.log'))
+        assert len(crash_files) == 1
+        # per-incident file holds the same report that was appended to error_log.txt
+        assert crash_files[0].read_text(encoding='utf-8') == content
+    finally:
+        sys.excepthook = old_hook
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -966,11 +967,11 @@ if __name__ == '__main__':
 
     print('\n--- Error Handler ---')
     test_error_context(r)
-    test_error_context_singleton(r)
+    test_error_context_shared_store(r)
     test_install_error_handler(r)
     test_write_error_log(r)
     test_write_error_log_append(r)
-    test_enhanced_crash_handler(r)
+    test_crash_handler_writes_full_dump(r)
 
     print('\n--- Task New Fields Serialization ---')
     test_task_new_fields_serialization(r)

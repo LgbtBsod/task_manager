@@ -1,263 +1,169 @@
-"""Task Manager - Enhanced Error Handler
+"""Crash-safe error reporting.
 
-Provides crash-safe error logging with full context dump.
-Installed as the global exception hook so ANY unhandled error
-in the app (GUI, service, repo) produces a readable error_log.txt.
+``install_error_handler(app_dir)`` points ``sys.excepthook`` at a handler that
+writes a full, human-readable report — context, traceback, deepest-frame
+locals, loaded libraries, live threads — to ``logs/error_log.txt`` and to a
+per-incident ``logs/crash_<timestamp>.log``.
 
-Features:
-- Writes to logs/error_log.txt with append mode
-- Includes: timestamp, Python version, OS, CWD, argv, GUI mode
-- Full traceback with chain of causes
-- Locals from the deepest frame (truncated for safety)
-- Installed modules list (for dependency issues)
-- Task manager context: task count, DB path, last operation
-- Separate crash_*.log files per incident
-- stderr fallback if file write fails
+``write_error_log(msg, context=...)`` writes the same shape for an exception
+you caught yourself.
 
-Usage:
+``ErrorContext().set("db_path", ...)`` stashes app state that every subsequent
+report includes. All instances share one process-global store.
+
     from utils.error_handler import install_error_handler, ErrorContext
-    install_error_handler(app_dir="/path/to/project")
-    # Now any unhandled exception -> logs/error_log.txt + logs/crash_*.log
+    install_error_handler("/path/to/app")
+    ErrorContext().set("app_dir", "/path/to/app")
 """
-import sys
+import logging
 import os
-import traceback
+import platform
+import sys
 import threading
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+_log = logging.getLogger("crash")
+_RULE = "=" * 70
+
+# Set by install_error_handler(); write_error_log() falls back to it.
+_logs_dir: Path = Path("logs")
+# Shared app-state store behind every ErrorContext() instance.
+_context: dict[str, str] = {}
+
 
 class ErrorContext:
-    """Global error context — stores app state for crash dumps."""
-    _instance = None
-    _lock = threading.Lock()
+    """Key/value app state folded into every crash report. Constructing it
+    anywhere reaches the same process-global store."""
 
-    def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._data = {}
-            return cls._instance
-
-    def set(self, key: str, value: str):
-        self._data[key] = value
+    def set(self, key: str, value: object) -> None:
+        _context[key] = str(value)
 
     def get(self, key: str, default: str = "") -> str:
-        return self._data.get(key, default)
+        return _context.get(key, default)
 
     def to_dict(self) -> dict:
-        return dict(self._data)
+        return dict(_context)
 
-    def clear(self):
-        self._data.clear()
+    def clear(self) -> None:
+        _context.clear()
 
 
 def install_error_handler(app_dir: str = ".") -> Path:
-    """Install the global exception hook and return the logs directory.
+    """Install the global exception hook; return the logs directory."""
+    global _logs_dir
+    _logs_dir = Path(app_dir) / "logs"
+    _logs_dir.mkdir(parents=True, exist_ok=True)
+    sys.excepthook = _crash_handler
+    return _logs_dir
 
-    Args:
-        app_dir: Application root directory.
 
-    Returns:
-        Path to the logs directory.
-    """
-    logs_dir = Path(app_dir) / "logs"
+def write_error_log(error_msg: str, app_dir: Optional[str] = None,
+                    context: Optional[dict] = None) -> Path:
+    """Append a full report for a caught exception. Returns the log path."""
+    logs_dir = (Path(app_dir) / "logs") if app_dir else _logs_dir
     logs_dir.mkdir(parents=True, exist_ok=True)
-    _LOGS_DIR[0] = logs_dir
-    sys.excepthook = _enhanced_crash_handler
-    return logs_dir
+    report = _build_report("ERROR LOG", error_msg, sys.exc_info(), extra=context)
+    path = logs_dir / "error_log.txt"
+    _write(path, report, "a")
+    return path
 
 
-_LOGS_DIR: list = [Path("logs")]  # mutable default for closure
-
-
-def write_error_log(
-    error_msg: str,
-    app_dir: Optional[str] = None,
-    context: Optional[dict] = None,
-) -> Path:
-    """Manually write an error to the error log.
-
-    Args:
-        error_msg: Human-readable error message.
-        app_dir: App root (uses _LOGS_DIR if None).
-        context: Extra key-value context to include.
-
-    Returns:
-        Path to the written error log file.
-    """
-    if app_dir:
-        logs_dir = Path(app_dir) / "logs"
-    else:
-        logs_dir = _LOGS_DIR[0]
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    error_log_path = logs_dir / "error_log.txt"
-    ts = datetime.now().isoformat()
-
+def _crash_handler(exc_type, exc_value, exc_tb) -> None:
+    """``sys.excepthook``: full dump to error_log.txt + a per-incident file."""
+    _logs_dir.mkdir(parents=True, exist_ok=True)
+    report = _build_report("CRASH", f"{exc_type.__name__}: {exc_value}",
+                           (exc_type, exc_value, exc_tb), deep=True)
+    _write(_logs_dir / "error_log.txt", report, "a")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _write(_logs_dir / f"crash_{stamp}.log", report, "w")
+    # A one-liner through logging so the crash is greppable in error.log; the
+    # full traceback still goes to stderr via the default hook below, and the
+    # structured dump is in error_log.txt / crash_*.log.
     try:
-        import platform
-        os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
+        _log.critical("uncaught %s: %s — see %s", exc_type.__name__, exc_value,
+                      _logs_dir / "error_log.txt")
     except Exception:
-        os_info = "unknown"
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
 
+
+# ── report building (the one place it happens) ────────────────────────
+
+def _build_report(title: str, error_msg: str, exc_info, *,
+                  extra: Optional[dict] = None, deep: bool = False) -> str:
     lines = [
-        f"\n{'=' * 70}",
-        f"ERROR LOG — {ts}",
-        f"{'=' * 70}",
+        "", _RULE, f"{title} — {datetime.now().isoformat()}", _RULE,
         f"Python:    {sys.version}",
-        f"Platform:  {sys.platform} — {os_info}",
+        f"Platform:  {sys.platform} — {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
         f"CWD:       {os.getcwd()}",
         f"argv:      {sys.argv}",
     ]
+    lines += _section("APP CONTEXT", (f"{k}: {v}" for k, v in _context.items())) if _context else []
+    if extra:
+        lines += _section("EXTRA CONTEXT", (f"{k}: {str(v)[:500]}" for k, v in extra.items()))
 
-    # Add ErrorContext
-    try:
-        ec = ErrorContext()
-        ec_data = ec.to_dict()
-        if ec_data:
-            lines.append(f"\n--- APP CONTEXT ---")
-            for k, v in ec_data.items():
-                lines.append(f"  {k}: {v}")
-    except Exception:
-        pass
+    lines += ["", "--- ERROR ---", f"  {error_msg}"]
 
-    # Add extra context
-    if context:
-        lines.append(f"\n--- EXTRA CONTEXT ---")
-        for k, v in context.items():
-            val_str = str(v)[:500]
-            lines.append(f"  {k}: {val_str}")
+    exc_type = exc_info[0] if exc_info else None
+    lines += ["", "--- TRACEBACK ---"]
+    if exc_type is not None:
+        lines.append("".join(traceback.format_exception(*exc_info)).rstrip())
+    else:
+        lines.append("  (no active exception)")
 
-    lines.append(f"\n--- ERROR ---")
-    lines.append(f"  {error_msg}")
-    lines.append(f"\n--- TRACEBACK ---")
-    lines.append(traceback.format_exc())
-
-    # Installed modules (useful for dependency issues)
-    try:
-        lines.append(f"\n--- INSTALLED MODULES ---")
-        modules = sorted([m for m in sys.modules if not m.startswith('_')])
-        lines.append(f"  ({len(modules)} modules loaded)")
-        for m in modules[-30:]:  # last 30 modules
-            lines.append(f"  - {m}")
-    except Exception:
-        pass
-
-    content = "\n".join(lines) + "\n"
-
-    try:
-        with open(error_log_path, "a", encoding="utf-8") as f:
-            f.write(content)
-    except Exception:
-        # Fallback to stderr
-        sys.stderr.write(content)
-
-    return error_log_path
+    if deep:
+        lines += _deepest_locals(exc_info[2] if exc_info else None)
+        lines += _section("MODULES", _key_library_versions(),
+                          header=f"MODULES ({len(sys.modules)} loaded)")
+        lines += _section("THREADS", (
+            f"{t.name} (daemon={t.daemon}, alive={t.is_alive()})"
+            for t in threading.enumerate()))
+    return "\n".join(lines) + "\n"
 
 
-def _enhanced_crash_handler(exc_type, exc_value, exc_traceback):
-    """Global uncaught exception hook — writes to error_log.txt + crash_*.log."""
-    tb_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-    tb_text = "".join(tb_lines)
-    logs_dir = _LOGS_DIR[0]
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now()
+def _section(name: str, items, *, header: Optional[str] = None) -> list[str]:
+    return ["", f"--- {header or name} ---", *(f"  {it}" for it in items)]
 
-    # ── 1. Append to error_log.txt ──
-    error_log_path = logs_dir / "error_log.txt"
-    try:
-        import platform
-        os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
-    except Exception:
-        os_info = "unknown"
 
-    log_lines = [
-        f"\n{'=' * 70}",
-        f"CRASH — {ts.isoformat()}",
-        f"{'=' * 70}",
-        f"Exception: {exc_type.__name__}: {exc_value}",
-        f"Python:    {sys.version}",
-        f"Platform:  {sys.platform} — {os_info}",
-        f"CWD:       {os.getcwd()}",
-        f"argv:      {sys.argv}",
-    ]
-
-    # ErrorContext
-    try:
-        ec = ErrorContext()
-        ec_data = ec.to_dict()
-        if ec_data:
-            log_lines.append(f"\n--- APP CONTEXT ---")
-            for k, v in ec_data.items():
-                log_lines.append(f"  {k}: {v}")
-    except Exception:
-        pass
-
-    log_lines.append(f"\n--- TRACEBACK ---")
-    log_lines.extend(tb_lines)
-
-    # Locals from deepest frame
-    if exc_traceback:
+def _deepest_locals(tb) -> list[str]:
+    if tb is None:
+        return []
+    while tb.tb_next:
+        tb = tb.tb_next
+    frame = tb.tb_frame
+    rows = []
+    for name, val in (frame.f_locals or {}).items():
         try:
-            frame = exc_traceback
-            while frame.tb_next:
-                frame = frame.tb_next
-            log_lines.append(f"\n--- LOCALS (deepest frame: {frame.tb_frame.f_code.co_name}) ---")
-            for name, val in (frame.tb_frame.f_locals or {}).items():
-                try:
-                    val_str = repr(val)
-                    if len(val_str) > 500:
-                        val_str = val_str[:500] + "... (truncated)"
-                    log_lines.append(f"  {name} = {val_str}")
-                except Exception:
-                    log_lines.append(f"  {name} = <error repr>")
+            text = repr(val)
+        except Exception:
+            text = "<unreprable>"
+        rows.append(f"{name} = {text[:500]}{'... (truncated)' if len(text) > 500 else ''}")
+    return _section("LOCALS", rows,
+                    header=f"LOCALS (deepest frame: {frame.f_code.co_name})")
+
+
+def _key_library_versions():
+    names = ("flet", "flet_web", "pydantic", "pydantic_core", "packaging",
+             "uvicorn", "fastapi")
+    for name in names:
+        mod = sys.modules.get(name)
+        if mod is not None:
+            yield f"{name} == {getattr(mod, '__version__', 'unknown')}"
+
+
+def _write(path: Path, text: str, mode: str) -> None:
+    try:
+        with open(path, mode, encoding="utf-8") as f:
+            f.write(text)
+    except OSError:
+        try:
+            sys.stderr.write(text)
         except Exception:
             pass
 
-    # Installed modules
-    try:
-        log_lines.append(f"\n--- MODULES ({len(sys.modules)} loaded) ---")
-        key_modules = [m for m in sorted(sys.modules) if m in (
-            'flet', 'flet_web', 'pydantic', 'pydantic_core',
-            'uvicorn', 'fastapi',
-        )]
-        for m in key_modules:
-            mod = sys.modules[m]
-            ver = getattr(mod, '__version__', 'unknown')
-            log_lines.append(f"  {m} == {ver}")
-    except Exception:
-        pass
 
-    # Thread info
-    try:
-        log_lines.append(f"\n--- THREADS ---")
-        for t in threading.enumerate():
-            log_lines.append(f"  {t.name} (daemon={t.daemon}, alive={t.is_alive()})")
-    except Exception:
-        pass
-
-    content = "\n".join(log_lines) + "\n"
-    try:
-        with open(error_log_path, "a", encoding="utf-8") as f:
-            f.write(content)
-        # Also print to stderr so user sees something
-        sys.stderr.write(f"\n[CRASH] Error log written to: {error_log_path}\n")
-    except Exception:
-        sys.stderr.write(content)
-
-    # ── 2. Write per-crash file ──
-    crash_filename = f"crash_{ts.strftime('%Y%m%d_%H%M%S')}.log"
-    crash_path = logs_dir / crash_filename
-    try:
-        with open(crash_path, "w", encoding="utf-8") as f:
-            f.write(content)
-    except Exception:
-        pass
-
-    # Call the original handler
-    sys.__excepthook__(exc_type, exc_value, exc_traceback)
-
-
-__all__ = ['install_error_handler', 'write_error_log', 'ErrorContext']
+__all__ = ["install_error_handler", "write_error_log", "ErrorContext"]

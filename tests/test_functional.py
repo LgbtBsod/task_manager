@@ -748,27 +748,23 @@ def test_statistics(r):
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_logger(r):
-    import logging
     tmp_dir = tempfile.mkdtemp()
-    logs_path = setup_logging(tmp_dir)
-    r.ok('logs dir created' if logs_path.exists() else 'no logs dir')
-    r.ok('app.log created' if (logs_path / 'app.log').exists() else 'no app.log')
-    r.ok('error.log created' if (logs_path / 'error.log').exists() else 'no error.log')
+    try:
+        logs_path = setup_logging(tmp_dir)
+        assert logs_path.exists()
+        assert (logs_path / 'app.log').exists()
+        assert (logs_path / 'error.log').exists()
 
-    log = get_logger('test_logger')
-    log.info('Test info message')
-    log.error('Test error message')
+        log = get_logger('test_logger')
+        log.info('Test info message')
+        log.error('Test error message')
 
-    with open(logs_path / 'app.log', 'r') as f:
-        content = f.read()
-    r.ok('info logged to app.log' if 'Test info message' in content else 'info missing')
-    r.ok('error logged to app.log' if 'Test error message' in content else 'error missing')
-
-    with open(logs_path / 'error.log', 'r') as f:
-        error_content = f.read()
-    r.ok('error in error.log' if 'Test error message' in error_content else 'error missing from error.log')
-
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+        content = (logs_path / 'app.log').read_text(encoding='utf-8')
+        assert 'Test info message' in content
+        assert 'Test error message' in content
+        assert 'Test error message' in (logs_path / 'error.log').read_text(encoding='utf-8')
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════

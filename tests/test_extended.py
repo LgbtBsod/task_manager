@@ -393,47 +393,35 @@ def test_team_workload(r):
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_crash_dump(r):
-    import logging
     tmp_dir = tempfile.mkdtemp()
-    logs_path = setup_logging(tmp_dir)
-    log = get_logger('crash_test')
-    log.error('Simulated crash error')
-
-    with open(logs_path / 'error.log', 'r') as f:
-        content = f.read()
-    r.ok('error in error.log' if 'Simulated crash error' in content else 'missing from error.log')
-
-    with open(logs_path / 'app.log', 'r') as f:
-        app_content = f.read()
-    r.ok('error in app.log too' if 'Simulated crash error' in app_content else 'missing from app.log')
-
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    try:
+        logs_path = setup_logging(tmp_dir)
+        get_logger('crash_test').error('Simulated crash error')
+        assert 'Simulated crash error' in (logs_path / 'error.log').read_text(encoding='utf-8')
+        assert 'Simulated crash error' in (logs_path / 'app.log').read_text(encoding='utf-8')
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_logger_multiple_levels(r):
-    import logging
     tmp_dir = tempfile.mkdtemp()
-    logs_path = setup_logging(tmp_dir)
-    log = get_logger('multi_level_test')
+    try:
+        logs_path = setup_logging(tmp_dir)
+        log = get_logger('multi_level_test')
+        log.debug('debug_msg_xyz')
+        log.info('info_msg_xyz')
+        log.warning('warning_msg_xyz')
+        log.error('error_msg_xyz')
 
-    log.debug('debug_msg_xyz')
-    log.info('info_msg_xyz')
-    log.warning('warning_msg_xyz')
-    log.error('error_msg_xyz')
+        app_content = (logs_path / 'app.log').read_text(encoding='utf-8')
+        for token in ('debug_msg_xyz', 'info_msg_xyz', 'warning_msg_xyz', 'error_msg_xyz'):
+            assert token in app_content, token
 
-    with open(logs_path / 'app.log', 'r') as f:
-        content = f.read()
-    r.ok('debug in app.log' if 'debug_msg_xyz' in content else 'debug missing')
-    r.ok('info in app.log' if 'info_msg_xyz' in content else 'info missing')
-    r.ok('warning in app.log' if 'warning_msg_xyz' in content else 'warning missing')
-    r.ok('error in app.log' if 'error_msg_xyz' in content else 'error missing')
-
-    with open(logs_path / 'error.log', 'r') as f:
-        error_content = f.read()
-    r.ok('only error in error.log' if 'error_msg_xyz' in error_content else 'error missing')
-    r.ok('debug NOT in error.log' if 'debug_msg_xyz' not in error_content else 'debug leaked to error.log')
-
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+        error_content = (logs_path / 'error.log').read_text(encoding='utf-8')
+        assert 'error_msg_xyz' in error_content
+        assert 'debug_msg_xyz' not in error_content    # ERROR-only handler
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
