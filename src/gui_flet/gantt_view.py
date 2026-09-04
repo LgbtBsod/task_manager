@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 ROW_HEIGHT = 44
 LEFT_MARGIN = 220
 BAR_HEIGHT = 26
-TODAY_LINE_COLOR = "#ff453a"
-WEEKEND_COLOR = "#1a1a1c"
-GRID_LINE_COLOR = "#2c2c2e"
+
+# Theme-following colours are read from COLORS at draw time (COLORS is rebuilt
+# and this view redrawn on every theme change) — never hard-code them here.
 
 
 class GanttView:
@@ -41,11 +41,12 @@ class GanttView:
         ]
         btns = []
         for val, label in range_items:
+            active = val == self._range_var
             btn = ft.Button(
                 content=label, on_click=lambda e, v=val: self._set_range(v),
                 style=ft.ButtonStyle(
-                    bgcolor=COLORS["accent_blue"] if val == self._range_var else ft.Colors.TRANSPARENT,
-                    color="#ffffff" if val == self._range_var else COLORS["text_primary"],
+                    bgcolor=COLORS["accent_blue"] if active else COLORS["bg_button"],
+                    color="#ffffff" if active else COLORS["text_primary"],
                     padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                     text_style=ft.TextStyle(size=12),
                 ),
@@ -70,8 +71,9 @@ class GanttView:
     def _set_range(self, value: str):
         self._range_var = value
         for v, btn in self.range_buttons.items():
-            btn.style.bgcolor = COLORS["accent_blue"] if v == value else ft.Colors.TRANSPARENT
-            btn.style.color = "#ffffff" if v == value else COLORS["text_primary"]
+            active = v == value
+            btn.style.bgcolor = COLORS["accent_blue"] if active else COLORS["bg_button"]
+            btn.style.color = "#ffffff" if active else COLORS["text_primary"]
         self.refresh()
 
     def _get_date_range(self, tasks):
@@ -97,11 +99,13 @@ class GanttView:
             self._scroll.controls = [
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon(ic("bar_chart"), size=48, color="#38383a"),
+                        ft.Icon(ic("bar_chart"), size=48, color=COLORS["border_color"]),
                         ft.Container(height=12),
-                        ft.Text("Нет задач с датами для отображения", size=14, color="#86868b"),
+                        ft.Text("Нет задач с датами для отображения", size=14,
+                                color=COLORS["text_secondary"]),
                         ft.Container(height=4),
-                        ft.Text("Добавьте дату начала или дедлайн к задаче", size=12, color="#48484a"),
+                        ft.Text("Добавьте дату начала или дедлайн к задаче", size=12,
+                                color=COLORS["text_secondary"]),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     alignment=ft.Alignment(0, 0), expand=True,
                 )
@@ -124,9 +128,13 @@ class GanttView:
 
         step = max(1, td // 12)
 
+        muted = COLORS["text_secondary"]
+        grid = COLORS["border_color"]
+        today_color = COLORS["accent_red"]
+
         header_cells = [
             ft.Container(
-                content=ft.Text("Задача", size=10, color="#86868b", weight=ft.FontWeight.W_500),
+                content=ft.Text("Задача", size=10, color=muted, weight=ft.FontWeight.W_500),
                 width=LEFT_MARGIN - 10, alignment=ft.Alignment(-1, 0),
             )
         ]
@@ -135,12 +143,12 @@ class GanttView:
             date_str = date_obj.strftime("%d.%m")
             weekday = date_obj.strftime("%a")
             is_today = (date_obj == today)
-            color = TODAY_LINE_COLOR if is_today else "#86868b"
             header_cells.append(ft.Container(
                 content=ft.Column([
-                    ft.Text(date_str, size=9, color=color, text_align=ft.TextAlign.CENTER,
+                    ft.Text(date_str, size=9, color=today_color if is_today else muted,
+                            text_align=ft.TextAlign.CENTER,
                             weight=ft.FontWeight.W_600 if is_today else ft.FontWeight.NORMAL),
-                    ft.Text(weekday, size=8, color="#48484a", text_align=ft.TextAlign.CENTER),
+                    ft.Text(weekday, size=8, color=muted, text_align=ft.TextAlign.CENTER),
                 ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 expand=max(step, 1), alignment=ft.Alignment(0.5, 0),
             ))
@@ -149,7 +157,7 @@ class GanttView:
             content=ft.Row(header_cells, spacing=0),
             padding=ft.Padding.only(left=10, right=10, top=8, bottom=4),
         ))
-        controls.append(ft.Divider(color=GRID_LINE_COLOR, height=1))
+        controls.append(ft.Divider(color=grid, height=1))
 
         for i, task in enumerate(self._tasks_data):
             start_dt = to_date(task.get_gantt_start())
@@ -186,7 +194,7 @@ class GanttView:
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ic(status_icon), size=14, color=icon_color),
-                        ft.Text(task.title[:24], size=12, color="#f5f5f7",
+                        ft.Text(task.title[:24], size=12, color=COLORS["text_primary"],
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=6),
                     width=LEFT_MARGIN - 10,
@@ -199,7 +207,7 @@ class GanttView:
                 content=ft.Row([
                     ft.Container(expand=1, content=bar_inner),
                     ft.Text(f"{duration_label}{due_info}", size=9,
-                            color=COLORS["accent_red"] if due_info else "#86868b")
+                            color=today_color if due_info else muted)
                     if (duration_label or due_info) else ft.Container(),
                 ], spacing=4),
             ))
@@ -209,24 +217,24 @@ class GanttView:
             row = ft.Container(
                 content=ft.Row(row_children, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 height=ROW_HEIGHT, padding=ft.Padding.only(left=10, right=10),
-                bgcolor=WEEKEND_COLOR if (i % 2 == 1) else None,
+                bgcolor=COLORS["bg_card"] if (i % 2 == 1) else None,
             )
 
             if i > 0:
-                controls.append(ft.Container(height=1, bgcolor=GRID_LINE_COLOR))
+                controls.append(ft.Container(height=1, bgcolor=grid))
             controls.append(row)
 
         if self._min_date <= today <= self._max_date:
             today_offset = (today - self._min_date).days
-            controls.append(ft.Container(height=2, bgcolor=GRID_LINE_COLOR))
+            controls.append(ft.Container(height=2, bgcolor=grid))
             marker_cells = [
-                ft.Container(content=ft.Text("Сегодня", size=9, color=TODAY_LINE_COLOR,
+                ft.Container(content=ft.Text("Сегодня", size=9, color=today_color,
                                              weight=ft.FontWeight.W_500),
                              width=LEFT_MARGIN - 10, alignment=ft.Alignment(1, 0)),
             ]
             if today_offset > 0:
                 marker_cells.append(ft.Container(expand=today_offset))
-            marker_cells.append(ft.Container(width=2, height=20, bgcolor=TODAY_LINE_COLOR, border_radius=1))
+            marker_cells.append(ft.Container(width=2, height=20, bgcolor=today_color, border_radius=1))
             if td - today_offset > 0:
                 marker_cells.append(ft.Container(expand=td - today_offset))
             controls.append(ft.Row(marker_cells, spacing=0))

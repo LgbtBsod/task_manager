@@ -370,9 +370,10 @@ class TaskManagerApp:
         enabled = ft.Switch(value=bool(s.get("notifications_enabled")),
                             label="\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u044f\u0442\u044c \u043e \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0435\u043d\u0438\u0438 \u0441\u0440\u043e\u043a\u043e\u0432")
         hours = ft.TextField(
-            label="\u0417\u0430 \u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0447\u0430\u0441\u043e\u0432 \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0430\u0442\u044c",
+            label="\u0427\u0430\u0441\u043e\u0432 \u0434\u043e \u0441\u0440\u043e\u043a\u0430",
             value=str(s.get("notify_hours_before")),
             width=200, text_size=14, border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER,
         )
         auto_updates = ft.Switch(
             value=bool(s.get("check_updates_on_start")),
