@@ -649,54 +649,73 @@ class AutoUpdater:
         else:
             self._relaunch_posix(target, staged)
 
-    def _relaunch_windows(self, target: Path, staged: Path) -> None:
-        """Detached VBScript: wait for the old process tree to die, replace the
-        binary (retrying until it is unlocked), start it, delete every leftover.
+    _VBS_NAME = "update_restart.vbs"
 
-        Launched via ``explorer.exe`` because a PyInstaller one-file build runs
-        inside a job object that kills any directly-spawned child; explorer is
-        outside that job. VBScript, not .cmd, so there is no console flash.
+    def _write_relaunch_vbs(self, exe_name: str) -> Path:
+        """Windowless VBScript that swaps in the update and restarts it.
+
+        It derives every path from ``WScript.ScriptFullName`` (its own location,
+        next to the .exe) so a Cyrillic / non-ASCII folder in the path is never
+        written into a string literal — the previous cause of updates dying on
+        ``C:\\Users\\Пользователь\\...``. Only the ASCII exe name is templated.
+        """
+        vbs = self.app_dir / self._VBS_NAME
+        script = (
+            'Option Explicit\r\n'
+            'Dim fso, sh, d, exe, staged, old, i\r\n'
+            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            'd = fso.GetParentFolderName(WScript.ScriptFullName)\r\n'
+            f'exe = fso.BuildPath(d, "{exe_name}")\r\n'
+            'staged = exe & ".updated"\r\n'
+            'old = exe & ".old"\r\n'
+            'On Error Resume Next\r\n'
+            "' wait until the old .exe is unlocked (both one-file processes gone)\r\n"
+            'For i = 1 To 240\r\n'
+            '  fso.DeleteFile exe, True\r\n'
+            '  If Not fso.FileExists(exe) Then Exit For\r\n'
+            '  WScript.Sleep 500\r\n'
+            'Next\r\n'
+            'If fso.FileExists(staged) Then\r\n'
+            '  fso.MoveFile staged, exe\r\n'
+            '  If Not fso.FileExists(exe) Then fso.CopyFile staged, exe, True\r\n'
+            'End If\r\n'
+            'sh.Run """" & exe & """ --no-update", 0, False\r\n'
+            'If fso.FileExists(old) Then fso.DeleteFile old, True\r\n'
+            'If fso.FileExists(staged) Then fso.DeleteFile staged, True\r\n'
+            'fso.DeleteFile WScript.ScriptFullName, True\r\n'
+        )
+        # UTF-16 LE + BOM — wscript autodetects it.
+        vbs.write_text(script, encoding="utf-16")
+        return vbs
+
+    def _relaunch_windows(self, target: Path, staged: Path) -> None:
+        """Spawn the detached VBScript helper.
+
+        Launched via ``explorer.exe`` (outside this process's PyInstaller job
+        object, which would otherwise kill a direct child) and, as a fallback,
+        ``wscript`` broken away from the job.
         """
         import subprocess as sp
 
-        pid, ppid = os.getpid(), os.getppid()
-        old = target.with_name(target.name + ".old")
-        t, s, o = str(target), str(staged), str(old)
-        vbs = self.app_dir / "update_restart.vbs"
-        script = (
-            'Dim fso, sh, wmi, i\r\n'
-            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
-            'Set sh  = CreateObject("WScript.Shell")\r\n'
-            'Set wmi = GetObject("winmgmts:root\\cimv2")\r\n'
-            'Function Running(p)\r\n'
-            '  Running = (wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId=" & p).Count > 0)\r\n'
-            'End Function\r\n'
-            f'For i = 1 To 120\r\n'
-            f'  If (Not Running({pid})) And (Not Running({ppid})) Then Exit For\r\n'
-            '  WScript.Sleep 500\r\n'
-            'Next\r\n'
-            'On Error Resume Next\r\n'
-            'For i = 1 To 60\r\n'
-            f'  fso.DeleteFile "{t}", True\r\n'
-            f'  If Not fso.FileExists("{t}") Then Exit For\r\n'
-            '  WScript.Sleep 500\r\n'
-            'Next\r\n'
-            f'fso.MoveFile "{s}", "{t}"\r\n'
-            f'If Not fso.FileExists("{t}") Then fso.CopyFile "{s}", "{t}", True\r\n'
-            f'sh.Run """{t}"" --no-update", 0, False\r\n'
-            f'fso.DeleteFile "{o}", True\r\n'
-            f'fso.DeleteFile "{s}", True\r\n'
-            'fso.DeleteFile WScript.ScriptFullName, True\r\n'
-        )
+        vbs = self._write_relaunch_vbs(target.name)
+        started = False
         try:
-            # UTF-16 LE + BOM: wscript reads it correctly even if a path has
-            # non-ASCII characters (Cyrillic user folder, etc.).
-            vbs.write_text(script, encoding="utf-16")
             sp.Popen(["explorer.exe", str(vbs)], close_fds=True)
-            logger.info("Relaunch helper started; exiting for swap.")
+            started = True
         except OSError as exc:
-            logger.error("Relaunch helper failed to start (%s); "
-                         "the update is downloaded — restart the app manually.", exc)
+            logger.warning("explorer.exe relaunch failed (%s); trying wscript", exc)
+        if not started:
+            try:
+                DETACHED = 0x00000008 | 0x01000000  # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
+                sp.Popen(["wscript.exe", "//B", "//Nologo", str(vbs)],
+                         creationflags=DETACHED, close_fds=True)
+                started = True
+            except OSError as exc:
+                logger.error("Relaunch helper could not start (%s); the update "
+                             "is downloaded — restart the app to apply it.", exc)
+        if started:
+            logger.info("Relaunch helper started; exiting for swap.")
 
     def _relaunch_posix(self, target: Path, staged: Path) -> None:
         """POSIX keeps a running binary alive via its open inode, so we can

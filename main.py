@@ -51,20 +51,35 @@ from core.app_context import AppContext  # noqa: E402
 paths.ensure_src_on_path()
 
 
-def _cleanup_update_leftovers(log) -> None:
-    """Sweep files a self-update leaves behind. The VBS relaunch helper cleans
-    up after itself, but a hard-killed helper or an AV-quarantined script can
-    leave the old / staged binary or the helper around — retry a few times in
-    case the previous process only just released the handle.
+def _finish_pending_update(log) -> bool:
+    """If a previous run downloaded an update but the relaunch helper never
+    swapped it in (killed helper, AV-quarantined script, a Cyrillic path that
+    broke the old helper), a ``<exe>.updated`` file is sitting next to us.
+    We are the OLD binary — retry the swap via a fresh helper and exit.
+
+    Returns True if a relaunch was kicked off (caller should exit).
     """
     exe = paths.exe_path or Path(sys.executable)
-    stale = [
-        exe.with_name(exe.name + ".old"),
-        exe.with_name(exe.name + ".updated"),
-        paths.app_dir / "update_restart.vbs",
-        paths.app_dir / "update_restart.cmd",
-    ]
-    for path in stale:
+    staged = exe.with_name(exe.name + ".updated")
+    if not staged.is_file() or staged.stat().st_size < 1_000_000:
+        return False
+    log.warning("Found a staged update (%s); finishing it now.", staged.name)
+    try:
+        from utils.updater import AutoUpdater
+        AutoUpdater("LgbtBsod", "task_manager")._relaunch_after_update()
+        return True
+    except Exception as e:
+        log.error("Could not finish the pending update: %s", e)
+        return False
+
+
+def _cleanup_update_leftovers(log) -> None:
+    """Sweep files a completed self-update leaves behind (the helper cleans up
+    after itself, but a hard-killed one may not)."""
+    exe = paths.exe_path or Path(sys.executable)
+    for path in (exe.with_name(exe.name + ".old"),
+                 paths.app_dir / "update_restart.vbs",
+                 paths.app_dir / "update_restart.cmd"):
         for attempt in range(3):
             try:
                 if path.exists():
@@ -89,6 +104,9 @@ def main() -> None:
 
     args = sys.argv[1:]
     if paths.frozen:
+        if _finish_pending_update(log):
+            log.info("Pending update handed to the relaunch helper; exiting.")
+            return
         _cleanup_update_leftovers(log)
 
     if paths.frozen and "--force-update" in args:
