@@ -15,6 +15,7 @@ Principles:
 import json
 import logging
 import shutil
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Protocol
@@ -24,7 +25,8 @@ from ._atomic import atomic_write_text
 # Bumped only when the export/import dict shape changes (not the app version).
 EXPORT_SCHEMA_VERSION = "1"
 
-from .models import Task, TaskStatus, Sprint, VersionRelease, TaskTemplate, Category, RecurringTask, Notification
+from .models import (Task, TaskStatus, Priority, Sprint, VersionRelease,
+                     TaskTemplate, Category, RecurringTask, Notification)
 
 log = logging.getLogger(__name__)
 
@@ -316,23 +318,13 @@ class TaskRepository:
         """
         tasks = self.get_all()
         total = len(tasks)
-        
-        by_status = {
-            'todo': len([t for t in tasks if t.status == TaskStatus.TODO]),
-            'in_progress': len([t for t in tasks if t.status == TaskStatus.IN_PROGRESS]),
-            'done': len([t for t in tasks if t.status == TaskStatus.DONE])
-        }
-        
-        by_priority = {
-            'low': len([t for t in tasks if t.priority.name == 'LOW']),
-            'medium': len([t for t in tasks if t.priority.name == 'MEDIUM']),
-            'high': len([t for t in tasks if t.priority.name == 'HIGH']),
-            'critical': len([t for t in tasks if t.priority.name == 'CRITICAL']),
-        }
-        
-        overdue = len([t for t in tasks if t.is_overdue()])
-        
-        # Total time spent on completed tasks
+
+        status_counts = Counter(t.status for t in tasks)
+        prio_counts = Counter(t.priority for t in tasks)
+        by_status = {s.name.lower(): status_counts[s] for s in TaskStatus}
+        by_priority = {p.name.lower(): prio_counts[p] for p in Priority}
+
+        overdue = sum(1 for t in tasks if t.is_overdue())
         total_time = sum(t.time_spent for t in tasks if t.status == TaskStatus.DONE)
         
         return {
