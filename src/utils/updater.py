@@ -533,66 +533,122 @@ class AutoUpdater:
     def _write_relaunch_vbs(self, exe_name: str) -> Path:
         """Windowless VBScript that swaps in the update and restarts it.
 
-        It derives every path from ``WScript.ScriptFullName`` (its own location,
-        next to the .exe) so a Cyrillic / non-ASCII folder in the path is never
-        written into a string literal — the previous cause of updates dying on
+        Every path is derived from ``WScript.ScriptFullName`` (the script sits
+        next to the .exe) so a Cyrillic / non-ASCII folder never lands in a
+        string literal — the old cause of updates dying on
         ``C:\\Users\\Пользователь\\...``. Only the ASCII exe name is templated.
+
+        The swap **renames** the running .exe to ``.old`` rather than deleting
+        it: Windows allows renaming a running image immediately, whereas
+        ``DeleteFile`` on it fails until every handle is gone — the reason
+        earlier updates left ``version.txt`` bumped but the binary unchanged.
+        The old binary keeps running from ``.old`` until it exits; ``main.py``
+        sweeps ``.old`` on the next start. Every step is logged to
+        ``logs\\update_helper.log`` for post-mortems, and a failed swap restores
+        the old .exe so the app is never bricked.
         """
         vbs = self.app_dir / self._VBS_NAME
-        script = (
-            'Option Explicit\r\n'
-            'Dim fso, sh, d, exe, staged, old, i\r\n'
-            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
-            'Set sh = CreateObject("WScript.Shell")\r\n'
-            'd = fso.GetParentFolderName(WScript.ScriptFullName)\r\n'
-            f'exe = fso.BuildPath(d, "{exe_name}")\r\n'
-            'staged = exe & ".updated"\r\n'
-            'old = exe & ".old"\r\n'
-            'On Error Resume Next\r\n'
-            "' wait until the old .exe is unlocked (both one-file processes gone)\r\n"
-            'For i = 1 To 240\r\n'
-            '  fso.DeleteFile exe, True\r\n'
-            '  If Not fso.FileExists(exe) Then Exit For\r\n'
-            '  WScript.Sleep 500\r\n'
-            'Next\r\n'
-            'If fso.FileExists(staged) Then\r\n'
-            '  fso.MoveFile staged, exe\r\n'
-            '  If Not fso.FileExists(exe) Then fso.CopyFile staged, exe, True\r\n'
-            'End If\r\n'
-            'sh.Run """" & exe & """ --no-update", 0, False\r\n'
-            'If fso.FileExists(old) Then fso.DeleteFile old, True\r\n'
-            'If fso.FileExists(staged) Then fso.DeleteFile staged, True\r\n'
-            'fso.DeleteFile WScript.ScriptFullName, True\r\n'
-        )
-        # UTF-16 LE + BOM — wscript autodetects it.
-        vbs.write_text(script, encoding="utf-16")
+        lines = [
+            'Option Explicit',
+            'Dim fso, sh, d, exe, staged, old, lg, i, renamed',
+            'Set fso = CreateObject("Scripting.FileSystemObject")',
+            'Set sh = CreateObject("WScript.Shell")',
+            'd = fso.GetParentFolderName(WScript.ScriptFullName)',
+            f'exe = fso.BuildPath(d, "{exe_name}")',
+            'staged = exe & ".updated"',
+            'old = exe & ".old"',
+            'lg = fso.BuildPath(d, "logs\\update_helper.log")',
+            'On Error Resume Next',
+            'WriteLog "helper start: " & exe',
+            '',
+            'If Not fso.FileExists(staged) Then',
+            '  WriteLog "no staged file - nothing to do"',
+            '  fso.DeleteFile WScript.ScriptFullName, True',
+            '  WScript.Quit',
+            'End If',
+            '',
+            "' clear a stale .old from a previous run",
+            'If fso.FileExists(old) Then fso.DeleteFile old, True',
+            '',
+            "' rename the (maybe still-running) exe out of the way",
+            'renamed = False',
+            'For i = 1 To 60',
+            '  Err.Clear',
+            '  fso.MoveFile exe, old',
+            '  If Err.Number = 0 And Not fso.FileExists(exe) Then',
+            '    renamed = True',
+            '    Exit For',
+            '  End If',
+            '  WScript.Sleep 500',
+            'Next',
+            'WriteLog "rename exe->old: " & renamed',
+            '',
+            "' put the new binary in place",
+            'Err.Clear',
+            'fso.MoveFile staged, exe',
+            'If Err.Number <> 0 Or Not fso.FileExists(exe) Then',
+            '  Err.Clear',
+            '  fso.CopyFile staged, exe, True',
+            '  WriteLog "move failed; copyfile ok: " & (Err.Number = 0)',
+            'Else',
+            '  WriteLog "moved staged->exe"',
+            'End If',
+            '',
+            "' never leave the app without an exe",
+            'If Not fso.FileExists(exe) And fso.FileExists(old) Then',
+            '  fso.CopyFile old, exe, True',
+            '  WriteLog "SWAP FAILED - restored old exe"',
+            'End If',
+            '',
+            'fso.DeleteFile staged, True',
+            'If fso.FileExists(exe) Then',
+            '  sh.Run """" & exe & """ --no-update", 0, False',
+            '  WriteLog "relaunched"',
+            'Else',
+            '  WriteLog "FATAL: no exe to run"',
+            'End If',
+            'fso.DeleteFile WScript.ScriptFullName, True',
+            'WScript.Quit',
+            '',
+            'Sub WriteLog(msg)',
+            '  On Error Resume Next',
+            '  Dim f, folder',
+            '  folder = fso.GetParentFolderName(lg)',
+            '  If Not fso.FolderExists(folder) Then fso.CreateFolder folder',
+            '  Set f = fso.OpenTextFile(lg, 8, True)',
+            '  f.WriteLine Now & "  " & msg',
+            '  f.Close',
+            'End Sub',
+        ]
+        # UTF-16 LE + BOM (wscript autodetects it). write_bytes, not write_text,
+        # so text-mode newline translation can't turn our "\r\n" into "\r\r\n".
+        vbs.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-16"))
         return vbs
 
     def _relaunch_windows(self, target: Path, staged: Path) -> None:
-        """Spawn the detached VBScript helper.
+        """Spawn the detached VBScript helper that does the swap.
 
-        Launched via ``explorer.exe`` (outside this process's PyInstaller job
-        object, which would otherwise kill a direct child) and, as a fallback,
-        ``wscript`` broken away from the job.
+        ``explorer.exe <vbs>`` runs it outside this process's PyInstaller job
+        object (a direct child would be killed when we exit). Fallback:
+        ``wscript.exe`` broken away from the job — invoked by full path so a
+        hijacked ``.vbs`` association can't send it to a text editor.
         """
         vbs = self._write_relaunch_vbs(target.name)
-        started = False
-        try:
-            subprocess.Popen(["explorer.exe", str(vbs)], close_fds=True)
-            started = True
-        except OSError as exc:
-            logger.warning("explorer.exe relaunch failed (%s); trying wscript", exc)
-        if not started:
+        wscript = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "wscript.exe"
+        DETACHED = 0x00000008 | 0x01000000   # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
+
+        for how, argv, flags in (
+            ("explorer", ["explorer.exe", str(vbs)], 0),
+            ("wscript", [str(wscript), "//B", "//Nologo", str(vbs)], DETACHED),
+        ):
             try:
-                DETACHED = 0x00000008 | 0x01000000  # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
-                subprocess.Popen(["wscript.exe", "//B", "//Nologo", str(vbs)],
-                                 creationflags=DETACHED, close_fds=True)
-                started = True
+                subprocess.Popen(argv, creationflags=flags, close_fds=True)
+                logger.info("Relaunch helper started via %s; exiting for the swap.", how)
+                return
             except OSError as exc:
-                logger.error("Relaunch helper could not start (%s); the update "
-                             "is downloaded — restart the app to apply it.", exc)
-        if started:
-            logger.info("Relaunch helper started; exiting for swap.")
+                logger.warning("Relaunch via %s failed (%s)", how, exc)
+        logger.error("Could not start the relaunch helper — the update is staged; "
+                     "restart the app to apply it.")
 
     def _relaunch_posix(self, target: Path, staged: Path) -> None:
         """POSIX keeps a running binary alive via its open inode, so we can
@@ -612,32 +668,44 @@ class AutoUpdater:
         if not self.current_exe:
             return False
 
+        # The new version ships *inside* the bundled exe (its _MEIPASS/version.txt);
+        # main.py mirrors that to app_dir/version.txt on the next start. We never
+        # write app_dir/version.txt here — a bump that outlived a failed swap was
+        # exactly the "reports new version, runs old code" bug.
         exe_name = self.current_exe.name
         bundled_exe = self._find_exe_in_bundle(source_folder, exe_name)
-        if bundled_exe:
-            staged_exe = self.app_dir / f"{exe_name}.updated"
-            shutil.copy2(bundled_exe, staged_exe)
-        else:
-            staged_exe = None
-
-        version_file_in_bundle = source_folder / "version.txt"
-        if version_file_in_bundle.exists():
-            shutil.copy2(version_file_in_bundle, self.app_dir / "version.txt")
-        else:
-            self._update_version_file(latest_version)
-
-        if staged_exe and staged_exe.exists():
-            self._relaunch_after_update()
-            return True
-        return False
+        if not bundled_exe:
+            return False
+        return self._stage_and_relaunch(bundled_exe)
 
     def _install_frozen_executable(self, downloaded_exe: Path, latest_version: str) -> bool:
         if not self.current_exe or not downloaded_exe.exists():
             return False
+        return self._stage_and_relaunch(downloaded_exe)
+
+    def _stage_and_relaunch(self, new_exe: Path) -> bool:
+        """Copy *new_exe* to ``<exe>.updated`` and hand the swap to the helper.
+
+        Rejects a download that isn't a Windows PE image (an HTML error page,
+        a truncated file) before staging it.
+        """
+        try:
+            with open(new_exe, "rb") as f:
+                head = f.read(2)
+        except OSError:
+            return False
+        if sys.platform == "win32" and head != b"MZ":
+            logger.error("Downloaded update is not an .exe (starts %r) — aborting", head)
+            return False
 
         staged_exe = self.app_dir / f"{self.current_exe.name}.updated"
-        shutil.copy2(downloaded_exe, staged_exe)
-        self._update_version_file(latest_version)
+        try:
+            shutil.copy2(new_exe, staged_exe)
+        except OSError as exc:
+            logger.error("Could not stage the update: %s", exc)
+            return False
+        if not staged_exe.exists() or staged_exe.stat().st_size < self.MIN_UPDATE_SIZE:
+            return False
         self._relaunch_after_update()
         return True
 

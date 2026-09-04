@@ -29,13 +29,16 @@ logs_dir: Path = app_dir / "logs"
 def version_file_candidates() -> list[Path]:
     """Every place ``version.txt`` might be, most-authoritative first.
 
-    ``app_dir/version.txt`` comes first for a frozen build — the updater writes
-    it there after an update, while the bundled ``_MEIPASS`` copy is frozen at
-    build time and must not win (it would cause an endless update loop).
+    For a frozen build the bundled ``_MEIPASS/version.txt`` is authoritative:
+    it ships *inside* the running binary, so it is always the true version of
+    the code that is executing — even if a self-update swapped the .exe but a
+    stale ``app_dir/version.txt`` was left behind, or vice-versa. From source
+    there is only the repo-root file.
     """
-    out = [app_dir / "version.txt"]
+    out: list[Path] = []
     if meipass:
         out.append(meipass / "version.txt")
+    out.append(app_dir / "version.txt")
     return out
 
 
@@ -54,6 +57,23 @@ def read_version() -> str:
         except OSError:
             pass
     return "unknown"
+
+
+def sync_version_file() -> None:
+    """Frozen only: mirror the bundled ``_MEIPASS/version.txt`` to
+    ``app_dir/version.txt`` so external tools (and the atom-feed update check)
+    see the version of the binary that is actually running. The updater never
+    writes ``app_dir/version.txt`` itself, so this is the single writer.
+    """
+    if not (frozen and meipass):
+        return
+    src, dst = meipass / "version.txt", app_dir / "version.txt"
+    try:
+        want = src.read_text(encoding="utf-8")
+        if not dst.is_file() or dst.read_text(encoding="utf-8") != want:
+            dst.write_text(want, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def ensure_src_on_path() -> None:

@@ -51,19 +51,63 @@ from core.app_context import AppContext  # noqa: E402
 paths.ensure_src_on_path()
 
 
+_ATTEMPTS_STAMP = "update_attempts"
+
+
+def _digest(path: Path) -> str:
+    import hashlib
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
 def _finish_pending_update(log) -> bool:
-    """If a previous run downloaded an update but the relaunch helper never
-    swapped it in (killed helper, AV-quarantined script, a Cyrillic path that
-    broke the old helper), a ``<exe>.updated`` file is sitting next to us.
-    We are the OLD binary — retry the swap via a fresh helper and exit.
+    """A ``<exe>.updated`` file next to us means a self-update downloaded a new
+    binary but the swap may not have completed (killed helper, AV, a helper
+    that ran before this old process fully exited).
+
+    - If the staged file is byte-identical to the running exe, the swap already
+      happened — just clean up the leftover.
+    - Otherwise hand it to a fresh helper and exit so it can retry. Give up
+      after 3 attempts and run the current version rather than loop forever.
 
     Returns True if a relaunch was kicked off (caller should exit).
     """
     exe = paths.exe_path or Path(sys.executable)
     staged = exe.with_name(exe.name + ".updated")
+    stamp = paths.logs_dir / _ATTEMPTS_STAMP
+
     if not staged.is_file() or staged.stat().st_size < 1_000_000:
+        stamp.unlink(missing_ok=True)
         return False
-    log.warning("Found a staged update (%s); finishing it now.", staged.name)
+
+    try:
+        if _digest(staged) == _digest(exe):
+            log.info("Staged update is already the running version — cleaning up.")
+            staged.unlink(missing_ok=True)
+            stamp.unlink(missing_ok=True)
+            return False
+    except OSError:
+        pass
+
+    try:
+        attempts = int(stamp.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        attempts = 0
+    if attempts >= 3:
+        log.error("Update swap failed %d times — running the current version. "
+                  "See logs/update_helper.log.", attempts)
+        staged.unlink(missing_ok=True)
+        stamp.unlink(missing_ok=True)
+        return False
+
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(attempts + 1), encoding="utf-8")
+    except OSError:
+        pass
+
+    log.warning("Staged update pending (%s) — handing to a fresh helper (attempt %d/3).",
+                staged.name, attempts + 1)
     try:
         from utils.updater import AutoUpdater
         AutoUpdater("LgbtBsod", "task_manager")._relaunch_after_update()
@@ -108,6 +152,8 @@ def main() -> None:
             log.info("Pending update handed to the relaunch helper; exiting.")
             return
         _cleanup_update_leftovers(log)
+        paths.sync_version_file()   # version.txt := the binary that is running
+        log.info("Running version: %s", paths.read_version())
 
     if paths.frozen and "--force-update" in args:
         # Opt-in CLI path: download + install now, before the GUI, then exit for
