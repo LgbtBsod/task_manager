@@ -146,6 +146,10 @@ def test_relaunch_windows_skips_launch_if_swap_failed(tmp_path, monkeypatch):
 
 
 def test_stage_and_relaunch_rejects_non_exe(tmp_path, monkeypatch):
+    """The magic-byte check is per-OS (_EXE_MAGIC); pin win32 so this test is
+    deterministic regardless of which OS actually runs it (CI's test job is
+    Linux)."""
+    monkeypatch.setattr(sys, "platform", "win32")
     u = _updater(tmp_path)
     monkeypatch.setattr(u, "_relaunch_after_update", lambda: pytest_fail())
     html = tmp_path / "not-really.exe"
@@ -155,6 +159,7 @@ def test_stage_and_relaunch_rejects_non_exe(tmp_path, monkeypatch):
 
 
 def test_stage_and_relaunch_stages_a_real_pe(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
     u = _updater(tmp_path)
     called = []
     monkeypatch.setattr(u, "_relaunch_after_update", lambda: called.append(1))
@@ -163,6 +168,29 @@ def test_stage_and_relaunch_stages_a_real_pe(tmp_path, monkeypatch):
     assert u._stage_and_relaunch(exe) is True
     staged = tmp_path / "TaskManager-windows.exe.updated"
     assert staged.exists() and staged.read_bytes()[:2] == b"MZ"
+    assert called == [1]
+
+
+def test_stage_and_relaunch_rejects_non_elf_on_linux(tmp_path, monkeypatch):
+    """The Windows-only PE check used to let any non-Windows platform stage
+    literally anything (an HTML error page included) — _EXE_MAGIC covers
+    linux/darwin too now."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    u = _updater(tmp_path)
+    monkeypatch.setattr(u, "_relaunch_after_update", lambda: pytest_fail())
+    html = tmp_path / "not-really-elf"
+    html.write_bytes(b"<!DOCTYPE html><html>404</html>" + b"\0" * 2_000_000)
+    assert u._stage_and_relaunch(html) is False
+
+
+def test_stage_and_relaunch_stages_a_real_elf(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    u = _updater(tmp_path)
+    called = []
+    monkeypatch.setattr(u, "_relaunch_after_update", lambda: called.append(1))
+    exe = tmp_path / "new-elf"
+    exe.write_bytes(b"\x7fELF" + b"\0" * 2_000_000)
+    assert u._stage_and_relaunch(exe) is True
     assert called == [1]
 
 

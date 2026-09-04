@@ -56,6 +56,18 @@ def _build_ssl_context() -> ssl.SSLContext | None:
 SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data", "logs"}
 SKIP_EXTENSIONS = {".pyc", ".pyo", ".tmp"}
 
+# sys.platform -> valid leading bytes for that OS's release asset. Guards
+# _stage_and_relaunch against staging an HTML error page or a truncated
+# download as if it were the real executable. macOS ships several Mach-O
+# variants (thin 32/64-bit either endianness, or a fat/universal binary).
+_EXE_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "win32": (b"MZ",),
+    "linux": (b"\x7fELF",),
+    "darwin": (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
+              b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe",
+              b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"),
+}
+
 
 def normalize_version(raw: str) -> str:
     """Strip a release-tag prefix (``v``, ``v.``, ``V.``) and surrounding
@@ -687,16 +699,18 @@ class AutoUpdater:
     def _stage_and_relaunch(self, new_exe: Path) -> bool:
         """Copy *new_exe* to ``<exe>.updated`` and hand the swap to the helper.
 
-        Rejects a download that isn't a Windows PE image (an HTML error page,
-        a truncated file) before staging it.
+        Rejects a download that isn't a real executable for this OS (an HTML
+        error page, a truncated file) before staging it.
         """
         try:
             with open(new_exe, "rb") as f:
-                head = f.read(2)
+                head = f.read(4)
         except OSError:
             return False
-        if sys.platform == "win32" and head != b"MZ":
-            logger.error("Downloaded update is not an .exe (starts %r) — aborting", head)
+        magics = _EXE_MAGIC.get(sys.platform)
+        if magics and not any(head.startswith(m) for m in magics):
+            logger.error("Downloaded update is not a %s executable (starts %r) — aborting",
+                        sys.platform, head)
             return False
 
         staged_exe = self.app_dir / f"{self.current_exe.name}.updated"
