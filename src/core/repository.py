@@ -26,6 +26,7 @@ from .models import (
     Category,
     Notification,
     Priority,
+    ProjectTemplate,
     RecurringTask,
     Sprint,
     Tag,
@@ -198,6 +199,8 @@ class TaskRepository:
         self._recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
         self._notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
         self._tags = _JsonCollection(_side("tags"), Tag.from_dict, "tag")
+        self._project_templates = _JsonCollection(
+            _side("project_templates"), ProjectTemplate.from_dict, "project template")
 
     def _load_tasks(self) -> list[dict]:
         """Load raw task dicts from the JSON file (cached in-memory).
@@ -396,6 +399,21 @@ class TaskRepository:
     def delete_template(self, template_id: str) -> bool:
         return self._templates.delete(template_id)
 
+    def get_all_project_templates(self) -> list[ProjectTemplate]:
+        return self._project_templates.all()
+
+    def get_project_template_by_id(self, template_id: str) -> ProjectTemplate | None:
+        return self._project_templates.by_id(template_id)
+
+    def add_project_template(self, template: ProjectTemplate) -> ProjectTemplate:
+        return self._project_templates.add(template)
+
+    def update_project_template(self, template: ProjectTemplate) -> ProjectTemplate:
+        return self._project_templates.update(template)
+
+    def delete_project_template(self, template_id: str) -> bool:
+        return self._project_templates.delete(template_id)
+
     def get_all_categories(self) -> list[Category]:
         return self._categories.all()
 
@@ -504,6 +522,7 @@ class TaskRepository:
             "recurring": self._recurring,
             "notifications": self._notifications,
             "tags": self._tags,
+            "project_templates": self._project_templates,
         }
 
     def export_all(self) -> dict:

@@ -10,6 +10,8 @@ from ._util import apply_kwargs
 from .models import (
     Category,
     Priority,
+    ProjectTemplate,
+    ProjectTemplateStep,
     RecurrenceFrequency,
     RecurringTask,
     Task,
@@ -61,6 +63,38 @@ class TemplateService:
         result = self.repo.delete_template(template_id)
         if result:
             log.info("Template deleted: %s", template_id)
+        return result
+
+    # ── Project templates (multi-task phased plans) ──
+
+    def create_project_template(self, name: str, description: str = "",
+                                steps: list[dict] | None = None) -> ProjectTemplate:
+        """``steps``: ``[{"title": ..., "task_type": "Task", "sequential": True}, ...]``
+        in order. Blank titles are dropped; ``task_type``/``sequential`` default
+        to Task / True (blocked by the previous step) when omitted."""
+        step_objs = [
+            ProjectTemplateStep(
+                title=title, task_type=s.get("task_type") or TaskType.TASK.value,
+                sequential=bool(s.get("sequential", True)),
+            )
+            for s in (steps or []) if (title := str(s.get("title", "")).strip())
+        ]
+        tpl = ProjectTemplate(name=name.strip(), description=description.strip(),
+                              steps=step_objs)
+        self.repo.add_project_template(tpl)
+        log.info("Project template created: %s - %s (%d steps)", tpl.id, tpl.name, len(step_objs))
+        return tpl
+
+    def get_all_project_templates(self) -> list[ProjectTemplate]:
+        return self.repo.get_all_project_templates()
+
+    def get_project_template(self, template_id: str) -> ProjectTemplate | None:
+        return self.repo.get_project_template_by_id(template_id)
+
+    def delete_project_template(self, template_id: str) -> bool:
+        result = self.repo.delete_project_template(template_id)
+        if result:
+            log.info("Project template deleted: %s", template_id)
         return result
 
 

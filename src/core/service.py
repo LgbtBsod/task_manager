@@ -957,6 +957,42 @@ class TaskService:
             original_estimate=tpl.original_estimate,
         )
 
+    def create_tasks_from_project_template(
+        self, template_id: str, *, epic_title: str | None = None,
+    ) -> list[Task]:
+        """Stamp out every step of a :class:`ProjectTemplate` as a real task —
+        "break a complex task into staged, dependent steps" in one action.
+
+        ``epic_title``, if given, creates a new Epic first and links every
+        step's ``epic_link`` to it (existing hierarchy mechanism — see
+        WorkflowService). Steps marked ``sequential`` (the default) are
+        wired ``blocked_by`` the immediately preceding step via the existing
+        Task.links graph, so WorkflowService/the task dialog treat them
+        exactly like a manually-linked dependency; the first step is never
+        blocked (nothing precedes it).
+        """
+        tpl = self.templates.get_project_template(template_id)
+        if not tpl:
+            raise ValueError(f"Project template {template_id} not found")
+        if not tpl.steps:
+            return []
+
+        epic = self.create_task(epic_title.strip(), task_type=TaskType.EPIC.value) \
+            if epic_title and epic_title.strip() else None
+
+        created: list[Task] = []
+        for step in tpl.steps:
+            task = self.create_task(step.title, task_type=step.task_type,
+                                    epic_link=epic.id if epic else None)
+            if step.sequential and created:
+                self.add_task_link(task.id, created[-1].id, LinkType.BLOCKED_BY.value)
+            created.append(task)
+        log.info("Created %d task(s) from project template %s%s", len(created), template_id,
+                 f" under epic {epic.id}" if epic else "")
+        # add_task_link() mutates its own fresh copy of `task`, not the object
+        # held above — re-fetch so callers see the links that were just added.
+        return [self.get_task(t.id) for t in created]
+
     def generate_recurring_tasks(self) -> list[Task]:
         """Create a task for every active recurring definition that has an
         occurrence due since it was last generated. At most one task per

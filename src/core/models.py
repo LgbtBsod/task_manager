@@ -497,6 +497,40 @@ class TaskTemplate(_DataclassJSON):
 
 
 @dataclass
+class ProjectTemplateStep(_DataclassJSON):
+    """One task within a :class:`ProjectTemplate`, in order."""
+    title: str = ""
+    task_type: str = TaskType.TASK.value
+    sequential: bool = True   # blocked_by the PREVIOUS step; False = starts free
+
+
+@dataclass
+class ProjectTemplate(_DataclassJSON):
+    """A reusable multi-task plan — "break a complex task into staged,
+    dependent steps" in one click. Applying it creates a real Task per step
+    (optionally under a new Epic) and wires ``sequential`` steps together via
+    the existing ``Task.links`` / ``LinkType.BLOCKED_BY`` graph — the same
+    dependency mechanism the task dialog's "blocked by" picker already uses.
+    """
+    name: str = ""
+    description: str = ""
+    steps: list[ProjectTemplateStep] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ProjectTemplate":
+        known = {f.name for f in fields(cls)}
+        data = {k: v for k, v in data.items() if k in known}
+        data["steps"] = [ProjectTemplateStep.from_dict(s) for s in (data.get("steps") or [])]
+        if data.get("id") is None:
+            data.pop("id", None)
+        if data.get("created_at") is None:
+            data.pop("created_at", None)
+        return cls(**data)
+
+
+@dataclass
 class Category(_DataclassJSON):
     """A project/category for grouping tasks (higher-level than epics)."""
     name: str = ""
@@ -621,5 +655,5 @@ __all__ = [
     'TaskID', 'DateStr', 'Urgency', 'Resolution', 'SprintStatus', 'Sprint',
     'ActivityEntry', 'VersionRelease', 'WORKFLOW_TRANSITIONS',
     'RecurrenceFrequency', 'TaskTemplate', 'Category', 'Notification', 'RecurringTask',
-    'Tag', 'TAG_DEFAULT_COLOR',
+    'Tag', 'TAG_DEFAULT_COLOR', 'ProjectTemplate', 'ProjectTemplateStep',
 ]

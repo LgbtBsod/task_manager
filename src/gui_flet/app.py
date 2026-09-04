@@ -262,6 +262,9 @@ class TaskManagerApp:
                     ft.IconButton(icon=ic("swap_horiz"), icon_color=COLORS["text_secondary"],
                                   tooltip=L.UI.BULK_TOOLTIP,
                                   on_click=lambda e: self.show_bulk_dialog()),
+                    ft.IconButton(icon=ic("view_timeline"), icon_color=COLORS["text_secondary"],
+                                  tooltip=L.UI.PT_TOOLTIP,
+                                  on_click=lambda e: self.show_project_templates_dialog()),
                     ft.IconButton(icon=ic("settings"), icon_color=COLORS["text_secondary"],
                                   tooltip=L.UI.SETTINGS,
                                   on_click=lambda e: self.show_settings_dialog()),
@@ -395,6 +398,10 @@ class TaskManagerApp:
     def show_bulk_dialog(self):
         from .bulk_dialog import show_bulk_dialog
         show_bulk_dialog(self)
+
+    def show_project_templates_dialog(self):
+        from .project_template_dialog import show_project_templates_dialog
+        show_project_templates_dialog(self)
 
     def _on_create_task(self, **kwargs):
         blocked_by = kwargs.pop("blocked_by", [])

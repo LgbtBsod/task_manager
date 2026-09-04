@@ -208,6 +208,24 @@ class UI:
     BULK_APPLY = "Перевести"
     BULK_DONE = "Переведено задач: {n}"
 
+    # project templates: a reusable multi-task phased plan
+    PT_TOOLTIP = "Шаблоны проектов"
+    PT_TITLE = "Шаблоны проектов"
+    PT_EMPTY = "Шаблонов пока нет — создайте первый ниже."
+    PT_STEP_COUNT = "{n} шагов"
+    PT_APPLY = "Применить"
+    PT_APPLY_TITLE = 'Применить «{name}»'
+    PT_APPLY_HINT = ("Каждый шаг станет отдельной задачей; последовательные шаги "
+                     "будут ждать предыдущий. Название эпика можно оставить пустым.")
+    PT_EPIC_TITLE = "Название эпика (необязательно)"
+    PT_APPLIED = "Создано задач: {n}"
+    PT_NEW = "Новый шаблон"
+    PT_NAME = "Название шаблона"
+    PT_STEP_HINT = "Название шага…"
+    PT_SEQUENTIAL = "Ждёт предыдущий шаг"
+    PT_ADD_STEP = "Добавить шаг"
+    PT_SAVE = "Сохранить шаблон"
+
     SET_UPDATES = "Обновления"
     SET_CHECK_ON_START = "Проверять обновления при запуске"
     SET_CHECK_NOW = "Проверить сейчас"
