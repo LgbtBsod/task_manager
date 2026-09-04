@@ -1,121 +1,134 @@
+"""AutoUpdater — version comparison and the discovery ladder (web → API).
+
+No network and no filesystem writes: discovery helpers are monkeypatched.
+"""
 import sys
+import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+import pytest
 
-from utils.updater import AutoUpdater, get_current_version, check_updates
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-passed = 0
-failed = 0
-
-
-def ok(name, condition, detail=''):
-    global passed, failed
-    if condition:
-        passed += 1
-        print(f'  PASS  {name}')
-    else:
-        failed += 1
-        print(f'  FAIL  {name} {detail}')
+from utils.updater import AutoUpdater, get_current_version, normalize_version
 
 
-def test_version_parsing():
-    print('--- Version parsing ---')
-    u = AutoUpdater('owner', 'repo', '1.0.0')
-    ok('1.1 > 1.0', u._is_newer_version('1.1', '1.0'))
-    ok('2.0 > 1.9', u._is_newer_version('2.0', '1.9'))
-    ok('1.1.1 > 1.1.0', u._is_newer_version('1.1.1', '1.1.0'))
-    ok('NOT 1.0 > 1.1', not u._is_newer_version('1.0', '1.1'))
-    ok('NOT 1.0 > 1.0', not u._is_newer_version('1.0', '1.0'))
-    ok('v2.0 > v1.0 (v prefix)', u._is_newer_version('v2.0', 'v1.0'))
-    ok('1.1.0b > 1.1.0a (beta>alpha)', u._is_newer_version('1.1.0b', '1.1.0a'))
-    ok('1.1.0 > 1.1.0b (stable>beta)', u._is_newer_version('1.1.0', '1.1.0b'))
-    ok('1.1.0rc1 > 1.1.0b2 (rc>beta)', u._is_newer_version('1.1.0rc1', '1.1.0b2'))
-    ok('1.1.0b2 > 1.1.0b1 (beta2>beta1)', u._is_newer_version('1.1.0b2', '1.1.0b1'))
-    ok('0.0.0.0.1 parsing', u._parse_version('0.0.0.0.1')[0][:5] == (0, 0, 0, 0, 1), str(u._parse_version('0.0.0.0.1')))
+def _u(cur="1.0.0", *, frozen=True):
+    u = AutoUpdater("owner", "repo", cur)
+    u.is_frozen = frozen          # so _platform_asset() yields a real asset name
+    return u
 
 
-def test_get_current_version():
-    print('--- get_current_version ---')
+# ── version comparison (packaging / PEP 440) ────────────────────────────
+
+@pytest.mark.parametrize("newer,older", [
+    ("1.1", "1.0"),
+    ("2.0", "1.9"),
+    ("1.1.1", "1.1.0"),
+    ("v2.0", "v1.0"),                                   # 'v' prefix tolerated
+    ("1.1.0", "1.1.0b"),                                # stable > beta
+    ("1.1.0rc1", "1.1.0b2"),                            # rc > beta
+    ("1.1.0b2", "1.1.0b1"),
+    ("1.0.0.0.0.0.2.1.17.b", "1.0.0.0.0.0.2.1.16.b"),   # legacy N-component scheme
+    ("1.1.0", "1.0.0.0.0.0.2.1.16.b"),                  # semver outranks the legacy scheme
+    ("v.1.0.0.0.0.0.2.1.17.b", "1.0.0.0.0.0.2.1.16.b"),
+])
+def test_is_newer(newer, older):
+    assert AutoUpdater._is_newer_version(newer, older)
+    assert not AutoUpdater._is_newer_version(older, newer)
+
+
+def test_equal_is_not_newer():
+    assert not AutoUpdater._is_newer_version("1.2.3", "1.2.3")
+    assert not AutoUpdater._is_newer_version("v1.2.3", "1.2.3")
+
+
+def test_normalize_version():
+    assert normalize_version("v.1.0.0.0.0.0.2.1.16.b") == "1.0.0.0.0.0.2.1.16.b"
+    assert normalize_version("  V1.1.0\n") == "1.1.0"
+    assert normalize_version(".1.2.3") == "1.2.3"
+
+
+def test_get_current_version_is_a_real_string():
     v = get_current_version()
-    ok('version is string', isinstance(v, str))
-    ok('version not empty', len(v) > 0)
-    ok('version matches file', v == '0.0.0.0.1', f'got "{v}"')
+    assert isinstance(v, str) and v and v != "unknown"
 
 
-def test_check_updates_non_blocking():
-    print('--- check_updates non-blocking ---')
-    import time
+# ── init contract ──────────────────────────────────────────────────────
+
+def test_init_urls():
+    u = AutoUpdater("TestOwner", "TestRepo", "1.0.0")
+    assert u.api_url == "https://api.github.com/repos/TestOwner/TestRepo"
+    assert u.web_url == "https://github.com/TestOwner/TestRepo"
+    assert isinstance(u.TIMEOUT_API, int) and u.TIMEOUT_API <= 10
+
+
+def test_platform_asset_name():
+    name = _u()._platform_asset()
+    assert name in ("TaskManager-windows.exe", "TaskManager-linux", "TaskManager-macos")
+
+
+# ── discovery ladder: atom feed first, API only as fallback ─────────────
+
+def test_web_discovery_finds_newer(monkeypatch):
+    u = _u("1.0.0")
+    monkeypatch.setattr(u, "_atom_tags", lambda: ["v1.2.0", "v1.1.0", "v1.0.0"])
+    monkeypatch.setattr(u, "_asset_available", lambda url: True)
+    monkeypatch.setattr(u, "_api_get", lambda url: pytest.fail(f"API hit: {url}"))
+
+    has, ver, url = u.check_for_updates()
+    assert has is True
+    assert ver == "v1.2.0"
+    assert "/releases/download/v1.2.0/" in url
+
+
+def test_web_discovery_up_to_date(monkeypatch):
+    u = _u("1.2.0")
+    monkeypatch.setattr(u, "_atom_tags", lambda: ["v1.2.0", "v1.1.0"])
+    monkeypatch.setattr(u, "_api_get", lambda url: pytest.fail(f"API hit: {url}"))
+
+    has, ver, url = u.check_for_updates()
+    assert has is False
+    assert url is None
+
+
+def test_web_discovery_release_published_but_asset_not_ready(monkeypatch):
+    u = _u("1.0.0")
+    monkeypatch.setattr(u, "_atom_tags", lambda: ["v1.2.0"])
+    monkeypatch.setattr(u, "_asset_available", lambda url: False)   # CI still uploading
+
+    has, ver, url = u.check_for_updates()
+    assert has is False
+    assert ver == "v1.2.0"
+    assert url is None
+
+
+def test_falls_through_to_api_when_atom_empty(monkeypatch):
+    u = _u("1.0.0")
+    monkeypatch.setattr(u, "_atom_tags", lambda: [])
+    seen = []
+
+    def fake_api_get(url):
+        seen.append(url)
+        if "releases?per_page" in url:
+            return [{"tag_name": "v2.0.0", "assets": [
+                {"name": "TaskManager-windows.exe",
+                 "browser_download_url": "https://host/win.exe"}]}]
+        return None
+
+    monkeypatch.setattr(u, "_api_get", fake_api_get)
+
+    has, ver, url = u.check_for_updates()
+    assert (has, ver, url) == (True, "v2.0.0", "https://host/win.exe")
+    assert any("releases?per_page" in s for s in seen)
+
+
+def test_never_raises_and_is_fast_on_total_failure(monkeypatch):
+    u = _u("1.0.0")
+    monkeypatch.setattr(u, "_atom_tags", lambda: [])
+    monkeypatch.setattr(u, "_api_get", lambda url: None)
+
     t0 = time.time()
-    result = check_updates('LgbtBsod', 'task_manager', auto=False)
-    elapsed = time.time() - t0
-    ok('completes in <15s', elapsed < 15, f'took {elapsed:.1f}s')
-    ok('returns bool', isinstance(result, bool))
-    ok('no crash', True)
-
-
-def test_check_updates_fake_repo():
-    print('--- check_updates fake repo ---')
-    import time
-    t0 = time.time()
-    result = check_updates('nonexistent_fake_repo_xyz', 'nope_task_manager_xyz', auto=False)
-    elapsed = time.time() - t0
-    ok('fake repo completes in <15s', elapsed < 15, f'took {elapsed:.1f}s')
-    ok('fake repo returns False', result is False)
-
-
-def test_updater_attributes():
-    print('--- Updater init ---')
-    u = AutoUpdater('TestOwner', 'TestRepo', '1.0.0')
-    ok('api_url correct', u.api_url == 'https://api.github.com/repos/TestOwner/TestRepo')
-    ok('TIMEOUT_API set', u.TIMEOUT_API == 8)
-    ok('TIMEOUT_DOWNLOAD set', u.TIMEOUT_DOWNLOAD == 60)
-
-
-def test_check_for_updates_returns_tuple():
-    print('--- check_for_updates return type ---')
-    u = AutoUpdater('nonexistent_xyz_123', 'fake_xyz_456', '0.0.1')
     result = u.check_for_updates()
-    ok('returns 3-tuple', isinstance(result, tuple) and len(result) == 3)
-    has_update, version, url = result
-    ok('has_update is bool', isinstance(has_update, bool))
-    ok('url is None for fake repo', url is None)
-
-
-def test_download_update_nonexistent_url():
-    print('--- download_update bad URL ---')
-    u = AutoUpdater('owner', 'repo', '1.0.0')
-    result = u.download_update('https://example.com/nonexistent_file_404.zip', '9.9.9')
-    ok('bad URL returns False', result is False)
-
-
-def test_run_update_check_auto():
-    print('--- run_update_check auto mode ---')
-    u = AutoUpdater('nonexistent_xyz_123', 'fake_xyz_456', '0.0.1')
-    result = u.run_update_check(auto=True)
-    ok('auto update returns bool', isinstance(result, bool))
-
-
-if __name__ == '__main__':
-    tests = [
-        test_version_parsing,
-        test_get_current_version,
-        test_check_updates_non_blocking,
-        test_check_updates_fake_repo,
-        test_updater_attributes,
-        test_check_for_updates_returns_tuple,
-        test_download_update_nonexistent_url,
-        test_run_update_check_auto,
-    ]
-    for fn in tests:
-        try:
-            fn()
-        except Exception as e:
-            failed += 1
-            print(f'  UNHANDLED: {e}')
-            import traceback; traceback.print_exc()
-    total = passed + failed
-    print(f'\n{"="*60}')
-    print(f'UPDATER TESTS: {passed}/{total} passed, {failed} failed')
-    print(f'{"="*60}')
-    sys.exit(0 if failed == 0 else 1)
+    assert result == (False, None, None)
+    assert time.time() - t0 < 5

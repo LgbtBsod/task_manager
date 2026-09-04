@@ -28,6 +28,7 @@ BUILD_DEPS = [
     "pyinstaller>=6.10",
     "flet[web]==0.86.5",
     "pydantic>=2.0.0",
+    "packaging>=23.0",
 ]
 
 
@@ -44,7 +45,7 @@ def install_deps() -> None:
         err("Dependency install failed.")
         sys.exit(1)
     probe = subprocess.run(
-        [sys.executable, "-c", "import flet, flet_web, pydantic, PyInstaller"],
+        [sys.executable, "-c", "import flet, flet_web, pydantic, packaging, PyInstaller"],
         capture_output=True, text=True,
     )
     if probe.returncode != 0:

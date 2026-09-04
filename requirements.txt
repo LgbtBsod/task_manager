@@ -1,3 +1,4 @@
 # Runtime dependencies. Python 3.10+ (tested on 3.14).
 flet[web]>=0.86.5,<0.90
 pydantic>=2.0.0
+packaging>=23.0          # PEP 440 version comparison in the self-updater

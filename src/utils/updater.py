@@ -282,66 +282,18 @@ class AutoUpdater:
         except Exception as exc:
             return False, f"Download failed: {str(exc)}"
 
-    _VER_WIDTH = 16  # supports schemes like v.1.0.0.0.0.0.2.1.8.b
-
     @staticmethod
-    def _parse_version(version_str: str) -> Tuple[Tuple[int, ...], str, str]:
-        import re
-
-        W = AutoUpdater._VER_WIDTH
-        # tolerate a leading 'v', 'v.' and surrounding whitespace
-        version_str = version_str.strip().lstrip("vV").strip(". ").strip()
-        pattern = r"^(\d+(?:\.\d+)*)[.\- ]?([a-zA-Z]+)?(\d*)$"
-        match = re.match(pattern, version_str)
-        if not match:
-            parts = re.findall(r"\d+", version_str)
-            pre = re.search(r"[a-zA-Z]+", version_str)
-            padded = tuple(int(p) for p in parts[:W]) + (0,) * max(0, W - len(parts))
-            return padded, (pre.group(0).lower() if pre else ""), ""
-
-        base_version, pre_type, pre_num = match.groups()
-        base_parts = [int(p) for p in base_version.split(".")]
-        numeric = tuple(base_parts[:W]) + (0,) * max(0, W - len(base_parts))
-
-        pre_type = (pre_type or "").lower().strip()
-        pre_num = (pre_num or "0").strip()
-        type_map = {
-            "a": "alpha",
-            "alpha": "alpha",
-            "b": "beta",
-            "beta": "beta",
-            "rc": "rc",
-            "releasecandidate": "rc",
-            "release": "rc",
-            "dev": "dev",
-            "development": "dev",
-            "post": "post",
-        }
-        pre_type = type_map.get(pre_type, pre_type)
-        return numeric, pre_type, pre_num
-
-    def _is_newer_version(self, latest: str, current: str) -> bool:
+    def _is_newer_version(latest: str, current: str) -> bool:
+        """PEP 440 comparison via ``packaging`` — it understands both the legacy
+        ``1.0.0.0.0.0.2.1.16.b`` tags (N-component release + ``b`` pre-release)
+        and plain semver ``1.1.0`` we moved to, so the transition is seamless.
+        """
+        from packaging.version import Version, InvalidVersion
         try:
-            l_nums, l_pre, l_pn = self._parse_version(latest)
-            c_nums, c_pre, c_pn = self._parse_version(current)
-
-            if l_nums > c_nums:
-                return True
-            if l_nums < c_nums:
-                return False
-
-            priority = {"dev": 0, "alpha": 1, "a": 1, "beta": 2, "b": 2, "rc": 3, "": 4, "post": 5}
-            l_pri = priority.get(l_pre, 4)
-            c_pri = priority.get(c_pre, 4)
-
-            if l_pre == c_pre:
-                try:
-                    return int(l_pn or 0) > int(c_pn or 0)
-                except ValueError:
-                    return False
-            return l_pri > c_pri
-        except Exception:
-            return str(latest).strip() != str(current).strip() and str(latest) > str(current)
+            return Version(normalize_version(latest)) > Version(normalize_version(current))
+        except InvalidVersion:
+            a, b = latest.strip(), current.strip()
+            return a != b and a > b
 
     def _platform_asset(self) -> Optional[str]:
         """The exact release-asset filename for this OS (matches build.yml)."""
