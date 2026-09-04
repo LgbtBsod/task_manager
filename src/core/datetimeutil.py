@@ -8,22 +8,20 @@ from datetime import date, datetime
 from typing import Optional
 
 _DATE_FMT = "%Y-%m-%d"
-_DATETIME_FMTS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
-                  "%Y-%m-%dT%H:%M:%S")
 
 
 def parse_dt(value: Optional[str]) -> Optional[datetime]:
-    """Parse a task date/date-time string. Returns None if empty or invalid."""
+    """Parse a task date / date-time string ("2026-09-18", "… 14:30",
+    ISO "…T14:30[:ss]"). Returns None if empty or unparseable.
+
+    Any timezone offset is dropped: task datetimes are compared against a
+    naive ``datetime.now()`` throughout, so an aware value here would raise
+    ``TypeError`` on the first ``<`` comparison.
+    """
     if not value:
         return None
-    value = value.strip()
-    for fmt in _DATETIME_FMTS:
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            pass
     try:
-        return datetime.strptime(value, _DATE_FMT)
+        return datetime.fromisoformat(value.strip()).replace(tzinfo=None)
     except ValueError:
         return None
 
