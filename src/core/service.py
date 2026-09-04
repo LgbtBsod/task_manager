@@ -358,6 +358,25 @@ class TaskService:
 
     # ── Task Links ──
 
+    def _blocked_by_reaches(self, start_id: str, goal_id: str, seen: set | None = None) -> bool:
+        """True if ``start_id`` transitively depends on ``goal_id`` via the
+        existing BLOCKED_BY graph — used to reject a link that would close a
+        dependency loop (two tasks permanently blocking each other with no
+        way out except manually editing the links back apart)."""
+        seen = seen if seen is not None else set()
+        if start_id in seen:
+            return False
+        seen.add(start_id)
+        task = self.repo.get_by_id(start_id)
+        if not task:
+            return False
+        for link in task.links:
+            if link.link_type != LinkType.BLOCKED_BY.value:
+                continue
+            if link.target_task_id == goal_id or self._blocked_by_reaches(link.target_task_id, goal_id, seen):
+                return True
+        return False
+
     def add_task_link(self, task_id: str, target_task_id: str, link_type: str = "relates_to") -> Task | None:
         """Link two tasks."""
         if task_id == target_task_id:
@@ -368,6 +387,8 @@ class TaskService:
         # Validate link type
         if link_type not in LinkType:                       # Enum value-membership (3.12+)
             raise ValueError(f"Invalid link_type. Must be one of: {[lt.value for lt in LinkType]}")
+        if link_type == LinkType.BLOCKED_BY.value and self._blocked_by_reaches(target_task_id, task_id):
+            raise ValueError("This would create a dependency cycle")
 
         task = self.repo.get_by_id(task_id)
         if not task:

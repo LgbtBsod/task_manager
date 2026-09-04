@@ -161,3 +161,34 @@ def test_set_epic_link_is_a_noop_when_unchanged(svc):
     svc.set_epic_link(child.id, epic.id)   # already this epic
     child = svc.get_task(child.id)
     assert [h for h in child.history if h.field_name == "epic_link"] == []
+
+
+def test_direct_blocked_by_cycle_is_rejected(svc):
+    a = svc.create_task("A")
+    b = svc.create_task("B")
+    _block(svc, a, b)   # A blocked by B
+    with pytest.raises(ValueError, match="cycle"):
+        _block(svc, b, a)   # B blocked by A would close the loop
+    # the rejected link must not have been partially applied
+    b = svc.get_task(b.id)
+    assert svc.blocking_tasks(b) == []
+
+
+def test_transitive_blocked_by_cycle_is_rejected(svc):
+    a = svc.create_task("A")
+    b = svc.create_task("B")
+    c = svc.create_task("C")
+    _block(svc, a, b)   # A blocked by B
+    _block(svc, b, c)   # B blocked by C
+    with pytest.raises(ValueError, match="cycle"):
+        _block(svc, c, a)   # C blocked by A would close a 3-node loop
+
+
+def test_non_cyclic_blocked_by_chain_is_allowed(svc):
+    a = svc.create_task("A")
+    b = svc.create_task("B")
+    c = svc.create_task("C")
+    _block(svc, a, b)
+    _block(svc, b, c)
+    a = svc.get_task(a.id)
+    assert {t.id for t in svc.blocking_tasks(a)} == {b.id}
