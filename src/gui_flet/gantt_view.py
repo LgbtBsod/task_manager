@@ -161,13 +161,8 @@ class GanttView:
             bar_color = task.priority.color
             is_done = task.status.value == "Done"
 
-            status_icons = {"Todo": "radio_button_unchecked", "In Progress": "pending", "Done": "check_circle"}
-            status_icon = status_icons.get(task.status.value, "radio_button_unchecked")
-            icon_color = {
-                "Todo": COLORS["accent_blue"],
-                "In Progress": COLORS["accent_orange"],
-                "Done": COLORS["accent_green"],
-            }.get(task.status.value, "#86868b")
+            status_icon, _ckey = L.status_style(task.status.value)
+            icon_color = COLORS.get(_ckey, "#86868b")
 
             bar_text = None
             if duration / td > 0.04:

@@ -4,7 +4,9 @@ from typing import Optional, Callable
 from datetime import datetime
 from .app import COLORS, ic
 from . import labels as L
+from ._ui import safe_update
 from core.datetimeutil import parse_dt, date_part, has_time, normalize
+from core.models import Priority, TaskType, Urgency
 
 
 def show_task_dialog(page: ft.Page, title: str = "Новая задача",
@@ -20,8 +22,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     priority_var = task.priority.value if task else "Medium"
     priority_field = ft.Dropdown(
         label="Приоритет", value=priority_var,
-        options=[ft.dropdown.Option(v, text=L.priority(v))
-                 for v in ("Low", "Medium", "High", "Critical")],
+        options=[ft.dropdown.Option(p.value, text=L.priority(p.value)) for p in Priority],
         text_size=14, border_radius=8, width=200,
     )
 
@@ -29,8 +30,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
     task_type_field = ft.Dropdown(
         label="Тип", value=task_type_var,
-        options=[ft.dropdown.Option(v, text=L.task_type(v))
-                 for v in ("Task", "Bug", "Story", "Epic", "Sub-task")],
+        options=[ft.dropdown.Option(t.value, text=L.task_type(t.value)) for t in TaskType],
         text_size=14, border_radius=8, width=200,
     )
 
@@ -120,8 +120,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
 
     urgency_field = ft.Dropdown(
         label="Срочность", value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
-        options=[ft.dropdown.Option(v, text=L.urgency(v))
-                 for v in ("Low", "Normal", "High", "Urgent")],
+        options=[ft.dropdown.Option(u.value, text=L.urgency(u.value)) for u in Urgency],
         text_size=14, border_radius=8, width=200,
     )
     watchers_field = ft.TextField(
@@ -132,20 +131,11 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     error_label = ft.Text("", size=12, color=COLORS["accent_red"])
 
     def _err(msg: str):
-        """Show a validation message. Refresh via the dialog (always mounted)
-        rather than the label alone."""
+        """Show a validation message (the dialog is always mounted)."""
         error_label.value = msg
-        for ctl in (error_label, dlg):
-            try:
-                if getattr(ctl, "page", None) is not None:
-                    ctl.update()
-                    break
-            except (AttributeError, AssertionError, RuntimeError):
-                pass
+        safe_update(error_label, dlg)
 
     def on_save_click(e):
-        from core.models import Priority
-
         t = title_field.value.strip()
         if not t:
             _err("Название обязательно")

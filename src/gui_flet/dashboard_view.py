@@ -6,7 +6,7 @@ import flet as ft
 
 from .app import COLORS, ic
 from . import labels as L
-from core.models import Priority
+from core.models import Priority, TaskStatus, TaskType
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -107,17 +107,16 @@ class DashboardView:
             prio_section.append(bar)
 
         type_section = []
-        type_config = [("Task", "#86868b"), ("Bug", "#ff453a"), ("Story", "#bf5af2"), ("Epic", "#ff9f0a"), ("Sub-task", "#30d158")]
-        for ttype, color in type_config:
-            bar = BreakdownBar(L.task_type(ttype), color, 0, 1, padding=ft.Padding.only(bottom=12))
-            self.type_bars[ttype] = bar
+        for t in TaskType:
+            bar = BreakdownBar(L.task_type(t.value), L.type_color(t.value), 0, 1,
+                               padding=ft.Padding.only(bottom=12))
+            self.type_bars[t.value] = bar
             type_section.append(bar)
 
         status_section = []
         status_config = [
-            ("todo", L.STATUS["Todo"], COLORS["accent_blue"]),
-            ("in_progress", L.STATUS["In Progress"], COLORS["accent_orange"]),
-            ("done", L.STATUS["Done"], COLORS["accent_green"]),
+            (s.name.lower(), L.STATUS[s.value], COLORS[L.status_style(s.value)[1]])
+            for s in TaskStatus
         ]
         for key, label, color in status_config:
             lbl = ft.Text(f"{label}: 0", size=13, color=COLORS["text_primary"])
@@ -215,16 +214,12 @@ class DashboardView:
         for ttype, bar in self.type_bars.items():
             bar.update_data(type_counts.get(ttype, 0), total)
 
-        status_map = {
-            "todo": stats["by_status"]["todo"],
-            "in_progress": stats["by_status"]["in_progress"],
-            "done": stats["by_status"]["done"],
-        }
-        status_labels_map = {"todo": L.STATUS["Todo"], "in_progress": L.STATUS["In Progress"], "done": L.STATUS["Done"]}
-        for key, count in status_map.items():
+        for s in TaskStatus:
+            key = s.name.lower()
+            count = stats["by_status"][key]
             pct = (count / total * 100) if total > 0 else 0
             if key in self._status_labels:
-                self._status_labels[key].value = f"{status_labels_map[key]}: {count}"
+                self._status_labels[key].value = f"{L.STATUS[s.value]}: {count}"
             if key in self._status_bars:
                 self._status_bars[key].width = max(pct * 3, 0)
 

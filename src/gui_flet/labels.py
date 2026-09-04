@@ -41,6 +41,20 @@ URGENCY = {
     "Urgent": "Срочная",
 }
 
+# status value -> (Material icon name, COLORS key). Used by the board columns,
+# the gantt rows and the dashboard "по статусу" bars so they stay in step.
+STATUS_STYLE = {
+    "Todo":        ("radio_button_unchecked", "accent_blue"),
+    "In Progress": ("pending",                "accent_orange"),
+    "Done":        ("check_circle",            "accent_green"),
+}
+
+# task-type value -> chip / bar colour (hex, theme-independent).
+TYPE_COLOR = {
+    "Task": "#86868b", "Bug": "#ff453a", "Story": "#bf5af2",
+    "Epic": "#ff9f0a", "Sub-task": "#30d158",
+}
+
 # Short unit labels used on cards / gantt bars
 UNIT_DAYS = "дн."
 UNIT_HOURS = "ч"
@@ -70,3 +84,12 @@ def task_type(value: str) -> str:
 
 def urgency(value: str) -> str:
     return URGENCY.get(value, value)
+
+
+def status_style(value: str) -> tuple[str, str]:
+    """(Material icon name, COLORS key) for a status value."""
+    return STATUS_STYLE.get(value, ("radio_button_unchecked", "text_secondary"))
+
+
+def type_color(value: str) -> str:
+    return TYPE_COLOR.get(value, "#86868b")

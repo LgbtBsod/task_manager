@@ -5,6 +5,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .app import COLORS, ic
 from . import labels as L
+from ._ui import safe_update
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -114,8 +115,7 @@ class TaskCard:
                 desc_preview += "..."
 
         # ── Header row: type badge + title + actions ──
-        type_colors = {"Bug": "#ff453a", "Story": "#bf5af2", "Epic": "#ff9f0a", "Sub-task": "#30d158"}
-        type_color = type_colors.get(task.task_type, "#86868b")
+        type_color = L.type_color(task.task_type)
         header_right = []
         _dbadge = _deadline_badge(task, app)
         if _dbadge is not None:
@@ -330,14 +330,8 @@ class DropColumn:
     def set_cards(self, cards: list):
         self._list_view.controls = [c.control for c in cards]
         self._badge.value = str(len(cards))
-        # Repaint immediately if we're already mounted; callers that build the
-        # board before it's on a page rely on their own page.update().
-        for ctl in (self._list_view, self._badge):
-            try:
-                if ctl.page is not None:
-                    ctl.update()
-            except (AttributeError, AssertionError, RuntimeError):
-                pass
+        # Repaint now if mounted; pre-mount callers rely on their page.update().
+        safe_update(self._list_view, self._badge)
 
 
 class KanbanView:
@@ -351,9 +345,13 @@ class KanbanView:
         self.done_col: Optional[DropColumn] = None
 
     def build(self):
-        self.todo_col = DropColumn(self.app, L.STATUS["Todo"], "#0a84ff", "Todo", icon="radio_button_unchecked")
-        self.progress_col = DropColumn(self.app, L.STATUS["In Progress"], "#ff9f0a", "In Progress", icon="pending")
-        self.done_col = DropColumn(self.app, L.STATUS["Done"], "#30d158", "Done", icon="check_circle")
+        def _col(value: str) -> DropColumn:
+            icon, ckey = L.status_style(value)
+            return DropColumn(self.app, L.STATUS[value], COLORS[ckey], value, icon=icon)
+
+        self.todo_col = _col("Todo")
+        self.progress_col = _col("In Progress")
+        self.done_col = _col("Done")
 
         self.container = ft.Container(
             content=ft.Row(
