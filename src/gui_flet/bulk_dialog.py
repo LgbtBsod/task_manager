@@ -14,9 +14,8 @@ from core import strings as L
 from core.models import TaskStatus
 
 from ._ui import dropdown as _dropdown
-from ._ui import safe_update
+from ._ui import restyle_toggle_chip, safe_update, toggle_chip
 from .app import COLORS
-from .palette import RADIUS_CHIP
 from .task_dialog import _TagPicker
 
 if TYPE_CHECKING:
@@ -67,26 +66,13 @@ def show_bulk_dialog(app: "TaskManagerApp") -> None:
 
     def _toggle_source(value: str, chip: ft.Container):
         selected_sources.discard(value) if value in selected_sources else selected_sources.add(value)
-        on = value in selected_sources
-        color = _status_color(value)
-        chip.bgcolor = color if on else COLORS["bg_button"]
-        chip.content.color = "#ffffff" if on else COLORS["text_secondary"]
-        chip.content.weight = ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL
+        restyle_toggle_chip(chip, value in selected_sources, _status_color(value))
         safe_update(chip)
         _recount()
 
     def _status_chip(value: str) -> ft.Container:
         on = value in selected_sources
-        color = _status_color(value)
-        chip = ft.Container(
-            content=ft.Text(L.STATUS_LABEL[value], size=11,
-                            color="#ffffff" if on else COLORS["text_secondary"],
-                            weight=ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            bgcolor=color if on else COLORS["bg_button"],
-            border=ft.Border.all(1, color),
-            border_radius=RADIUS_CHIP,
-        )
+        chip = toggle_chip(L.STATUS_LABEL[value], _status_color(value), on, None)
         chip.on_click = lambda e, v=value, c=chip: _toggle_source(v, c)
         return chip
 

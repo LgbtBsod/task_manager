@@ -8,9 +8,8 @@ from core import strings as L
 from core.datetimeutil import date_part, has_time, normalize, parse_dt
 from core.models import Priority, TaskType, Urgency
 
-from ._ui import dropdown, field, safe_update
+from ._ui import dropdown, field, restyle_toggle_chip, safe_update, toggle_chip
 from .app import COLORS, ic
-from .palette import RADIUS_CHIP
 
 
 class _TagPicker(ft.Column):
@@ -51,27 +50,16 @@ class _TagPicker(ft.Column):
     def _chip(self, name: str) -> ft.Container:
         on = name in self._selected
         color = self._colors.get(name, COLORS["accent_blue"])
-        return ft.Container(
-            key=name,
-            content=ft.Text(name, size=11,
-                            color="#ffffff" if on else COLORS["text_secondary"],
-                            weight=ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            bgcolor=color if on else COLORS["bg_button"],
-            border=ft.Border.all(1, color),
-            border_radius=RADIUS_CHIP,
-            on_click=lambda e, n=name: self._toggle(n),
-        )
+        chip = toggle_chip(name, color, on, lambda e, n=name: self._toggle(n))
+        chip.key = name
+        return chip
 
     def _toggle(self, name: str):
         self._selected.discard(name) if name in self._selected else self._selected.add(name)
         for c in self._wrap.controls:
             if c.key == name:
-                on = name in self._selected
-                color = self._colors.get(name, COLORS["accent_blue"])
-                c.bgcolor = color if on else COLORS["bg_button"]
-                c.content.color = "#ffffff" if on else COLORS["text_secondary"]
-                c.content.weight = ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL
+                restyle_toggle_chip(c, name in self._selected,
+                                    self._colors.get(name, COLORS["accent_blue"]))
         safe_update(self._wrap)
         if self._on_change:
             self._on_change()
