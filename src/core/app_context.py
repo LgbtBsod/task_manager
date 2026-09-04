@@ -6,7 +6,6 @@ down. Nothing else constructs a ``TaskRepository`` / ``TaskService`` /
 ``SettingsStore`` directly.
 """
 from dataclasses import dataclass
-from pathlib import Path
 
 from . import paths
 from .repository import TaskRepository
@@ -30,14 +29,3 @@ class AppContext:
         service = TaskService(repository=repository)
         return cls(settings=settings, repository=repository, service=service,
                    version=paths.read_version())
-
-    @classmethod
-    def for_testing(cls, tmp_path: Path) -> "AppContext":
-        """Wire an isolated app rooted at ``tmp_path`` (no disk side effects
-        outside it)."""
-        db = tmp_path / "tasks.json"
-        repository = TaskRepository(db_path=str(db))
-        settings = SettingsStore(str(tmp_path / "settings.json"))
-        service = TaskService(repository=repository)
-        return cls(settings=settings, repository=repository, service=service,
-                   version="test")

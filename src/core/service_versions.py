@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 
+from ._util import apply_kwargs
 from .models import VersionRelease, Task, TaskStatus, TaskType
 from .repository import TaskRepository
 
@@ -29,11 +30,8 @@ class VersionService:
         version = self.repo.get_version_by_id(version_id)
         if not version:
             return None
-        for key, val in kwargs.items():
-            if hasattr(version, key) and val is not None:
-                setattr(version, key, val)
         log.info("Version updated: %s", version_id)
-        return self.repo.update_version(version)
+        return self.repo.update_version(apply_kwargs(version, kwargs))
 
     def release_version(self, version_id: str,
                         release_date: Optional[str] = None) -> Optional[VersionRelease]:

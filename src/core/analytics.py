@@ -28,7 +28,7 @@ class BoardAnalytics:
                 "total": 0, "todo": 0, "in_progress": 0, "done": 0,
                 "total_time": 0.0, "story_points_sum": 0})
             w["total"] += 1
-            w[t.status.name.lower() if t.status != TaskStatus.IN_PROGRESS else "in_progress"] += 1
+            w[t.status.name.lower()] += 1            # TODO/IN_PROGRESS/DONE -> the bucket keys
             w["total_time"] += t.time_spent
             w["story_points_sum"] += t.story_points or 0
         return [{"assignee": name, **w} for name, w in sorted(lanes.items())]
@@ -42,12 +42,7 @@ class BoardAnalytics:
         lanes: dict = {}
         for t in self.repo.get_all():
             lane = lanes.setdefault(key_of(t), {"todo": [], "in_progress": [], "done": []})
-            if t.status == TaskStatus.TODO:
-                lane["todo"].append(t)
-            elif t.status == TaskStatus.IN_PROGRESS:
-                lane["in_progress"].append(t)
-            elif t.status == TaskStatus.DONE:
-                lane["done"].append(t)
+            lane[t.status.name.lower()].append(t)
         return lanes
 
     # ── velocity (needs the sprint service) ──
@@ -97,8 +92,8 @@ class BoardAnalytics:
                 ("done", "Done", TaskStatus.DONE)]
         return {"columns": [
             {"id": cid, "title": title,
-             "tasks": [t.to_dict() for t in tasks if t.status == st],
-             "count": sum(1 for t in tasks if t.status == st)}
+             "tasks": (col := [t.to_dict() for t in tasks if t.status == st]),
+             "count": len(col)}
             for cid, title, st in cols
         ]}
 

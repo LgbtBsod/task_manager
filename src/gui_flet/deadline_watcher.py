@@ -31,11 +31,8 @@ class DeadlineWatcher:
 
     async def run(self) -> None:
         while True:
-            try:
-                interval = int(self.settings.get("notify_check_seconds") or 60)
-            except (TypeError, ValueError):
-                interval = 60
-            await asyncio.sleep(max(15, interval))
+            # notify_check_seconds is a pydantic int in [15, 3600] — no guard needed.
+            await asyncio.sleep(self.settings.get("notify_check_seconds"))
             if not self.settings.get("notifications_enabled"):
                 continue
             try:

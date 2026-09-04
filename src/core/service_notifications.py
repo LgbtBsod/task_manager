@@ -45,9 +45,9 @@ class NotificationService:
                 created.append(self.add_notification(
                     "warning", "Просрочено",
                     f"{t.title} просрочена ({t.due_date})", task_id=t.id))
-            elif t.days_until_due() is not None and 0 <= t.days_until_due() <= 2:
+            elif (d := t.days_until_due()) is not None and 0 <= d <= 2:
                 created.append(self.add_notification(
                     "info", "Скоро дедлайн",
-                    f"{t.title} — через {t.days_until_due()} дн.", task_id=t.id))
+                    f"{t.title} — через {d} дн.", task_id=t.id))
         self.repo.clear_old_notifications(100)
         return created

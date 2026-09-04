@@ -2,6 +2,7 @@
 import logging
 from typing import Optional, List
 
+from ._util import apply_kwargs
 from .models import Sprint, SprintStatus, Task, TaskStatus
 from .repository import TaskRepository
 
@@ -31,11 +32,8 @@ class SprintService:
         sprint = self.repo.get_sprint_by_id(sprint_id)
         if not sprint:
             return None
-        for key, val in kwargs.items():
-            if hasattr(sprint, key) and val is not None:
-                setattr(sprint, key, val)
         log.info("Sprint updated: %s", sprint_id)
-        return self.repo.update_sprint(sprint)
+        return self.repo.update_sprint(apply_kwargs(sprint, kwargs))
 
     def start_sprint(self, sprint_id: str) -> Optional[Sprint]:
         return self.update_sprint(sprint_id, status=SprintStatus.ACTIVE.value)

@@ -38,10 +38,7 @@ def _deadline_badge(task, app):
     secs = task.seconds_until_due()
     if secs is None:
         return None
-    try:
-        window = app.notify_hours_before() * 3600
-    except Exception:
-        window = 24 * 3600
+    window = app.notify_hours_before() * 3600
     if secs < 0:
         text, bg = "просрочено", "#F44336"
     elif secs <= window:

@@ -68,10 +68,7 @@ class TaskManagerApp:
         self.settings = self.context.settings
 
     def notify_hours_before(self) -> int:
-        try:
-            return int(self.settings.get("notify_hours_before"))
-        except (TypeError, ValueError, AttributeError):
-            return 24
+        return self.settings.get("notify_hours_before")   # pydantic int, 1..720
 
     def _apply_theme(self, page: ft.Page) -> None:
         """Rebuild the palette + Flet themes from the current settings.
