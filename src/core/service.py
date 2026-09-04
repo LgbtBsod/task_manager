@@ -972,7 +972,7 @@ class TaskService:
 
     def create_task_from_template(self, template_id: str, title_override: str | None = None) -> Task:
         """Create a task from a template. Optionally override the title."""
-        tpl = self.repo.get_template_by_id(template_id)
+        tpl = self.repo.templates.by_id(template_id)
         if not tpl:
             raise ValueError(f"Template {template_id} not found")
         return self.create_task(
@@ -1030,7 +1030,7 @@ class TaskService:
         """
         today = datetime.now().strftime("%Y-%m-%d")
         created: list[Task] = []
-        for rec in self.repo.get_all_recurring():
+        for rec in self.repo.recurring.all():
             if not rec.is_active:
                 continue
             occ = rec.due_occurrence(today, rec.last_generated_date)
@@ -1047,7 +1047,7 @@ class TaskService:
             task.update_timestamp()
             self.repo.update(task)
             rec.last_generated_date = occ
-            self.repo.update_recurring(rec)
+            self.repo.recurring.update(rec)
             created.append(task)
             log.info("Generated recurring task %s from %s (due %s)", task.id, rec.id, occ)
         return created

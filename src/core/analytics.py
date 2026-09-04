@@ -47,7 +47,7 @@ class BoardAnalytics:
     # ── velocity (needs the sprint service) ──
 
     def get_sprint_velocity(self, last_n: int = 5) -> list[dict]:
-        completed = [s for s in self.repo.get_all_sprints()
+        completed = [s for s in self.repo.sprints.all()
                      if s.status == SprintStatus.COMPLETED.value]
         completed.sort(key=lambda s: s.created_at, reverse=True)
         out = []
@@ -112,7 +112,7 @@ class BoardAnalytics:
                 except (ValueError, TypeError):
                     pass
 
-        active = [s for s in self.repo.get_all_sprints() if s.is_active()]
+        active = [s for s in self.repo.sprints.all() if s.is_active()]
         return {
             "total_tasks": total,
             "todo": sum(1 for t in tasks if t.status == TaskStatus.TODO),
@@ -135,6 +135,6 @@ class BoardAnalytics:
                                           if t.status == TaskStatus.DONE),
             "active_sprint": self.sprints.get_sprint_report(active[0].id) if active else None,
             "labels_count": len({lbl for t in tasks for lbl in t.labels}),
-            "versions_count": len(self.repo.get_all_versions()),
-            "categories_count": len(self.repo.get_all_categories()),
+            "versions_count": len(self.repo.versions.all()),
+            "categories_count": len(self.repo.categories.all()),
         }

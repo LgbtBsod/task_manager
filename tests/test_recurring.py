@@ -72,3 +72,17 @@ def test_invalid_frequency_rejected():
     s = _svc()
     with pytest.raises(ValueError):
         s.create_recurring_task("x", frequency="hourly", base_due_date=_days_ago(1))
+
+
+def test_monthly_recurrence_uses_calendar_months_not_fixed_30_days():
+    """A month-end base date must step by real calendar months (Jan 31 ->
+    Feb 28, clamped for the shorter month), not drift forward the way a
+    fixed timedelta(days=30) step would (Jan 31 -> Mar 2 -> Apr 1 -> ...)."""
+    rec = RecurringTask(title="rent", frequency="monthly", base_due_date="2026-01-31")
+    assert rec.next_due_date(after_date="2026-02-15") == "2026-02-28"
+    assert rec.next_due_date(after_date="2026-03-01") == "2026-03-28"
+
+
+def test_quarterly_recurrence_uses_calendar_months():
+    rec = RecurringTask(title="review", frequency="quarterly", base_due_date="2026-01-31")
+    assert rec.next_due_date(after_date="2026-03-01") == "2026-04-30"

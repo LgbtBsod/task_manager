@@ -35,14 +35,14 @@ class TagService:
 
     def list_tags(self) -> list[Tag]:
         """Every registered tag, sorted by name."""
-        return sorted(self.repo.get_all_tag_defs(), key=lambda t: t.name)
+        return sorted(self.repo.tags.all(), key=lambda t: t.name)
 
     def get_tag(self, tag_id: str) -> Tag | None:
-        return self.repo.get_tag_def_by_id(tag_id)
+        return self.repo.tags.by_id(tag_id)
 
     def get_tag_by_name(self, name: str) -> Tag | None:
         want = name.strip().lower()
-        return next((t for t in self.repo.get_all_tag_defs() if t.name == want), None)
+        return next((t for t in self.repo.tags.all() if t.name == want), None)
 
     def create_tag(self, name: str, color: str | None = None,
                    description: str = "") -> Tag:
@@ -59,7 +59,7 @@ class TagService:
             color=clean_hex(color) or self._next_auto_color(),
             description=description.strip(),
         )
-        self.repo.add_tag_def(tag)
+        self.repo.tags.add(tag)
         log.info("Tag created: %s (%s)", tag.name, tag.color)
         return tag
 
@@ -67,7 +67,7 @@ class TagService:
                    color: str | None = None, description: str | None = None) -> Tag | None:
         """Recolour / redescribe / rename a tag. A rename rewrites ``Task.tags``
         on every task that referenced the old name."""
-        tag = self.repo.get_tag_def_by_id(tag_id)
+        tag = self.repo.tags.by_id(tag_id)
         if tag is None:
             return None
 
@@ -87,13 +87,13 @@ class TagService:
                 log.info("Tag renamed: %s -> %s", tag.name, new_name)
                 tag.name = new_name
 
-        return self.repo.update_tag_def(tag)
+        return self.repo.tags.update(tag)
 
     def delete_tag(self, tag_id: str, *, strip_from_tasks: bool = True) -> bool:
-        tag = self.repo.get_tag_def_by_id(tag_id)
+        tag = self.repo.tags.by_id(tag_id)
         if tag is None:
             return False
-        if not self.repo.delete_tag_def(tag_id):
+        if not self.repo.tags.delete(tag_id):
             return False
         if strip_from_tasks:
             self._rewrite_task_tag(tag.name, None)
@@ -111,7 +111,7 @@ class TagService:
         tag, most-used first. Feeds the Overview "По тегам" card."""
         tasks = self.repo.get_all()
         rows = []
-        for tag in self.repo.get_all_tag_defs():
+        for tag in self.repo.tags.all():
             tagged = [t for t in tasks if tag.name in t.tags]
             rows.append({
                 "name": tag.name, "color": tag.color,
@@ -126,7 +126,7 @@ class TagService:
     def sync_from_tasks(self) -> int:
         """Register any tag string found on a task but not yet in the catalog.
         Idempotent; returns how many were added. One file write."""
-        known = {t.name for t in self.repo.get_all_tag_defs()}
+        known = {t.name for t in self.repo.tags.all()}
         seen: list[str] = []
         for task in self.repo.get_all():
             for name in task.tags:
@@ -144,7 +144,7 @@ class TagService:
     # ── internals ──
 
     def _next_auto_color(self) -> str:
-        used = {t.color for t in self.repo.get_all_tag_defs()}
+        used = {t.color for t in self.repo.tags.all()}
         for c in _AUTO_COLORS:
             if c not in used:
                 return c

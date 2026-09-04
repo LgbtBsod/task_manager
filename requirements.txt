@@ -4,6 +4,7 @@ pydantic>=2.0.0
 packaging>=23.0          # PEP 440 version comparison in the self-updater
 certifi>=2024.2.2        # bundled CA bundle for the self-updater's HTTPS calls —
                          # a frozen exe can't always enumerate the OS trust store
+python-dateutil>=2.9.0   # calendar-correct month/quarter recurrence stepping
 
 # Dev / CI only (not bundled by PyInstaller):
 #   pytest pytest-asyncio pytest-mock ruff

@@ -47,6 +47,14 @@ URGENCY_LABEL = {
 
 # status value -> (Material icon name, COLORS key) — board columns, gantt rows
 # and the dashboard "по статусу" bars read this so they stay in step.
+#
+# "In Progress" -> accent_orange is a deliberate deviation from SAP Fiori
+# Horizon's own semantic rule (there, orange/Critical means "warning" only,
+# never a neutral workflow state — see foundations/best-practices/ui-elements
+# /how-to-use-semantic-colors). Kept anyway: orange/yellow for "in progress"
+# is a near-universal kanban convention (Trello, Jira, Linear) and nothing
+# else in this app currently uses orange for an actual warning, so there's
+# no real ambiguity in practice — an informed choice, not an oversight.
 STATUS_STYLE = {
     "Todo":        ("radio_button_unchecked", "accent_blue"),
     "In Progress": ("pending",                "accent_orange"),

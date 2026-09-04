@@ -17,22 +17,22 @@ class SprintService:
                       end_date: str | None = None) -> Sprint:
         sprint = Sprint(name=name.strip(), goal=goal.strip(),
                         start_date=start_date, end_date=end_date)
-        self.repo.add_sprint(sprint)
+        self.repo.sprints.add(sprint)
         log.info("Sprint created: %s - %s", sprint.id, sprint.name)
         return sprint
 
     def get_all_sprints(self) -> list[Sprint]:
-        return self.repo.get_all_sprints()
+        return self.repo.sprints.all()
 
     def get_sprint(self, sprint_id: str) -> Sprint | None:
-        return self.repo.get_sprint_by_id(sprint_id)
+        return self.repo.sprints.by_id(sprint_id)
 
     def update_sprint(self, sprint_id: str, **kwargs) -> Sprint | None:
-        sprint = self.repo.get_sprint_by_id(sprint_id)
+        sprint = self.repo.sprints.by_id(sprint_id)
         if not sprint:
             return None
         log.info("Sprint updated: %s", sprint_id)
-        return self.repo.update_sprint(apply_kwargs(sprint, kwargs))
+        return self.repo.sprints.update(apply_kwargs(sprint, kwargs))
 
     def start_sprint(self, sprint_id: str) -> Sprint | None:
         return self.update_sprint(sprint_id, status=SprintStatus.ACTIVE.value)
@@ -44,7 +44,7 @@ class SprintService:
         return self.update_sprint(sprint_id, status=SprintStatus.CANCELLED.value)
 
     def delete_sprint(self, sprint_id: str) -> bool:
-        result = self.repo.delete_sprint(sprint_id)
+        result = self.repo.sprints.delete(sprint_id)
         if result:
             log.info("Sprint deleted: %s", sprint_id)
         return result
@@ -56,7 +56,7 @@ class SprintService:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
-        if sprint_id and not self.repo.get_sprint_by_id(sprint_id):
+        if sprint_id and not self.repo.sprints.by_id(sprint_id):
             raise ValueError(f"Sprint {sprint_id} not found")
         task.record_change("sprint_id", task.sprint_id or "", sprint_id or "")
         task.sprint_id = sprint_id
@@ -65,7 +65,7 @@ class SprintService:
         return self.repo.update(task)
 
     def get_sprint_report(self, sprint_id: str) -> dict:
-        sprint = self.repo.get_sprint_by_id(sprint_id)
+        sprint = self.repo.sprints.by_id(sprint_id)
         if not sprint:
             return {}
         tasks = self.get_sprint_tasks(sprint_id)

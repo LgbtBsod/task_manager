@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Self
 
+from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .datetimeutil import date_part, parse_dt
@@ -600,12 +601,17 @@ class RecurringTask(_DataclassJSON):
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
 
+    # Monthly/quarterly use relativedelta (calendar months), not a fixed
+    # timedelta — 30/90-day steps drift off the intended day-of-month within
+    # a year (e.g. a 31st-of-the-month due date creeps to the 2nd, then the
+    # 3rd...) and dateutil already handles month-length/leap-year edge cases
+    # (Jan 31 + 1 month -> Feb 28, not an overflowed March date).
     _STEP = {
         RecurrenceFrequency.DAILY.value: timedelta(days=1),
         RecurrenceFrequency.WEEKLY.value: timedelta(weeks=1),
         RecurrenceFrequency.BIWEEKLY.value: timedelta(weeks=2),
-        RecurrenceFrequency.MONTHLY.value: timedelta(days=30),
-        RecurrenceFrequency.QUARTERLY.value: timedelta(days=90),
+        RecurrenceFrequency.MONTHLY.value: relativedelta(months=1),
+        RecurrenceFrequency.QUARTERLY.value: relativedelta(months=3),
     }
 
     def next_due_date(self, after_date: str | None = None) -> str | None:

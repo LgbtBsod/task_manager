@@ -192,14 +192,19 @@ class TaskRepository:
         def _side(suffix: str) -> Path:
             return self.db_path.parent / f"{self.db_path.stem}_{suffix}.json"
 
-        self._sprints = _JsonCollection(_side("sprints"), Sprint.from_dict, "sprint")
-        self._versions = _JsonCollection(_side("versions"), VersionRelease.from_dict, "version")
-        self._templates = _JsonCollection(_side("templates"), TaskTemplate.from_dict, "template")
-        self._categories = _JsonCollection(_side("categories"), Category.from_dict, "category")
-        self._recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
-        self._notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
-        self._tags = _JsonCollection(_side("tags"), Tag.from_dict, "tag")
-        self._project_templates = _JsonCollection(
+        # Public collections: each is a full CRUD store on its own (.all(),
+        # .by_id(), .add(), .update(), .delete()) — callers use these
+        # directly (``repo.sprints.all()``) instead of per-entity forwarder
+        # methods, so adding a new secondary entity needs one line here plus
+        # one in _collections(), not five new methods on this class.
+        self.sprints = _JsonCollection(_side("sprints"), Sprint.from_dict, "sprint")
+        self.versions = _JsonCollection(_side("versions"), VersionRelease.from_dict, "version")
+        self.templates = _JsonCollection(_side("templates"), TaskTemplate.from_dict, "template")
+        self.categories = _JsonCollection(_side("categories"), Category.from_dict, "category")
+        self.recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
+        self.notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
+        self.tags = _JsonCollection(_side("tags"), Tag.from_dict, "tag")
+        self.project_templates = _JsonCollection(
             _side("project_templates"), ProjectTemplate.from_dict, "project template")
 
     def _load_tasks(self) -> list[dict]:
@@ -350,179 +355,63 @@ class TaskRepository:
             'total_time_spent': total_time
         }
 
-    # ── Secondary entities ─────────────────────────────────────────────
-    # Sprints / versions / templates / categories / recurring tasks are all
-    # plain id-keyed CRUD; each just forwards to its _JsonCollection.
-
-    def get_all_sprints(self) -> list[Sprint]:
-        return self._sprints.all()
-
-    def get_sprint_by_id(self, sprint_id: str) -> Sprint | None:
-        return self._sprints.by_id(sprint_id)
-
-    def add_sprint(self, sprint: Sprint) -> Sprint:
-        return self._sprints.add(sprint)
-
-    def update_sprint(self, sprint: Sprint) -> Sprint:
-        return self._sprints.update(sprint)
-
-    def delete_sprint(self, sprint_id: str) -> bool:
-        return self._sprints.delete(sprint_id)
-
-    def get_all_versions(self) -> list[VersionRelease]:
-        return self._versions.all()
-
-    def get_version_by_id(self, version_id: str) -> VersionRelease | None:
-        return self._versions.by_id(version_id)
-
-    def add_version(self, version: VersionRelease) -> VersionRelease:
-        return self._versions.add(version)
-
-    def update_version(self, version: VersionRelease) -> VersionRelease:
-        return self._versions.update(version)
-
-    def delete_version(self, version_id: str) -> bool:
-        return self._versions.delete(version_id)
-
-    def get_all_templates(self) -> list[TaskTemplate]:
-        return self._templates.all()
-
-    def get_template_by_id(self, template_id: str) -> TaskTemplate | None:
-        return self._templates.by_id(template_id)
-
-    def add_template(self, template: TaskTemplate) -> TaskTemplate:
-        return self._templates.add(template)
-
-    def update_template(self, template: TaskTemplate) -> TaskTemplate:
-        return self._templates.update(template)
-
-    def delete_template(self, template_id: str) -> bool:
-        return self._templates.delete(template_id)
-
-    def get_all_project_templates(self) -> list[ProjectTemplate]:
-        return self._project_templates.all()
-
-    def get_project_template_by_id(self, template_id: str) -> ProjectTemplate | None:
-        return self._project_templates.by_id(template_id)
-
-    def add_project_template(self, template: ProjectTemplate) -> ProjectTemplate:
-        return self._project_templates.add(template)
-
-    def update_project_template(self, template: ProjectTemplate) -> ProjectTemplate:
-        return self._project_templates.update(template)
-
-    def delete_project_template(self, template_id: str) -> bool:
-        return self._project_templates.delete(template_id)
-
-    def get_all_categories(self) -> list[Category]:
-        return self._categories.all()
-
-    def get_category_by_id(self, category_id: str) -> Category | None:
-        return self._categories.by_id(category_id)
-
-    def add_category(self, category: Category) -> Category:
-        return self._categories.add(category)
-
-    def update_category(self, category: Category) -> Category:
-        return self._categories.update(category)
-
-    def delete_category(self, category_id: str) -> bool:
-        return self._categories.delete(category_id)
-
-    def get_all_recurring(self) -> list[RecurringTask]:
-        return self._recurring.all()
-
-    def get_recurring_by_id(self, rec_id: str) -> RecurringTask | None:
-        return self._recurring.by_id(rec_id)
-
-    def add_recurring(self, rec: RecurringTask) -> RecurringTask:
-        return self._recurring.add(rec)
-
-    def update_recurring(self, rec: RecurringTask) -> RecurringTask:
-        return self._recurring.update(rec)
-
-    def delete_recurring(self, rec_id: str) -> bool:
-        return self._recurring.delete(rec_id)
-
     # ── Tag registry ──
-
-    def get_all_tag_defs(self) -> list[Tag]:
-        return self._tags.all()
-
-    def get_tag_def_by_id(self, tag_id: str) -> Tag | None:
-        return self._tags.by_id(tag_id)
-
-    def add_tag_def(self, tag: Tag) -> Tag:
-        return self._tags.add(tag)
+    # Bulk-append is the one tag operation _JsonCollection doesn't offer
+    # directly (add() is one-at-a-time, each a separate file write).
 
     def add_tag_defs(self, tags: list[Tag]) -> None:
         """Append several at once — one file write (used by the migration)."""
         if not tags:
             return
-        items = self._tags.load_raw()
+        items = self.tags.load_raw()
         items.extend(t.to_dict() for t in tags)
-        self._tags.save_raw(items)
-
-    def update_tag_def(self, tag: Tag) -> Tag:
-        return self._tags.update(tag)
-
-    def delete_tag_def(self, tag_id: str) -> bool:
-        return self._tags.delete(tag_id)
+        self.tags.save_raw(items)
 
     # ── Notifications ──
-    # CRUD plus a few read/unread helpers that need raw-dict access.
-
-    def get_all_notifications(self) -> list[Notification]:
-        return self._notifications.all()
+    # A few read/unread helpers that need raw-dict access beyond plain CRUD.
 
     def get_unread_notifications(self) -> list[Notification]:
-        return [n for n in self.get_all_notifications() if not n.is_read]
-
-    def add_notification(self, notification: Notification) -> Notification:
-        return self._notifications.add(notification)
-
-    def delete_notification(self, notif_id: str) -> bool:
-        return self._notifications.delete(notif_id)
+        return [n for n in self.notifications.all() if not n.is_read]
 
     def mark_notification_read(self, notif_id: str) -> bool:
-        items = self._notifications.load_raw()
+        items = self.notifications.load_raw()
         for n in items:
             if n['id'] == notif_id:
                 n['is_read'] = True
-                self._notifications.save_raw(items)
+                self.notifications.save_raw(items)
                 return True
         return False
 
     def mark_all_notifications_read(self) -> int:
-        items = self._notifications.load_raw()
+        items = self.notifications.load_raw()
         count = sum(1 for n in items if not n['is_read'])
         if count:
             for n in items:
                 n['is_read'] = True
-            self._notifications.save_raw(items)
+            self.notifications.save_raw(items)
         return count
 
     def clear_old_notifications(self, max_count: int = 100) -> int:
         """Keep only the last max_count notifications, delete older ones."""
-        items = self._notifications.load_raw()
+        items = self.notifications.load_raw()
         if len(items) <= max_count:
             return 0
         items = items[-max_count:]
-        self._notifications.save_raw(items)
+        self.notifications.save_raw(items)
         return len(items)
 
     # ── Export / Import ──
 
     def _collections(self) -> dict[str, "_JsonCollection"]:
         return {
-            "sprints": self._sprints,
-            "versions": self._versions,
-            "templates": self._templates,
-            "categories": self._categories,
-            "recurring": self._recurring,
-            "notifications": self._notifications,
-            "tags": self._tags,
-            "project_templates": self._project_templates,
+            "sprints": self.sprints,
+            "versions": self.versions,
+            "templates": self.templates,
+            "categories": self.categories,
+            "recurring": self.recurring,
+            "notifications": self.notifications,
+            "tags": self.tags,
+            "project_templates": self.project_templates,
         }
 
     def export_all(self) -> dict:

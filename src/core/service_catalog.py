@@ -42,25 +42,25 @@ class TemplateService:
             tags=tags or [], labels=labels or [], components=components or [],
             story_points=story_points, original_estimate=original_estimate,
         )
-        self.repo.add_template(tpl)
+        self.repo.templates.add(tpl)
         log.info("Template created: %s - %s", tpl.id, tpl.name)
         return tpl
 
     def get_all_templates(self) -> list[TaskTemplate]:
-        return self.repo.get_all_templates()
+        return self.repo.templates.all()
 
     def get_template(self, template_id: str) -> TaskTemplate | None:
-        return self.repo.get_template_by_id(template_id)
+        return self.repo.templates.by_id(template_id)
 
     def update_template(self, template_id: str, **kwargs) -> TaskTemplate | None:
-        tpl = self.repo.get_template_by_id(template_id)
+        tpl = self.repo.templates.by_id(template_id)
         if not tpl:
             return None
         log.info("Template updated: %s", template_id)
-        return self.repo.update_template(apply_kwargs(tpl, kwargs))
+        return self.repo.templates.update(apply_kwargs(tpl, kwargs))
 
     def delete_template(self, template_id: str) -> bool:
-        result = self.repo.delete_template(template_id)
+        result = self.repo.templates.delete(template_id)
         if result:
             log.info("Template deleted: %s", template_id)
         return result
@@ -81,18 +81,18 @@ class TemplateService:
         ]
         tpl = ProjectTemplate(name=name.strip(), description=description.strip(),
                               steps=step_objs)
-        self.repo.add_project_template(tpl)
+        self.repo.project_templates.add(tpl)
         log.info("Project template created: %s - %s (%d steps)", tpl.id, tpl.name, len(step_objs))
         return tpl
 
     def get_all_project_templates(self) -> list[ProjectTemplate]:
-        return self.repo.get_all_project_templates()
+        return self.repo.project_templates.all()
 
     def get_project_template(self, template_id: str) -> ProjectTemplate | None:
-        return self.repo.get_project_template_by_id(template_id)
+        return self.repo.project_templates.by_id(template_id)
 
     def delete_project_template(self, template_id: str) -> bool:
-        result = self.repo.delete_project_template(template_id)
+        result = self.repo.project_templates.delete(template_id)
         if result:
             log.info("Project template deleted: %s", template_id)
         return result
@@ -105,25 +105,25 @@ class CategoryService:
     def create_category(self, name: str, description: str = "",
                         color: str = "#0a84ff") -> Category:
         cat = Category(name=name.strip(), description=description.strip(), color=color)
-        self.repo.add_category(cat)
+        self.repo.categories.add(cat)
         log.info("Category created: %s - %s", cat.id, cat.name)
         return cat
 
     def get_all_categories(self) -> list[Category]:
-        return self.repo.get_all_categories()
+        return self.repo.categories.all()
 
     def get_category(self, category_id: str) -> Category | None:
-        return self.repo.get_category_by_id(category_id)
+        return self.repo.categories.by_id(category_id)
 
     def update_category(self, category_id: str, **kwargs) -> Category | None:
-        cat = self.repo.get_category_by_id(category_id)
+        cat = self.repo.categories.by_id(category_id)
         if not cat:
             return None
         log.info("Category updated: %s", category_id)
-        return self.repo.update_category(apply_kwargs(cat, kwargs))
+        return self.repo.categories.update(apply_kwargs(cat, kwargs))
 
     def delete_category(self, category_id: str) -> bool:
-        result = self.repo.delete_category(category_id)
+        result = self.repo.categories.delete(category_id)
         if result:
             for t in self.repo.get_all():
                 if t.category_id == category_id:
@@ -140,7 +140,7 @@ class CategoryService:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
-        if category_id and not self.repo.get_category_by_id(category_id):
+        if category_id and not self.repo.categories.by_id(category_id):
             raise ValueError(f"Category {category_id} not found")
         task.record_change("category_id", task.category_id or "", category_id or "")
         task.category_id = category_id
@@ -148,7 +148,7 @@ class CategoryService:
         return self.repo.update(task)
 
     def get_category_report(self, category_id: str) -> dict:
-        cat = self.repo.get_category_by_id(category_id)
+        cat = self.repo.categories.by_id(category_id)
         if not cat:
             return {}
         tasks = self.get_category_tasks(category_id)
@@ -181,33 +181,33 @@ class RecurringService:
             task_type=task_type, priority=priority,
             tags=tags or [], labels=labels or [], estimate_hours=estimate_hours,
         )
-        self.repo.add_recurring(rec)
+        self.repo.recurring.add(rec)
         log.info("Recurring task created: %s - %s", rec.id, rec.title)
         return rec
 
     def get_all_recurring(self) -> list[RecurringTask]:
-        return self.repo.get_all_recurring()
+        return self.repo.recurring.all()
 
     def get_recurring(self, rec_id: str) -> RecurringTask | None:
-        return self.repo.get_recurring_by_id(rec_id)
+        return self.repo.recurring.by_id(rec_id)
 
     def update_recurring(self, rec_id: str, **kwargs) -> RecurringTask | None:
-        rec = self.repo.get_recurring_by_id(rec_id)
+        rec = self.repo.recurring.by_id(rec_id)
         if not rec:
             return None
         log.info("Recurring task updated: %s", rec_id)
-        return self.repo.update_recurring(apply_kwargs(rec, kwargs))
+        return self.repo.recurring.update(apply_kwargs(rec, kwargs))
 
     def delete_recurring(self, rec_id: str) -> bool:
-        result = self.repo.delete_recurring(rec_id)
+        result = self.repo.recurring.delete(rec_id)
         if result:
             log.info("Recurring task deleted: %s", rec_id)
         return result
 
     def toggle_recurring_active(self, rec_id: str) -> RecurringTask | None:
-        rec = self.repo.get_recurring_by_id(rec_id)
+        rec = self.repo.recurring.by_id(rec_id)
         if not rec:
             return None
         rec.is_active = not rec.is_active
         log.info("Recurring task %s active=%s", rec_id, rec.is_active)
-        return self.repo.update_recurring(rec)
+        return self.repo.recurring.update(rec)

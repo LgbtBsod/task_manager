@@ -30,6 +30,7 @@ BUILD_DEPS = [
     "pydantic>=2.0.0",
     "packaging>=23.0",
     "certifi>=2024.2.2",
+    "python-dateutil>=2.9.0",
 ]
 
 
@@ -47,7 +48,7 @@ def install_deps() -> None:
         sys.exit(1)
     probe = subprocess.run(
         [sys.executable, "-c",
-         "import flet, flet_web, pydantic, packaging, certifi, PyInstaller"],
+         "import flet, flet_web, pydantic, packaging, certifi, dateutil, PyInstaller"],
         capture_output=True, text=True,
     )
     if probe.returncode != 0:

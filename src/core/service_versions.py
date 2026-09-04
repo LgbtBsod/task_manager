@@ -15,22 +15,22 @@ class VersionService:
 
     def create_version(self, name: str, description: str = "") -> VersionRelease:
         version = VersionRelease(name=name.strip(), description=description.strip())
-        self.repo.add_version(version)
+        self.repo.versions.add(version)
         log.info("Version created: %s - %s", version.id, version.name)
         return version
 
     def get_all_versions(self) -> list[VersionRelease]:
-        return self.repo.get_all_versions()
+        return self.repo.versions.all()
 
     def get_version(self, version_id: str) -> VersionRelease | None:
-        return self.repo.get_version_by_id(version_id)
+        return self.repo.versions.by_id(version_id)
 
     def update_version(self, version_id: str, **kwargs) -> VersionRelease | None:
-        version = self.repo.get_version_by_id(version_id)
+        version = self.repo.versions.by_id(version_id)
         if not version:
             return None
         log.info("Version updated: %s", version_id)
-        return self.repo.update_version(apply_kwargs(version, kwargs))
+        return self.repo.versions.update(apply_kwargs(version, kwargs))
 
     def release_version(self, version_id: str,
                         release_date: str | None = None) -> VersionRelease | None:
@@ -42,7 +42,7 @@ class VersionService:
         return self.update_version(version_id, status="Archived")
 
     def delete_version(self, version_id: str) -> bool:
-        result = self.repo.delete_version(version_id)
+        result = self.repo.versions.delete(version_id)
         if result:
             for t in self.repo.get_all():
                 if t.version_id == version_id:
@@ -59,7 +59,7 @@ class VersionService:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
-        if version_id and not self.repo.get_version_by_id(version_id):
+        if version_id and not self.repo.versions.by_id(version_id):
             raise ValueError(f"Version {version_id} not found")
         task.record_change("version_id", task.version_id or "", version_id or "")
         task.version_id = version_id
@@ -68,7 +68,7 @@ class VersionService:
         return self.repo.update(task)
 
     def get_version_report(self, version_id: str) -> dict:
-        version = self.repo.get_version_by_id(version_id)
+        version = self.repo.versions.by_id(version_id)
         if not version:
             return {}
         tasks = self.get_version_tasks(version_id)

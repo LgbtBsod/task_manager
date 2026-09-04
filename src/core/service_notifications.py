@@ -18,13 +18,13 @@ class NotificationService:
 
     def get_notifications(self, unread_only: bool = False) -> list[Notification]:
         return (self.repo.get_unread_notifications() if unread_only
-                else self.repo.get_all_notifications())
+                else self.repo.notifications.all())
 
     def add_notification(self, ntype: str, title: str, message: str,
                          task_id: str | None = None) -> Notification:
         notif = Notification(ntype=ntype, title=title.strip(),
                              message=message.strip(), task_id=task_id)
-        self.repo.add_notification(notif)
+        self.repo.notifications.add(notif)
         return notif
 
     def mark_notification_read(self, notif_id: str) -> bool:
@@ -34,7 +34,7 @@ class NotificationService:
         return self.repo.mark_all_notifications_read()
 
     def delete_notification(self, notif_id: str) -> bool:
-        return self.repo.delete_notification(notif_id)
+        return self.repo.notifications.delete(notif_id)
 
     def generate_overdue_notifications(self) -> list[Notification]:
         created = []
