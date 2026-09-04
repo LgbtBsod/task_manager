@@ -82,3 +82,23 @@ def ensure_data_dir() -> Path:
     if not db_path.exists():
         db_path.write_text("[]", encoding="utf-8")
     return data_dir
+
+
+def open_in_file_manager(path: Path | str) -> bool:
+    """Reveal ``path`` in the OS file manager. Returns whether the call was
+    dispatched (not whether a window actually appeared)."""
+    import subprocess
+
+    target = str(path)
+    match sys.platform:
+        case "win32":
+            argv = ["explorer.exe", target]
+        case "darwin":
+            argv = ["open", target]
+        case _:
+            argv = ["xdg-open", target]
+    try:
+        subprocess.Popen(argv)
+        return True
+    except OSError:
+        return False

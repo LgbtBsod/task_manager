@@ -64,6 +64,29 @@ def test_store_tolerates_missing_and_corrupt_file(tmp_path):
     assert SettingsStore(str(bad)).get("theme_mode") == "dark"
 
 
+def test_set_does_not_write_update_does(tmp_path):
+    """The Settings-dialog live-preview path (``set_theme(persist=False)``)
+    relies on ``store.set`` NOT touching the file; only Save (``update``) does."""
+    p = tmp_path / "settings.json"
+    store = SettingsStore(str(p))
+    store.set("accent_color", "#30d158")
+    assert not p.exists()                     # preview only, nothing persisted
+    store.update(accent_color="#30d158")
+    assert p.exists() and SettingsStore(str(p)).get("accent_color") == "#30d158"
+
+
+def test_settings_dialog_module_imports_clean():
+    from gui_flet.settings_dialog import show_settings_dialog
+    assert callable(show_settings_dialog)
+
+
+def test_single_instance_port_helpers():
+    from gui_flet._single_instance import port_is_free, resolve_port
+    # A port nobody is listening on resolves to itself.
+    assert resolve_port(59_137) == 59_137
+    assert port_is_free(59_137) is True
+
+
 def test_palette_apply_layers_overrides():
     from gui_flet.palette import COLORS, apply, base_colors
 

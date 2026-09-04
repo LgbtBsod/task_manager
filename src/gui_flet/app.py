@@ -4,24 +4,12 @@ Main app module with routing, theme, and view switching.
 
 import flet as ft
 
-from core import paths
 from core import strings as L
 from core.models import TaskStatus
-from core.settings import NOTIFY_HOURS_MAX
 
 from ._ui import dropdown as _dropdown
 from ._ui import field as _field
-from ._ui import switch as _switch
-from .palette import (
-    COLORS,
-    CUSTOMISABLE,
-    DEFAULT_ACCENT,
-    base_colors,
-    build_theme,
-    contrast_ratio,
-    is_hex,
-    resolve_dark,
-)
+from .palette import COLORS, DEFAULT_ACCENT, build_theme
 from .palette import apply as apply_palette
 
 
@@ -103,8 +91,14 @@ class TaskManagerApp:
         page.bgcolor = COLORS["bg_dark"]
 
     def set_theme(self, *, mode: str | None = None, accent: str | None = None,
-                  colors: dict | None = None) -> None:
-        """Apply a new theme mode / accent / per-token colours, persist, repaint."""
+                  colors: dict | None = None, persist: bool = True) -> None:
+        """Apply a new theme mode / accent / per-token colours and repaint.
+
+        ``persist=False`` is the live-preview path used while the Settings
+        dialog is open: the choice is applied in memory (so ``_apply_theme``
+        sees it) but not written to ``settings.json``, so a Cancel can restore
+        the on-open snapshot without a stale file lingering.
+        """
         changes = {}
         if mode is not None:
             changes["theme_mode"] = mode
@@ -113,7 +107,11 @@ class TaskManagerApp:
         if colors is not None:
             changes["custom_colors"] = colors
         if changes:
-            self.settings.update(**changes)
+            if persist:
+                self.settings.update(**changes)
+            else:
+                for k, v in changes.items():
+                    self.settings.set(k, v)
         self._apply_theme(self.page)
         # Views cache COLORS[...] at build time -> rebuild + remount them.
         for v in self.views_map.values():
@@ -214,12 +212,12 @@ class TaskManagerApp:
             nav_buttons_row.append(btn)
 
         self.search_field = _field(
-            hint_text=L.UI.SEARCH,
+            hint_text=L.UI.SEARCH, value=self._search_query,
             width=200, height=36, text_size=13,
             prefix_icon=ic("search"),
             filled=True, fill_color=COLORS["bg_button"],
-            focused_bgcolor=COLORS["bg_card_hover"],
             border_color=ft.Colors.TRANSPARENT,
+            focused_border_color=COLORS["accent_blue"],
             on_change=self._on_search,
             content_padding=ft.Padding.only(left=36, top=4, bottom=4),
         )
@@ -231,7 +229,7 @@ class TaskManagerApp:
         self.sort_dropdown = _dropdown(
             width=185,
             options=[ft.dropdown.Option(k, text=v) for k, v in L.UI.SORT.items()],
-            value="default", filled=True,
+            value=self._sort_mode, filled=True,
             fill_color=COLORS["bg_button"],
             border_color=ft.Colors.TRANSPARENT,
             on_select=self._on_sort,
@@ -244,7 +242,7 @@ class TaskManagerApp:
             icon=ic("add"),
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
-                bgcolor=COLORS["accent_green"], color="#ffffff",
+                bgcolor=COLORS["accent_blue"], color="#ffffff",
                 padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                 text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             ),
@@ -380,248 +378,8 @@ class TaskManagerApp:
         show_task_dialog(self.page, title=L.UI.NEW_TASK, on_save=self._on_create_task)
 
     def show_settings_dialog(self):
-        s = self.settings
-        enabled = _switch(value=bool(s.get("notifications_enabled")),
-                          label=L.UI.SET_NOTIFY_ENABLED)
-        hours = _field(
-            label=L.UI.SET_HOURS_BEFORE,
-            value=str(s.get("notify_hours_before")),
-            width=200, keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        auto_updates = _switch(
-            value=bool(s.get("check_updates_on_start")),
-            label=L.UI.SET_CHECK_ON_START,
-        )
-        err = ft.Text("", size=12, color=COLORS["accent_red"])
-
-        # Theme: mode buttons apply on Save; swatches apply live.
-        from core.settings import ACCENT_PRESETS
-
-        chosen = {"mode": s.get("theme_mode") or "dark",
-                  "accent": s.get("accent_color") or DEFAULT_ACCENT}
-
-        mode_buttons: dict[str, ft.Button] = {}
-
-        def _mode_style(active: bool) -> ft.ButtonStyle:
-            return ft.ButtonStyle(
-                bgcolor=chosen["accent"] if active else COLORS["bg_button"],
-                color="#ffffff" if active else COLORS["text_primary"],
-                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-            )
-
-        def _pick_mode(m: str):
-            chosen["mode"] = m
-            for k, b in mode_buttons.items():
-                b.style = _mode_style(k == m)
-                b.update()
-
-        for m, lbl in L.UI.THEME_MODE_LABEL.items():
-            mode_buttons[m] = ft.Button(content=lbl, style=_mode_style(m == chosen["mode"]),
-                                        on_click=lambda e, mm=m: _pick_mode(mm))
-        mode_row = ft.Row(list(mode_buttons.values()), spacing=6)
-
-        swatches: list[ft.Container] = []
-
-        def _pick_accent(hex_: str):
-            chosen["accent"] = hex_
-            for sw in swatches:
-                sw.border = ft.Border.all(
-                    2, COLORS["text_primary"] if sw.bgcolor.lower() == hex_.lower()
-                    else ft.Colors.TRANSPARENT)
-                sw.update()
-            for k, b in mode_buttons.items():
-                b.style = _mode_style(k == chosen["mode"])
-                b.update()
-            self.set_theme(accent=hex_)   # accent preview is safe & instant
-
-        for hex_ in ACCENT_PRESETS.values():
-            sel = (chosen["accent"] or "").lower() == hex_.lower()
-            sw = ft.Container(
-                width=26, height=26, bgcolor=hex_, border_radius=13,
-                border=ft.Border.all(2, COLORS["text_primary"] if sel else ft.Colors.TRANSPARENT),
-                tooltip=hex_, on_click=lambda e, h=hex_: _pick_accent(h),
-            )
-            swatches.append(sw)
-        accent_row = ft.Row(swatches, spacing=8, wrap=True)
-
-        # ── per-token colour overrides (live preview on a complete #rrggbb) ──
-        chosen["colors"] = dict(s.get("custom_colors") or {})
-        _dark_now = resolve_dark(chosen["mode"],
-                                 getattr(self.page, "platform_brightness", None)
-                                 != ft.Brightness.LIGHT)
-        _defaults = base_colors(_dark_now)
-        color_fields: dict[str, tuple[ft.TextField, ft.Container]] = {}
-
-        contrast_warn = ft.Text(L.UI.SET_COLORS_LOW_CONTRAST, size=10,
-                                color=COLORS["accent_red"], visible=False)
-
-        def _check_contrast():
-            eff = {**_defaults, **chosen["colors"]}
-            bad = min(contrast_ratio(eff["text_primary"], eff["bg_card"]),
-                      contrast_ratio(eff["text_secondary"], eff["bg_card"])) < 3.0
-            if contrast_warn.visible != bad:
-                contrast_warn.visible = bad
-                try:
-                    contrast_warn.update()
-                except Exception:
-                    pass
-
-        def _preview_colors():
-            self.set_theme(colors=dict(chosen["colors"]))
-            _check_contrast()
-
-        def _set_color(key: str, hex_or_empty: str):
-            fld, sw = color_fields[key]
-            hex_or_empty = hex_or_empty.strip().lower()
-            if not hex_or_empty:
-                chosen["colors"].pop(key, None)
-            elif is_hex(hex_or_empty):
-                chosen["colors"][key] = hex_or_empty
-            else:
-                return
-            if fld.value != hex_or_empty:
-                fld.value = hex_or_empty
-                fld.update()
-            sw.bgcolor = chosen["colors"].get(key, _defaults[key])
-            sw.update()
-            _preview_colors()
-
-        def _pick_from_palette(key: str, label: str):
-            from .color_picker import show_color_picker
-            show_color_picker(
-                self.page,
-                initial=chosen["colors"].get(key) or _defaults[key],
-                title=label,
-                on_pick=lambda hx: _set_color(key, hx),
-                on_default=lambda: _set_color(key, ""),
-            )
-
-        color_rows = []
-        for key, label in CUSTOMISABLE:
-            fld = _field(
-                value=chosen["colors"].get(key, ""), hint_text=_defaults[key],
-                width=100, text_size=12, dense=True,
-                on_change=lambda e, k=key: _set_color(k, e.control.value),
-            )
-            sw = ft.Container(width=24, height=24, border_radius=6,
-                              bgcolor=chosen["colors"].get(key, _defaults[key]),
-                              border=ft.Border.all(1, COLORS["border_color"]),
-                              tooltip=L.UI.SET_COLORS,
-                              on_click=lambda e, k=key, lbl=label: _pick_from_palette(k, lbl))
-            color_fields[key] = (fld, sw)
-            color_rows.append(ft.Row(
-                [sw, ft.Text(label, size=12, color=COLORS["text_secondary"],
-                             expand=True), fld],
-                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER))
-
-        def _reset_colors(e):
-            chosen["colors"].clear()
-            for k, (fld, sw) in color_fields.items():
-                fld.value = ""
-                sw.bgcolor = _defaults[k]
-                fld.update()
-                sw.update()
-            _preview_colors()
-
-        colors_expander = ft.ExpansionTile(
-            title=ft.Text(L.UI.SET_COLORS, size=12, weight=ft.FontWeight.BOLD,
-                          color=COLORS["text_secondary"]),
-            tile_padding=ft.Padding.symmetric(horizontal=0),
-            controls_padding=ft.Padding.only(bottom=8),
-            text_color=COLORS["text_secondary"], collapsed_text_color=COLORS["text_secondary"],
-            icon_color=COLORS["text_secondary"], collapsed_icon_color=COLORS["text_secondary"],
-            controls=[
-                ft.Text(L.UI.SET_COLORS_HINT, size=10, color=COLORS["text_secondary"]),
-                ft.Container(height=4),
-                *color_rows,
-                contrast_warn,
-                ft.Container(height=4),
-                ft.TextButton(L.UI.SET_COLORS_RESET, on_click=_reset_colors),
-            ],
-        )
-        _check_contrast()
-
-        def save(e):
-            try:
-                h = int(hours.value.strip())
-                if not (1 <= h <= NOTIFY_HOURS_MAX):
-                    raise ValueError
-            except ValueError:
-                err.value = L.ERR.HOURS_RANGE
-                err.update()
-                return
-            s.update(notifications_enabled=enabled.value, notify_hours_before=h,
-                     check_updates_on_start=auto_updates.value)
-            if self.deadline_watcher is not None:
-                self.deadline_watcher.reset()
-            self.page.pop_dialog()
-            if chosen["mode"] != s.get("theme_mode") or chosen["accent"] != s.get("accent_color"):
-                self.set_theme(mode=chosen["mode"], accent=chosen["accent"])
-            else:
-                self.refresh_all()
-            self._show_snackbar(L.UI.SET_SAVED)
-
-        def check_updates_click(e):
-            from .update_ui import check_now
-            check_now(self)
-
-        data_dir = str(paths.data_dir)
-
-        def open_data_dir(e):
-            try:
-                import subprocess as _sp
-                import sys as _sys
-                if _sys.platform == "win32":
-                    _sp.Popen(["explorer.exe", data_dir])
-                elif _sys.platform == "darwin":
-                    _sp.Popen(["open", data_dir])
-                else:
-                    _sp.Popen(["xdg-open", data_dir])
-            except OSError:
-                self._show_snackbar(data_dir)
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(L.UI.SETTINGS, size=18, weight=ft.FontWeight.BOLD),
-            content=ft.Column([
-                ft.Text(L.UI.SET_SECTION_NOTIFY, size=12, weight=ft.FontWeight.BOLD,
-                        color=COLORS["text_secondary"]),
-                enabled,
-                hours,
-                ft.Text(L.UI.SET_NOTIFY_HINT, size=11, color=COLORS["text_secondary"]),
-                ft.Divider(color=COLORS["border_color"]),
-                ft.Text(L.UI.SET_THEME, size=12, weight=ft.FontWeight.BOLD,
-                        color=COLORS["text_secondary"]),
-                mode_row,
-                ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
-                accent_row,
-                colors_expander,
-                ft.Divider(color=COLORS["border_color"]),
-                ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
-                        color=COLORS["text_secondary"]),
-                auto_updates,
-                ft.Row([
-                    ft.TextButton(L.UI.SET_CHECK_NOW, icon=ic("refresh"),
-                                  on_click=check_updates_click),
-                    ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(color=COLORS["border_color"]),
-                ft.Text(L.UI.SET_DATA, size=12, weight=ft.FontWeight.BOLD,
-                        color=COLORS["text_secondary"]),
-                ft.Text(data_dir, size=11, color=COLORS["text_secondary"],
-                        selectable=True, max_lines=2),
-                ft.TextButton(L.UI.SET_OPEN_DATA_DIR, icon=ic("folder_open"),
-                              on_click=open_data_dir),
-                err,
-            ], tight=True, width=380, spacing=6, scroll=ft.ScrollMode.AUTO),
-            actions=[
-                ft.TextButton(L.UI.CANCEL, on_click=lambda e: self.page.pop_dialog()),
-                ft.Button(L.UI.SAVE, on_click=save,
-                          style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff")),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        self.page.show_dialog(dlg)
+        from .settings_dialog import show_settings_dialog
+        show_settings_dialog(self)
 
     def _on_create_task(self, **kwargs):
         try:
@@ -698,88 +456,18 @@ def run_app(context=None, port: int = 8550):
             if omitted.
         port: TCP port for the local web server.
     """
-    import os
-    import socket
-    import time
-    import webbrowser
-
     import flet as ft
 
     from core.app_context import AppContext
+
+    from ._single_instance import resolve_port
+
     context = context or AppContext.create()
 
-    def _port_free(p: int) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(("127.0.0.1", p)) != 0
-
-    def _kill_stale_on_port(p: int) -> None:
-        """Terminate a *previous instance of this app* that is holding the port
-        (a crashed / orphaned server). Never touches unrelated processes."""
-        import sys as _s
-        if _s.platform != "win32":
-            return
-        me = os.getpid()
-        try:
-            out = __import__("subprocess").run(
-                ["powershell", "-NoProfile", "-Command",
-                 f"Get-NetTCPConnection -LocalPort {p} -State Listen -EA SilentlyContinue "
-                 "| Select-Object -Expand OwningProcess -Unique"],
-                capture_output=True, text=True, timeout=8,
-            ).stdout
-        except Exception:
-            return
-        for line in out.split():
-            try:
-                pid = int(line.strip())
-            except ValueError:
-                continue
-            if pid == me:
-                continue
-            try:
-                import subprocess as _sp
-                info = _sp.run(
-                    ["powershell", "-NoProfile", "-Command",
-                     f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}';"
-                     "\"$($p.Name)|$($p.CommandLine)\""],
-                    capture_output=True, text=True, timeout=8,
-                ).stdout.lower()
-            except Exception:
-                info = ""
-            is_ours = ("taskmanager.exe" in info
-                       or ("python" in info and ("main.py" in info or "task_manager" in info)))
-            if is_ours:
-                try:
-                    _sp.run(["powershell", "-NoProfile", "-Command",
-                             f"Stop-Process -Id {pid} -Force -EA SilentlyContinue"],
-                            capture_output=True, timeout=8)
-                    print(L.APP.KILLED_STALE.format(pid=pid, port=p))
-                except Exception:
-                    pass
-
-    if not _port_free(port):
-        # 1) A healthy instance of us is already serving -> just open a tab at it.
-        try:
-            import urllib.request
-            body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).read(4096)
-            if b"flutter" in body.lower() or b"flet" in body.lower():
-                webbrowser.open(f"http://127.0.0.1:{port}/")
-                print(L.APP.ALREADY_RUNNING.format(port=port))
-                return
-        except Exception:
-            pass
-        # 2) Port busy but not answering -> a hung old instance of ours: kill it.
-        _kill_stale_on_port(port)
-        for _ in range(15):                 # wait up to ~3s for the OS to release it
-            if _port_free(port):
-                break
-            time.sleep(0.2)
-        # 3) Still busy (a foreign process) -> take the next free port.
-        if not _port_free(port):
-            for cand in range(port + 1, port + 40):
-                if _port_free(cand):
-                    print(L.APP.PORT_BUSY.format(port=port, alt=cand))
-                    port = cand
-                    break
+    resolved = resolve_port(port)
+    if resolved is None:        # an instance is already serving; tab opened for us
+        return
+    port = resolved
 
     # IMPORTANT: a fresh TaskManagerApp per browser session. One shared instance
     # means a second tab/window overwrites self.page and the first session's

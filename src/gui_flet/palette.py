@@ -23,7 +23,7 @@ _NEUTRALS = {
     "dark": {                       # Evening Horizon
         "bg_dark": "#12171c",       # area behind cards (shell background)
         "bg_card": "#1d232a",       # cards / tiles
-        "bg_card_hover": "#2a323c", # focus / hover highlight
+        "bg_card_hover": "#242c34", # raised surface: zebra rows, hover, menus
         "bg_button": "#2a323c",     # fields, buttons
         "text_primary": "#eaecee",
         "text_secondary": "#a9b4be",
@@ -51,7 +51,7 @@ _TOKEN_LABEL = {
     "bg_dark":        "Фон приложения",
     "bg_card":        "Фон карточек",
     "bg_button":      "Фон кнопок и полей",
-    "bg_card_hover":  "Подсветка (фокус)",
+    "bg_card_hover":  "Приподнятая поверхность",
     "text_primary":   "Основной текст",
     "text_secondary": "Второстепенный текст",
     "border_color":   "Границы и разделители",

@@ -122,7 +122,8 @@ class GanttView:
 
         muted = COLORS["text_secondary"]
         grid = COLORS["border_color"]
-        today_color = COLORS["accent_red"]
+        today_color = COLORS["accent_blue"]      # "today" is informational
+        overdue_color = COLORS["accent_red"]     # "overdue" is the negative signal
 
         header_cells = [
             ft.Container(
@@ -203,7 +204,7 @@ class GanttView:
                 content=ft.Row([
                     ft.Container(expand=1, content=bar_inner),
                     ft.Text(f"{duration_label}{due_info}", size=9,
-                            color=today_color if due_info else muted)
+                            color=overdue_color if due_info else muted)
                     if (duration_label or due_info) else ft.Container(),
                 ], spacing=4),
             ))
@@ -213,7 +214,7 @@ class GanttView:
             row = ft.Container(
                 content=ft.Row(row_children, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 height=ROW_HEIGHT, padding=ft.Padding.only(left=10, right=10),
-                bgcolor=COLORS["bg_card"] if (i % 2 == 1) else None,
+                bgcolor=COLORS["bg_card_hover"] if (i % 2 == 1) else None,
             )
 
             if i > 0:

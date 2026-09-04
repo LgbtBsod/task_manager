@@ -1,7 +1,7 @@
 """Tiny Flet helpers shared across the view modules."""
 import flet as ft
 
-from .palette import COLORS
+from .palette import COLORS, RADIUS_FIELD
 
 
 def safe_update(*controls) -> None:
@@ -26,7 +26,7 @@ def field(**kw) -> ft.TextField:
     colours are pinned explicitly here.
     """
     kw.setdefault("text_size", 14)
-    kw.setdefault("border_radius", 8)
+    kw.setdefault("border_radius", RADIUS_FIELD)
     kw.setdefault("color", COLORS["text_primary"])
     kw.setdefault("border_color", COLORS["border_color"])
     kw.setdefault("cursor_color", COLORS["accent_blue"])
@@ -36,7 +36,7 @@ def field(**kw) -> ft.TextField:
 def dropdown(**kw) -> ft.Dropdown:
     """A ``Dropdown`` pre-themed for the current palette (see :func:`field`)."""
     size = kw.pop("text_size", 14)
-    kw.setdefault("border_radius", 8)
+    kw.setdefault("border_radius", RADIUS_FIELD)
     kw.setdefault("border_color", COLORS["border_color"])
     kw.setdefault("text_style", ft.TextStyle(size=size, color=COLORS["text_primary"]))
     return ft.Dropdown(**kw)
