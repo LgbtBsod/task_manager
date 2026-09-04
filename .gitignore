@@ -43,3 +43,4 @@ update_restart.cmd
 Thumbs.db
 .idea/
 *.swp
+/.claude

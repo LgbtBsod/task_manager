@@ -5,7 +5,7 @@ import flet as ft
 from typing import Optional
 
 from . import labels as L
-from .palette import COLORS, apply as apply_palette, build_theme, resolve_dark
+from .palette import COLORS, apply as apply_palette, build_theme
 from core import paths
 from core.models import TaskStatus
 
@@ -568,13 +568,11 @@ class TaskManagerApp:
             self._show_snackbar(str(e), error=True)
 
     def handle_drop(self, task, target_status_value: str):
-        STATUS_MAP = {
-            "Todo": TaskStatus.TODO,
-            "In Progress": TaskStatus.IN_PROGRESS,
-            "Done": TaskStatus.DONE,
-        }
-        new_status = STATUS_MAP.get(target_status_value)
-        if not new_status or new_status == task.status:
+        try:
+            new_status = TaskStatus(target_status_value)
+        except ValueError:
+            return
+        if new_status == task.status:
             return
         self.service.update_task_status(task.id, new_status)
         self.refresh_all()
