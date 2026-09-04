@@ -92,7 +92,7 @@ def _finish_pending_update(log) -> bool:
         attempts = 0
     if attempts >= 3:
         log.error("Update swap failed %d times — running the current version. "
-                  "See logs/update_helper.log.", attempts)
+                  "See logs/app.log for details.", attempts)
         staged.unlink(missing_ok=True)
         stamp.unlink(missing_ok=True)
         return False

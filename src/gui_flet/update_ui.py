@@ -5,6 +5,7 @@ background after the window is already up, every failure is swallowed, and
 nothing is downloaded without an explicit click.
 """
 import asyncio
+import logging
 import sys
 
 import flet as ft
@@ -12,6 +13,8 @@ import flet as ft
 from core import strings as L
 
 from .app import COLORS, ic
+
+log = logging.getLogger(__name__)
 
 REPO_OWNER = "LgbtBsod"
 REPO_NAME = "task_manager"
@@ -71,6 +74,7 @@ async def _run_check(app, *, manual: bool) -> None:
     if updater._rate_limited:
         app._show_snackbar(L.UPDATE.RATE_LIMITED, error=True)
     elif not updater._network_reachable:
+        log.warning("Update check: server unreachable (%s)", updater._last_error or "no details")
         app._show_snackbar(L.UPDATE.NO_SERVER, error=True)
     elif has_update and not url:
         app._show_snackbar(L.UPDATE.NOT_READY.format(version=version))

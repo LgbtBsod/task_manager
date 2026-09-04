@@ -16,9 +16,11 @@ import json
 import logging
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +31,27 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
+
+
+def _build_ssl_context() -> ssl.SSLContext | None:
+    """A TLS context trusting certifi's CA bundle, or ``None`` (urlopen's own
+    default) if certifi is unavailable.
+
+    A frozen PyInstaller .exe can't always enumerate the OS trust store the
+    way the interpreter's default context does — a stale/incomplete Windows
+    cert store, antivirus TLS interception, or a machine with no configured
+    trust anchors all surface as ``SSLCertVerificationError`` wrapped in a
+    plain ``URLError`` here, which we can't tell apart from "no internet" and
+    report as "no server access". Bundling certifi's own CA list sidesteps
+    the OS store entirely — the standard fix for this exact failure mode in
+    frozen Python apps (independently confirmed against another project's
+    self-updater that hit the same symptom).
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None
 
 SKIP_PATTERNS = {"venv", ".git", "__pycache__", "tasks.json", "data", "logs"}
 SKIP_EXTENSIONS = {".pyc", ".pyo", ".tmp"}
@@ -108,15 +131,20 @@ class AutoUpdater:
         self.progress_callback: Callable[[DownloadProgress], None] | None = None
         self._network_reachable: bool = True
         self._rate_limited: bool = False
+        self._last_error: str | None = None
+        self._ssl_context = _build_ssl_context()
 
     def _create_request(self, url: str) -> Request:
         req = Request(url)
         req.add_header("User-Agent", f"TaskManager/{self.current_version}")
         return req
 
+    def _urlopen(self, req: Request, timeout: float):
+        return urlopen(req, timeout=timeout, context=self._ssl_context)
+
     def _api_get(self, url: str) -> Any | None:
         try:
-            with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
+            with self._urlopen(self._create_request(url), self.TIMEOUT_API) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except HTTPError as exc:
             # Server answered -> network is fine. 403 + rate-limit header means
@@ -129,10 +157,12 @@ class AutoUpdater:
                 logger.debug("API request failed: %s", exc)
             return None
         except (URLError, TimeoutError) as exc:
+            self._last_error = str(getattr(exc, "reason", exc))
             logger.debug("Network unreachable: %s", exc)
             self._network_reachable = False
             return None
         except Exception as exc:
+            self._last_error = str(exc)
             logger.debug("Unexpected API error: %s", exc)
             self._network_reachable = False
             return None
@@ -148,13 +178,11 @@ class AutoUpdater:
         Returns:
             Tuple of (success, error_message)
         """
-        import time
-
         try:
             req = self._create_request(url)
             req.add_header('Accept', 'application/octet-stream')
 
-            with urlopen(req, timeout=self.TIMEOUT_DOWNLOAD) as resp:
+            with self._urlopen(req, self.TIMEOUT_DOWNLOAD) as resp:
                 # Handle redirects by following them automatically
                 final_url = resp.url if hasattr(resp, 'url') else url
 
@@ -254,16 +282,18 @@ class AutoUpdater:
 
     def _http_text(self, url: str) -> str | None:
         try:
-            with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
+            with self._urlopen(self._create_request(url), self.TIMEOUT_API) as resp:
                 return resp.read().decode("utf-8", "replace")
         except HTTPError as exc:
             if exc.code in (403, 429):
                 self._rate_limited = True
             logger.debug("web GET %s failed: %s", url, exc)
         except (URLError, TimeoutError) as exc:
+            self._last_error = str(getattr(exc, "reason", exc))
             logger.debug("web GET %s unreachable: %s", url, exc)
             self._network_reachable = False
         except Exception as exc:
+            self._last_error = str(exc)
             logger.debug("web GET %s error: %s", url, exc)
         return None
 
@@ -286,7 +316,7 @@ class AutoUpdater:
         try:
             req = self._create_request(url)
             req.add_header("Range", "bytes=0-0")
-            with urlopen(req, timeout=self.TIMEOUT_API) as resp:
+            with self._urlopen(req, self.TIMEOUT_API) as resp:
                 return resp.status in (200, 206)
         except HTTPError as exc:
             return exc.code in (200, 206, 416)
@@ -528,127 +558,98 @@ class AutoUpdater:
         else:
             self._relaunch_posix(target, staged)
 
-    _VBS_NAME = "update_restart.vbs"
+    def _swap_windows_binary(self, target: Path, staged: Path) -> bool:
+        """Rename the running .exe to ``.old`` and move the staged update into
+        its place — synchronously, in THIS process, before it exits.
 
-    def _write_relaunch_vbs(self, exe_name: str) -> Path:
-        """Windowless VBScript that swaps in the update and restarts it.
+        An earlier design handed this off to a generated ``.vbs`` helper (a
+        separate detached process was assumed necessary to touch the .exe
+        after we exit). But Windows allows *renaming* a running image
+        immediately — only *deleting* it fails until every handle is gone —
+        so there's nothing stopping the swap from happening right here, and
+        nothing left for a helper to do. That helper turned into its own
+        failure mode: a freshly-written ``.vbs`` that renames/moves files is
+        exactly the shape antivirus heuristics flag as a dropper, and a
+        quarantined helper meant "downloaded fine, but the update silently
+        never applies" — which is what users were seeing. Doing the swap in
+        our own already-running (already-trusted) binary removes that file
+        from the picture entirely.
 
-        Every path is derived from ``WScript.ScriptFullName`` (the script sits
-        next to the .exe) so a Cyrillic / non-ASCII folder never lands in a
-        string literal — the old cause of updates dying on
-        ``C:\\Users\\Пользователь\\...``. Only the ASCII exe name is templated.
-
-        The swap **renames** the running .exe to ``.old`` rather than deleting
-        it: Windows allows renaming a running image immediately, whereas
-        ``DeleteFile`` on it fails until every handle is gone — the reason
-        earlier updates left ``version.txt`` bumped but the binary unchanged.
-        The old binary keeps running from ``.old`` until it exits; ``main.py``
-        sweeps ``.old`` on the next start. Every step is logged to
-        ``logs\\update_helper.log`` for post-mortems, and a failed swap restores
-        the old .exe so the app is never bricked.
+        Retries the rename for up to ~30s (AV real-time scanning or another
+        handle can transiently hold the file); restores ``.old`` if the swap
+        can't complete so the app is never left without a runnable .exe.
         """
-        vbs = self.app_dir / self._VBS_NAME
-        lines = [
-            'Option Explicit',
-            'Dim fso, sh, d, exe, staged, old, lg, i, renamed',
-            'Set fso = CreateObject("Scripting.FileSystemObject")',
-            'Set sh = CreateObject("WScript.Shell")',
-            'd = fso.GetParentFolderName(WScript.ScriptFullName)',
-            f'exe = fso.BuildPath(d, "{exe_name}")',
-            'staged = exe & ".updated"',
-            'old = exe & ".old"',
-            'lg = fso.BuildPath(d, "logs\\update_helper.log")',
-            'On Error Resume Next',
-            'WriteLog "helper start: " & exe',
-            '',
-            'If Not fso.FileExists(staged) Then',
-            '  WriteLog "no staged file - nothing to do"',
-            '  fso.DeleteFile WScript.ScriptFullName, True',
-            '  WScript.Quit',
-            'End If',
-            '',
-            "' clear a stale .old from a previous run",
-            'If fso.FileExists(old) Then fso.DeleteFile old, True',
-            '',
-            "' rename the (maybe still-running) exe out of the way",
-            'renamed = False',
-            'For i = 1 To 60',
-            '  Err.Clear',
-            '  fso.MoveFile exe, old',
-            '  If Err.Number = 0 And Not fso.FileExists(exe) Then',
-            '    renamed = True',
-            '    Exit For',
-            '  End If',
-            '  WScript.Sleep 500',
-            'Next',
-            'WriteLog "rename exe->old: " & renamed',
-            '',
-            "' put the new binary in place",
-            'Err.Clear',
-            'fso.MoveFile staged, exe',
-            'If Err.Number <> 0 Or Not fso.FileExists(exe) Then',
-            '  Err.Clear',
-            '  fso.CopyFile staged, exe, True',
-            '  WriteLog "move failed; copyfile ok: " & (Err.Number = 0)',
-            'Else',
-            '  WriteLog "moved staged->exe"',
-            'End If',
-            '',
-            "' never leave the app without an exe",
-            'If Not fso.FileExists(exe) And fso.FileExists(old) Then',
-            '  fso.CopyFile old, exe, True',
-            '  WriteLog "SWAP FAILED - restored old exe"',
-            'End If',
-            '',
-            'fso.DeleteFile staged, True',
-            'If fso.FileExists(exe) Then',
-            '  sh.Run """" & exe & """ --no-update", 0, False',
-            '  WriteLog "relaunched"',
-            'Else',
-            '  WriteLog "FATAL: no exe to run"',
-            'End If',
-            'fso.DeleteFile WScript.ScriptFullName, True',
-            'WScript.Quit',
-            '',
-            'Sub WriteLog(msg)',
-            '  On Error Resume Next',
-            '  Dim f, folder',
-            '  folder = fso.GetParentFolderName(lg)',
-            '  If Not fso.FolderExists(folder) Then fso.CreateFolder folder',
-            '  Set f = fso.OpenTextFile(lg, 8, True)',
-            '  f.WriteLine Now & "  " & msg',
-            '  f.Close',
-            'End Sub',
-        ]
-        # UTF-16 LE + BOM (wscript autodetects it). write_bytes, not write_text,
-        # so text-mode newline translation can't turn our "\r\n" into "\r\r\n".
-        vbs.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-16"))
-        return vbs
+        old = target.with_name(target.name + ".old")
+        try:
+            if old.exists():
+                old.unlink()
+        except OSError:
+            pass
+
+        renamed = False
+        for _ in range(60):
+            try:
+                target.rename(old)
+                renamed = True
+                break
+            except OSError:
+                time.sleep(0.5)
+        logger.info("Update swap: renamed running exe -> .old: %s", renamed)
+        if not renamed:
+            logger.error("Update swap: could not rename the running exe — "
+                         "leaving it in place; the update stays staged.")
+            return False
+
+        try:
+            staged.replace(target)
+            logger.info("Update swap: staged update moved into place")
+        except OSError as exc:
+            logger.warning("Update swap: move failed (%s); trying copy", exc)
+            try:
+                shutil.copy2(staged, target)
+            except OSError as exc2:
+                logger.error("Update swap: copy also failed: %s", exc2)
+
+        if not target.exists():
+            try:
+                shutil.copy2(old, target)
+                logger.error("Update swap FAILED — restored the previous exe")
+                return False
+            except OSError as exc:
+                logger.critical("Update swap FAILED and restore also failed: %s", exc)
+                return False
+
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return True
 
     def _relaunch_windows(self, target: Path, staged: Path) -> None:
-        """Spawn the detached VBScript helper that does the swap.
+        """Swap the binary in place, then relaunch outside this process's
+        PyInstaller job object so exiting doesn't kill the new instance.
 
-        ``explorer.exe <vbs>`` runs it outside this process's PyInstaller job
-        object (a direct child would be killed when we exit). Fallback:
-        ``wscript.exe`` broken away from the job — invoked by full path so a
-        hijacked ``.vbs`` association can't send it to a text editor.
+        A direct ``Popen`` with ``CREATE_BREAKAWAY_FROM_JOB`` is tried first
+        (it can pass ``--no-update``); if the job disallows breakaway,
+        ``explorer.exe <exe>`` — a completely separate process, unrelated to
+        our job by construction — is the fallback (it can't forward args, so
+        the new instance runs one ordinary startup update-check instead).
         """
-        vbs = self._write_relaunch_vbs(target.name)
-        wscript = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "wscript.exe"
-        DETACHED = 0x00000008 | 0x01000000   # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
+        if not self._swap_windows_binary(target, staged):
+            return
 
+        DETACHED = 0x00000008 | 0x01000000   # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
         for how, argv, flags in (
-            ("explorer", ["explorer.exe", str(vbs)], 0),
-            ("wscript", [str(wscript), "//B", "//Nologo", str(vbs)], DETACHED),
+            ("direct", [str(target), "--no-update"], DETACHED),
+            ("explorer", ["explorer.exe", str(target)], 0),
         ):
             try:
                 subprocess.Popen(argv, creationflags=flags, close_fds=True)
-                logger.info("Relaunch helper started via %s; exiting for the swap.", how)
+                logger.info("Relaunched via %s; exiting.", how)
                 return
             except OSError as exc:
                 logger.warning("Relaunch via %s failed (%s)", how, exc)
-        logger.error("Could not start the relaunch helper — the update is staged; "
-                     "restart the app to apply it.")
+        logger.error("Update installed but could not relaunch — start the app manually.")
 
     def _relaunch_posix(self, target: Path, staged: Path) -> None:
         """POSIX keeps a running binary alive via its open inode, so we can
@@ -818,7 +819,8 @@ class AutoUpdater:
             if self._rate_limited:
                 self._say("[Update] GitHub is rate-limiting this network — will retry next launch.")
             elif not self._network_reachable:
-                logger.info("No network — skipped update check")
+                logger.warning("Update server unreachable — skipped update check (%s)",
+                               self._last_error or "no details")
             elif download_url is None and latest_version and latest_version != "unknown" \
                     and self._is_newer_version(latest_version, self.current_version):
                 self._say(f"[Update] {latest_version} is published but its download "
@@ -874,7 +876,6 @@ def _recently_checked() -> bool:
     GitHub API — the unauthenticated limit is 60 requests/hour for the IP.
     """
     try:
-        import time
         age = time.time() - _check_stamp_path().stat().st_mtime
         return 0 <= age < _CHECK_INTERVAL_SECONDS
     except OSError:

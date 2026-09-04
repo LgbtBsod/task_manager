@@ -29,6 +29,7 @@ BUILD_DEPS = [
     "flet[web]==0.86.5",
     "pydantic>=2.0.0",
     "packaging>=23.0",
+    "certifi>=2024.2.2",
 ]
 
 
@@ -45,7 +46,8 @@ def install_deps() -> None:
         err("Dependency install failed.")
         sys.exit(1)
     probe = subprocess.run(
-        [sys.executable, "-c", "import flet, flet_web, pydantic, packaging, PyInstaller"],
+        [sys.executable, "-c",
+         "import flet, flet_web, pydantic, packaging, certifi, PyInstaller"],
         capture_output=True, text=True,
     )
     if probe.returncode != 0:
@@ -88,6 +90,11 @@ def main() -> None:
         "--add-data", f"version.txt{sep}.",
         "--collect-all", "flet",
         "--collect-all", "flet_web",
+        # PyInstaller's own certifi hook should bundle cacert.pem automatically,
+        # but the self-updater's TLS verification depends on that file actually
+        # being there — collect it explicitly so a hook regression can't
+        # silently break it.
+        "--collect-all", "certifi",
         "--collect-submodules", "core",
         "--collect-submodules", "gui_flet",
         "--collect-submodules", "utils",
