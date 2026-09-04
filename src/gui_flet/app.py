@@ -373,9 +373,17 @@ class TaskManagerApp:
         else:
             self.status_text.value = L.UI.SB_TASKS.format(total=total)
 
+    def _tag_dialog_kwargs(self) -> dict:
+        """`tag_catalog` + `create_tag` for the task dialog's chip picker."""
+        return {
+            "tag_catalog": self.service.list_tags(),
+            "create_tag": lambda name: self.service.tags.create_tag(name),
+        }
+
     def show_create_dialog(self):
         from .task_dialog import show_task_dialog
-        show_task_dialog(self.page, title=L.UI.NEW_TASK, on_save=self._on_create_task)
+        show_task_dialog(self.page, title=L.UI.NEW_TASK, on_save=self._on_create_task,
+                         **self._tag_dialog_kwargs())
 
     def show_settings_dialog(self):
         from .settings_dialog import show_settings_dialog
@@ -398,7 +406,8 @@ class TaskManagerApp:
             except ValueError as e:
                 self._show_snackbar(str(e), error=True)
 
-        show_task_dialog(self.page, title=L.UI.EDIT_TASK, task=task, on_save=on_save)
+        show_task_dialog(self.page, title=L.UI.EDIT_TASK, task=task, on_save=on_save,
+                         **self._tag_dialog_kwargs())
 
     def delete_task(self, task):
         def close_dlg(e=None):

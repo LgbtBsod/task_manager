@@ -505,6 +505,33 @@ class Category(_DataclassJSON):
     id: str = field(default_factory=_short_id)
 
 
+# Default colour for a freshly-registered tag — a Horizon neutral (same as the
+# "Task" type accent) so a tag reads as neutral until the user recolours it.
+TAG_DEFAULT_COLOR = "#788fa6"
+
+
+@dataclass
+class Tag(_DataclassJSON):
+    """A named, colour-coded label from the tag registry.
+
+    Tasks reference a tag by ``name`` — the same lower-cased string stored in
+    ``Task.tags`` (see :func:`_normalize_tags`). The registry adds a colour, an
+    optional description and analytics; renaming/deleting a tag rewrites every
+    referencing task (``TagService``).
+    """
+    name: str = ""                       # canonical, lower-case
+    color: str = TAG_DEFAULT_COLOR        # hex "#rrggbb"
+    description: str = ""
+    created_at: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=_short_id)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Tag":
+        obj = super().from_dict(data)
+        obj.name = obj.name.strip().lower()
+        return obj
+
+
 @dataclass
 class Notification(_DataclassJSON):
     """A notification/alert for the user (overdue, due soon, etc.)."""
@@ -593,4 +620,5 @@ __all__ = [
     'TaskID', 'DateStr', 'Urgency', 'Resolution', 'SprintStatus', 'Sprint',
     'ActivityEntry', 'VersionRelease', 'WORKFLOW_TRANSITIONS',
     'RecurrenceFrequency', 'TaskTemplate', 'Category', 'Notification', 'RecurringTask',
+    'Tag', 'TAG_DEFAULT_COLOR',
 ]

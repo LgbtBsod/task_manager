@@ -27,5 +27,6 @@ class AppContext:
         repository = TaskRepository(db_path=str(paths.db_path))
         settings = SettingsStore(str(paths.settings_path))
         service = TaskService(repository=repository)
+        service.tags.sync_from_tasks()   # back-fill the tag registry (idempotent)
         return cls(settings=settings, repository=repository, service=service,
                    version=paths.read_version())

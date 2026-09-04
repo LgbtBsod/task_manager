@@ -103,6 +103,12 @@ class UI:
     F_STORY_POINTS = "Очки истории"
     F_WATCHERS = "Наблюдатели (через запятую)"
 
+    # tags — registry chooser on the task dialog
+    F_TAGS_PICK = "Теги"
+    F_TAGS_NONE = "Тегов пока нет — добавьте в настройках или ниже"
+    F_TAGS_NEW_HINT = "Новый тег…"
+    F_TAGS_ADD = "Добавить тег"
+
     # kanban deadline chips
     D_OVERDUE = "просрочено"
     D_OVERDUE_ON = "Просрочен: {when}"
@@ -125,6 +131,8 @@ class UI:
     DASH_BY_PRIORITY = "По приоритету"
     DASH_BY_TYPE = "По типу"
     DASH_BY_STATUS = "По статусу"
+    DASH_BY_TAG = "По тегам"
+    DASH_TAG_EMPTY = "Нет тегов для аналитики"
     DASH_WORKLOAD = "Нагрузка на команду"
     DASH_PROGRESS = "Прогресс выполнения"
     DASH_TIME_SPENT = "Затрачено времени"
@@ -155,6 +163,19 @@ class UI:
     SET_COLORS_RESET = "Сбросить все цвета"
     SET_COLOR_DEFAULT = "Цвет темы"
     SET_COLORS_LOW_CONTRAST = "⚠ Текст плохо читается на фоне карточек — увеличьте контраст."
+    # tag registry (Settings → "Теги")
+    SET_TAGS = "Теги"
+    SET_TAGS_HINT = ("Общий список тегов вместо ручного ввода. Кликните образец, "
+                     "чтобы изменить цвет; ✎ — переименовать, 🗑 — удалить.")
+    SET_TAGS_EMPTY = "Список тегов пуст."
+    SET_TAGS_NEW = "Название нового тега"
+    SET_TAGS_ADD = "Добавить"
+    SET_TAG_USES = "в {n} задач."
+    SET_TAG_RENAME = "Переименовать тег"
+    SET_TAG_DELETE_TITLE = "Удалить тег"
+    SET_TAG_DELETE_CONFIRM = 'Удалить тег «{name}» из {n} задач?'
+    SET_TAG_EXISTS = "Тег с таким названием уже есть"
+
     SET_UPDATES = "Обновления"
     SET_CHECK_ON_START = "Проверять обновления при запуске"
     SET_CHECK_NOW = "Проверить сейчас"

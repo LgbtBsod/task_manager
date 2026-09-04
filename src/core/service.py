@@ -42,6 +42,7 @@ class TaskService:
         from .service_catalog import CategoryService, RecurringService, TemplateService
         from .service_notifications import NotificationService
         from .service_sprints import SprintService
+        from .service_tags import TagService
         from .service_versions import VersionService
         self.sprints = SprintService(self.repo)
         self.versions = VersionService(self.repo)
@@ -49,11 +50,12 @@ class TaskService:
         self.categories = CategoryService(self.repo)
         self.recurring = RecurringService(self.repo)
         self.notifications = NotificationService(self.repo)
+        self.tags = TagService(self.repo)
         from .analytics import BoardAnalytics
         self.analytics = BoardAnalytics(self.repo, self.sprints)
         self._collaborators = (self.sprints, self.versions, self.templates,
                                self.categories, self.recurring, self.notifications,
-                               self.analytics)
+                               self.tags, self.analytics)
 
     def __getattr__(self, name: str):
         # Delegate sprint/version/… calls to the composed services without a

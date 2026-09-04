@@ -28,6 +28,7 @@ from .models import (
     Priority,
     RecurringTask,
     Sprint,
+    Tag,
     Task,
     TaskStatus,
     TaskTemplate,
@@ -196,6 +197,7 @@ class TaskRepository:
         self._categories = _JsonCollection(_side("categories"), Category.from_dict, "category")
         self._recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
         self._notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
+        self._tags = _JsonCollection(_side("tags"), Tag.from_dict, "tag")
 
     def _load_tasks(self) -> list[dict]:
         """Load raw task dicts from the JSON file (cached in-memory).
@@ -424,6 +426,31 @@ class TaskRepository:
     def delete_recurring(self, rec_id: str) -> bool:
         return self._recurring.delete(rec_id)
 
+    # ── Tag registry ──
+
+    def get_all_tag_defs(self) -> list[Tag]:
+        return self._tags.all()
+
+    def get_tag_def_by_id(self, tag_id: str) -> Tag | None:
+        return self._tags.by_id(tag_id)
+
+    def add_tag_def(self, tag: Tag) -> Tag:
+        return self._tags.add(tag)
+
+    def add_tag_defs(self, tags: list[Tag]) -> None:
+        """Append several at once — one file write (used by the migration)."""
+        if not tags:
+            return
+        items = self._tags.load_raw()
+        items.extend(t.to_dict() for t in tags)
+        self._tags.save_raw(items)
+
+    def update_tag_def(self, tag: Tag) -> Tag:
+        return self._tags.update(tag)
+
+    def delete_tag_def(self, tag_id: str) -> bool:
+        return self._tags.delete(tag_id)
+
     # ── Notifications ──
     # CRUD plus a few read/unread helpers that need raw-dict access.
 
@@ -476,6 +503,7 @@ class TaskRepository:
             "categories": self._categories,
             "recurring": self._recurring,
             "notifications": self._notifications,
+            "tags": self._tags,
         }
 
     def export_all(self) -> dict:

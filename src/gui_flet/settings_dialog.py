@@ -16,11 +16,13 @@ from core import strings as L
 from core.settings import ACCENT_PRESETS, NOTIFY_HOURS_MAX
 
 from ._ui import field as _field
+from ._ui import safe_update
 from ._ui import switch as _switch
 from .app import COLORS, _app_version, ic
 from .palette import (
     CUSTOMISABLE,
     DEFAULT_ACCENT,
+    RADIUS_CHIP,
     base_colors,
     contrast_ratio,
     is_hex,
@@ -205,6 +207,110 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
     )
     _check_contrast()
 
+    # ── tag registry ──
+    tag_rows = ft.Column(spacing=6, tight=True)
+
+    def _rebuild_tags():
+        tag_rows.controls.clear()
+        breakdown = {r["name"]: r["count"] for r in app.service.tag_breakdown()}
+        tags = app.service.list_tags()
+        if not tags:
+            tag_rows.controls.append(
+                ft.Text(L.UI.SET_TAGS_EMPTY, size=11, color=COLORS["text_secondary"]))
+        for tag in tags:
+            tag_rows.controls.append(_tag_row(tag, breakdown.get(tag.name, 0)))
+        tag_rows.controls.append(_tag_add_row())
+        safe_update(tag_rows)
+
+    def _tag_row(tag, uses: int) -> ft.Row:
+        sw = ft.Container(
+            width=22, height=22, border_radius=RADIUS_CHIP, bgcolor=tag.color,
+            border=ft.Border.all(1, COLORS["border_color"]), tooltip=tag.color,
+            on_click=lambda e: _recolor(tag),
+        )
+        name_fld = _field(value=tag.name, text_size=12, dense=True, expand=True,
+                          on_blur=lambda e: _rename(tag, e.control.value),
+                          on_submit=lambda e: _rename(tag, e.control.value))
+        return ft.Row([
+            sw, name_fld,
+            ft.Text(L.UI.SET_TAG_USES.format(n=uses), size=11,
+                    color=COLORS["text_secondary"]),
+            ft.IconButton(ic("delete_outline"), icon_size=16,
+                          icon_color=COLORS["text_secondary"],
+                          tooltip=L.UI.DELETE, on_click=lambda e: _delete(tag, uses)),
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    def _tag_add_row() -> ft.Row:
+        new_fld = _field(hint_text=L.UI.SET_TAGS_NEW, text_size=12, dense=True, expand=True)
+
+        def _add(_e=None):
+            name = (new_fld.value or "").strip()
+            if not name:
+                return
+            try:
+                app.service.tags.create_tag(name)
+            except ValueError:
+                return
+            _after_change()
+
+        new_fld.on_submit = _add
+        return ft.Row([
+            new_fld,
+            ft.TextButton(L.UI.SET_TAGS_ADD, icon=ic("add"), on_click=_add),
+        ], spacing=6)
+
+    def _after_change():
+        _rebuild_tags()
+        app.refresh_all()
+
+    def _recolor(tag):
+        from .color_picker import show_color_picker
+        show_color_picker(page, initial=tag.color, title=tag.name,
+                          on_pick=lambda hx: (app.service.tags.update_tag(tag.id, color=hx),
+                                              _after_change()))
+
+    def _rename(tag, new_name: str):
+        new_name = (new_name or "").strip().lower()
+        if not new_name or new_name == tag.name:
+            return
+        try:
+            app.service.tags.update_tag(tag.id, name=new_name)
+        except ValueError:
+            app._show_snackbar(L.UI.SET_TAG_EXISTS, error=True)
+        _after_change()
+
+    def _delete(tag, uses: int):
+        def _confirm(_e):
+            page.pop_dialog()
+            app.service.tags.delete_tag(tag.id)
+            _after_change()
+
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text(L.UI.SET_TAG_DELETE_TITLE),
+            content=ft.Text(L.UI.SET_TAG_DELETE_CONFIRM.format(name=tag.name, n=uses)),
+            actions=[
+                ft.TextButton(L.UI.CANCEL, on_click=lambda e: page.pop_dialog()),
+                ft.TextButton(L.UI.DELETE, on_click=_confirm),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        ))
+
+    _rebuild_tags()
+    tags_expander = ft.ExpansionTile(
+        title=ft.Text(L.UI.SET_TAGS, size=12, weight=ft.FontWeight.BOLD,
+                      color=COLORS["text_secondary"]),
+        tile_padding=ft.Padding.symmetric(horizontal=0),
+        controls_padding=ft.Padding.only(bottom=8),
+        text_color=COLORS["text_secondary"], collapsed_text_color=COLORS["text_secondary"],
+        icon_color=COLORS["text_secondary"], collapsed_icon_color=COLORS["text_secondary"],
+        controls=[
+            ft.Text(L.UI.SET_TAGS_HINT, size=10, color=COLORS["text_secondary"]),
+            ft.Container(height=4),
+            tag_rows,
+        ],
+    )
+
     # ── actions ──
     def save(e):
         try:
@@ -260,6 +366,8 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
             ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
             accent_row,
             colors_expander,
+            ft.Divider(color=COLORS["border_color"]),
+            tags_expander,
             ft.Divider(color=COLORS["border_color"]),
             ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
                     color=COLORS["text_secondary"]),

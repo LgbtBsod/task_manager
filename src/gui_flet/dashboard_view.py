@@ -136,6 +136,12 @@ class DashboardView:
             ft.Container(height=8),
         ], spacing=8)
 
+        self._tag_column = ft.Column([
+            ft.Text(L.UI.DASH_BY_TAG, size=15, weight=ft.FontWeight.BOLD,
+                    color=COLORS["text_primary"]),
+            ft.Container(height=8),
+        ], spacing=8)
+
         self.container = ft.Column([
             ft.Container(content=ft.Text(L.NAV["dashboard"], size=24, weight=ft.FontWeight.BOLD,
                                               color=COLORS["text_primary"]),
@@ -173,7 +179,11 @@ class DashboardView:
                 ft.Container(width=12),
                 ft.Container(content=self._workload_column,
                              expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
-            ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
+            ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
+                padding=ft.Padding.symmetric(horizontal=20)),
+            ft.Container(height=16),
+            ft.Container(content=self._tag_column, padding=20, bgcolor=COLORS["bg_card"],
+                         border_radius=16, margin=ft.Margin.only(left=20, right=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Column([
                 ft.Row([
@@ -229,12 +239,31 @@ class DashboardView:
                 self._status_bars[key].width = max(pct * 3, 0)
 
         self._update_workload()
+        self._update_tags(total)
 
         if hasattr(self, '_progress_bar'):
             rate = stats['completion_rate']
             self._progress_bar.value = rate / 100
             self._progress_label.value = f"{rate}%"
             self._time_label.value = L.format_duration(stats['total_time_spent'])
+
+    def _update_tags(self, total: int):
+        """Rebuild the "По тегам" breakdown from the tag registry."""
+        try:
+            rows = self.app.service.tag_breakdown()
+        except Exception:
+            rows = []
+        while len(self._tag_column.controls) > 2:
+            self._tag_column.controls.pop()
+        used = [r for r in rows if r["count"] > 0]
+        if not used:
+            self._tag_column.controls.append(
+                ft.Text(L.UI.DASH_TAG_EMPTY, size=12, color=COLORS["text_secondary"]))
+            return
+        for r in used[:12]:
+            self._tag_column.controls.append(
+                BreakdownBar(r["name"], r["color"], r["count"], total,
+                             padding=ft.Padding.only(bottom=12)))
 
     def _update_workload(self):
         """Update team workload section."""

@@ -10,10 +10,91 @@ from core.models import Priority, TaskType, Urgency
 
 from ._ui import dropdown, field, safe_update
 from .app import COLORS, ic
+from .palette import RADIUS_CHIP
+
+
+class _TagPicker(ft.Column):
+    """Toggle-chip tag selector backed by the tag registry.
+
+    Mutates ``selected`` (a ``set[str]`` of lower-case names) in place — the
+    caller reads it back on Save. ``create_tag(name)`` registers a tag typed in
+    the inline field and returns the new Tag-like object.
+    """
+
+    def __init__(self, page: ft.Page, catalog: list, selected: set[str],
+                 create_tag: Callable[[str], object] | None):
+        super().__init__(spacing=6, tight=True)
+        self._page = page
+        self._selected = selected
+        self._create_tag = create_tag
+        self._colors = {t.name: t.color for t in catalog}
+        self._wrap = ft.Row(wrap=True, spacing=6, run_spacing=6)
+        for t in catalog:
+            self._wrap.controls.append(self._chip(t.name))
+
+        label = ft.Text(L.UI.F_TAGS_PICK, size=12, color=COLORS["text_secondary"])
+        rows = [label, self._wrap]
+        if not catalog:
+            rows.append(ft.Text(L.UI.F_TAGS_NONE, size=11, color=COLORS["text_secondary"]))
+        if create_tag is not None:
+            self._new_field = field(hint_text=L.UI.F_TAGS_NEW_HINT, text_size=12,
+                                    dense=True, width=180,
+                                    on_submit=lambda e: self._add_new())
+            rows.append(ft.Row([
+                self._new_field,
+                ft.TextButton(L.UI.F_TAGS_ADD, icon=ic("add"), on_click=lambda e: self._add_new()),
+            ], spacing=6))
+        self.controls = rows
+
+    def _chip(self, name: str) -> ft.Container:
+        on = name in self._selected
+        color = self._colors.get(name, COLORS["accent_blue"])
+        return ft.Container(
+            key=name,
+            content=ft.Text(name, size=11,
+                            color="#ffffff" if on else COLORS["text_secondary"],
+                            weight=ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            bgcolor=color if on else COLORS["bg_button"],
+            border=ft.Border.all(1, color),
+            border_radius=RADIUS_CHIP,
+            on_click=lambda e, n=name: self._toggle(n),
+        )
+
+    def _toggle(self, name: str):
+        self._selected.discard(name) if name in self._selected else self._selected.add(name)
+        for c in self._wrap.controls:
+            if c.key == name:
+                on = name in self._selected
+                color = self._colors.get(name, COLORS["accent_blue"])
+                c.bgcolor = color if on else COLORS["bg_button"]
+                c.content.color = "#ffffff" if on else COLORS["text_secondary"]
+                c.content.weight = ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL
+        safe_update(self._wrap)
+
+    def _add_new(self):
+        raw = (self._new_field.value or "").strip().lower()
+        if not raw or self._create_tag is None:
+            return
+        try:
+            tag = self._create_tag(raw)
+        except ValueError:
+            return
+        self._selected.add(tag.name)
+        if tag.name not in self._colors:
+            self._colors[tag.name] = tag.color
+            self._wrap.controls.append(self._chip(tag.name))   # built as selected
+        self._new_field.value = ""
+        safe_update(self._wrap, self._new_field)
 
 
 def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
-                      task=None, on_save: Callable | None = None):
+                      task=None, on_save: Callable | None = None,
+                      tag_catalog: list | None = None,
+                      create_tag: Callable[[str], object] | None = None):
+    """``tag_catalog`` (a list of Tag-like objects with ``.name`` / ``.color``)
+    switches the free-text tags field for a chip picker; ``create_tag(name)``
+    registers a tag typed inline and should return the new Tag."""
     title_field = field(
         label=L.UI.F_TITLE, value=task.title if task else "",
         text_size=14, autofocus=True, border_radius=8,
@@ -104,11 +185,19 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
         text_size=14, border_radius=8, width=200,
     )
-    tags_field = field(
-        label=L.UI.F_TAGS,
-        value=", ".join(task.tags) if task and task.tags else "",
-        text_size=14, border_radius=8, hint_text="frontend, bug, feature",
-    )
+    # Tags: a chip picker off the registry when a catalog is supplied, else the
+    # legacy free-text field (tests / callers that don't pass one).
+    selected_tags: set[str] = {t.strip().lower() for t in (task.tags if task else [])}
+    tags_field = None
+    tags_control = None
+    if tag_catalog is not None:
+        tags_control = _TagPicker(page, tag_catalog, selected_tags, create_tag)
+    else:
+        tags_field = field(
+            label=L.UI.F_TAGS,
+            value=", ".join(task.tags) if task and task.tags else "",
+            text_size=14, border_radius=8, hint_text="frontend, bug, feature",
+        )
     assignee_field = field(
         label=L.UI.F_ASSIGNEE,
         value=getattr(task, 'assignee', None) or "",
@@ -170,8 +259,11 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
             sp = None
 
         priority = Priority(priority_field.value)
-        raw_tags = tags_field.value.strip() if tags_field.value else ""
-        tags = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
+        if tags_control is not None:
+            tags = sorted(selected_tags)
+        else:
+            raw_tags = tags_field.value.strip() if tags_field.value else ""
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
         assignee = assignee_field.value.strip() or None
 
         urgency_val = urgency_field.value
@@ -209,7 +301,7 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         modal=True,
         title=ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
         content=ft.Column([
-            title_field, desc_field, tags_field,
+            title_field, desc_field, tags_control or tags_field,
             ft.Container(height=4),
             prio_type_row, ft.Container(height=4),
             time_sp_row, ft.Container(height=4),
