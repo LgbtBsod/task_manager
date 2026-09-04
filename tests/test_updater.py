@@ -105,6 +105,7 @@ def test_web_discovery_release_published_but_asset_not_ready(monkeypatch):
 
 def test_falls_through_to_api_when_atom_empty(monkeypatch):
     u = _u("1.0.0")
+    asset = u._platform_asset()          # windows/linux/macos — keep the test portable
     monkeypatch.setattr(u, "_atom_tags", lambda: [])
     seen = []
 
@@ -112,14 +113,13 @@ def test_falls_through_to_api_when_atom_empty(monkeypatch):
         seen.append(url)
         if "releases?per_page" in url:
             return [{"tag_name": "v2.0.0", "assets": [
-                {"name": "TaskManager-windows.exe",
-                 "browser_download_url": "https://host/win.exe"}]}]
+                {"name": asset, "browser_download_url": "https://host/app"}]}]
         return None
 
     monkeypatch.setattr(u, "_api_get", fake_api_get)
 
     has, ver, url = u.check_for_updates()
-    assert (has, ver, url) == (True, "v2.0.0", "https://host/win.exe")
+    assert (has, ver, url) == (True, "v2.0.0", "https://host/app")
     assert any("releases?per_page" in s for s in seen)
 
 
