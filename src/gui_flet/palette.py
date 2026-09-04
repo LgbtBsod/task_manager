@@ -26,7 +26,7 @@ _NEUTRALS = {
         "bg_card_hover": "#242c34", # raised surface: zebra rows, hover, menus
         "bg_button": "#2a323c",     # fields, buttons
         "text_primary": "#eaecee",
-        "text_secondary": "#a9b4be",
+        "text_secondary": "#8396a8",  # SAP "Subtitles and Labels", Evening Horizon
         "border_color": "#2f3a45",
     },
     "light": {                      # Morning Horizon
@@ -92,35 +92,42 @@ RADIUS_MENU = 10         # dropdown / popup menus
 RADIUS_CARD_COMPACT = 12 # kanban task cards / column frame (denser than a panel)
 RADIUS_CARD = 16         # section panels, dialog panels, stat tiles
 
-# Elevation scale: (blur_radius, y-offset, (light_opacity, dark_opacity)).
-# Values and the light-mode navy tint are Horizon's own --sapContent_Shadow0/2/3
-# (theming-base-content/content/Base/baseLib/sap_horizon{,_dark}/css_variables.css),
-# remapped 1:1 by SAP's documented component usage: our 1 (resting card) =
-# Horizon's Shadow0 (general/overview elements), our 2 (popover) = Shadow2
-# (Popover/Toast), our 3 (modal) = Shadow3 (Dialog). Real Horizon dark-mode
-# shadows also pair a white edge-highlight layer with the black diffuse one —
-# skipped here (Flet's single BoxShadow can't express the pair without a
-# second stacked layer); the black-only approximation below is the same
-# opacity Horizon uses for its diffuse layer.
+# Elevation scale — Horizon's real --sapContent_Shadow0/2/3, each TWO stacked
+# layers (an ambient/edge layer + a directional diffuse layer), sourced from
+# theming-base-content/content/Base/baseLib/sap_horizon{,_dark}/css_variables.css
+# and remapped 1:1 by SAP's own shadow-concept component usage: our 1 (resting
+# card) = Shadow0 (general/overview elements), our 2 (popover) = Shadow2
+# (Popover/Toast), our 3 (modal) = Shadow3 (Dialog). Per layer:
+# (blur_radius, spread_radius, (dx, dy), opacity, base_colour).
 _ELEVATION = {
-    1: (4, 2, (0.20, 0.20)),    # resting cards (kanban task card, stat tile)
-    2: (30, 10, (0.25, 0.60)),  # raised / floating surfaces (popovers)
-    3: (80, 20, (0.25, 0.60)),  # modals — reserved; Flet's own Dialog handles most of these
+    1: {
+        "light": [(2, 0, (0, 0), 0.20, "#223548"), (4, 0, (0, 2), 0.20, "#223548")],
+        "dark":  [(2, 0, (0, 0), 0.60, "#ffffff"), (8, 0, (0, 2), 0.20, "#000000")],
+    },
+    2: {
+        "light": [(0, 1, (0, 0), 0.48, "#223548"), (30, 0, (0, 10), 0.25, "#223548")],
+        "dark":  [(0, 1, (0, 0), 0.35, "#ffffff"), (30, 0, (0, 10), 0.60, "#000000")],
+    },
+    3: {  # modals — reserved; Flet's own Dialog handles most of these
+        "light": [(0, 1, (0, 0), 0.48, "#223548"), (80, 0, (0, 20), 0.25, "#223548")],
+        "dark":  [(0, 1, (0, 0), 0.35, "#ffffff"), (80, 0, (0, 20), 0.60, "#000000")],
+    },
 }
 
 
-def elevation(level: int) -> ft.BoxShadow:
-    """A named elevation shadow (1 = resting card … 3 = modal-level), tuned
-    per the *current* theme so callers don't have to thread a dark/light
-    flag through — read fresh at each rebuild, same as any ``COLORS[...]``
-    lookup."""
-    blur, dy, (light_op, dark_op) = _ELEVATION[level]
+def elevation(level: int) -> list[ft.BoxShadow]:
+    """Horizon's real elevation shadow (1 = resting card … 3 = dialog-level) —
+    an edge/ambient layer plus a directional diffuse layer, tuned per the
+    *current* theme so callers don't have to thread a dark/light flag
+    through — read fresh at each rebuild, same as any ``COLORS[...]``
+    lookup. ``Container.shadow`` accepts a list of ``BoxShadow`` directly."""
     dark = _relative_luminance(COLORS["bg_dark"]) < 0.5
-    # Horizon's light-theme shadow is navy-tinted (#223548), not pure black —
-    # a plain black shadow on a near-white surface reads flatter/muddier.
-    base = "#000000" if dark else "#223548"
-    return ft.BoxShadow(blur_radius=blur, offset=ft.Offset(0, dy),
-                        color=ft.Colors.with_opacity(dark_op if dark else light_op, base))
+    layers = _ELEVATION[level]["dark" if dark else "light"]
+    return [
+        ft.BoxShadow(blur_radius=blur, spread_radius=spread, offset=ft.Offset(*offset),
+                    color=ft.Colors.with_opacity(opacity, base))
+        for blur, spread, offset, opacity, base in layers
+    ]
 
 
 def resolve_dark(mode: str, system_is_dark: bool = True) -> bool:
@@ -197,10 +204,10 @@ _TEXT_THEME = ft.TextTheme(
     label_large=ft.TextStyle(size=14, weight=ft.FontWeight.BOLD),
     label_medium=ft.TextStyle(size=12),
     label_small=ft.TextStyle(size=12),
-    title_large=ft.TextStyle(size=22, weight=ft.FontWeight.BOLD),
+    title_large=ft.TextStyle(size=24, weight=ft.FontWeight.BOLD),      # Horizon Header 3
     title_medium=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD),
     title_small=ft.TextStyle(size=14, weight=ft.FontWeight.W_600),
-    headline_medium=ft.TextStyle(size=28, weight=ft.FontWeight.BOLD),
+    headline_medium=ft.TextStyle(size=32, weight=ft.FontWeight.BOLD),  # Horizon Header 2
 )
 
 

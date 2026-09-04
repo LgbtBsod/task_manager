@@ -6,7 +6,7 @@ audit history, bulk operations, search, clone, assignee management.
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from .models import (
@@ -358,24 +358,28 @@ class TaskService:
 
     # ── Task Links ──
 
-    def _blocked_by_reaches(self, start_id: str, goal_id: str, seen: set | None = None) -> bool:
-        """True if ``start_id`` transitively depends on ``goal_id`` via the
-        existing BLOCKED_BY graph — used to reject a link that would close a
-        dependency loop (two tasks permanently blocking each other with no
-        way out except manually editing the links back apart)."""
+    def _graph_reaches(self, start_id: str, goal_id: str,
+                        next_ids: Callable[[Task], Iterable[str]], seen: set | None = None) -> bool:
+        """True if ``start_id`` transitively reaches ``goal_id`` by repeatedly
+        following ``next_ids(task)`` — the shared cycle-detection walk behind
+        both ``add_task_link``'s BLOCKED_BY guard and ``set_epic_link``'s
+        epic-hierarchy guard (two tasks, or two epics, permanently pointing
+        at each other with no way out but editing the links back apart)."""
         seen = seen if seen is not None else set()
         if start_id in seen:
             return False
         seen.add(start_id)
+        if start_id == goal_id:
+            return True
         task = self.repo.get_by_id(start_id)
         if not task:
             return False
-        for link in task.links:
-            if link.link_type != LinkType.BLOCKED_BY.value:
-                continue
-            if link.target_task_id == goal_id or self._blocked_by_reaches(link.target_task_id, goal_id, seen):
-                return True
-        return False
+        return any(self._graph_reaches(nxt, goal_id, next_ids, seen) for nxt in next_ids(task))
+
+    def _blocked_by_reaches(self, start_id: str, goal_id: str) -> bool:
+        return self._graph_reaches(start_id, goal_id, lambda t: (
+            link.target_task_id for link in t.links if link.link_type == LinkType.BLOCKED_BY.value
+        ))
 
     def add_task_link(self, task_id: str, target_task_id: str, link_type: str = "relates_to") -> Task | None:
         """Link two tasks."""
@@ -669,20 +673,8 @@ class TaskService:
 
     # ── Epic Link ──
 
-    def _epic_link_reaches(self, start_id: str, goal_id: str, seen: set | None = None) -> bool:
-        """True if ``start_id`` transitively reaches ``goal_id`` by following
-        epic_link edges — guards against nesting an Epic under one of its own
-        descendants (which would make the chain unresolvable)."""
-        seen = seen if seen is not None else set()
-        if start_id in seen:
-            return False
-        seen.add(start_id)
-        if start_id == goal_id:
-            return True
-        task = self.repo.get_by_id(start_id)
-        if not task or not task.epic_link:
-            return False
-        return self._epic_link_reaches(task.epic_link, goal_id, seen)
+    def _epic_link_reaches(self, start_id: str, goal_id: str) -> bool:
+        return self._graph_reaches(start_id, goal_id, lambda t: [t.epic_link] if t.epic_link else [])
 
     def set_epic_link(self, task_id: str, epic_task_id: str | None) -> Task | None:
         """Set or clear the epic link for a task. A no-op call (unchanged
