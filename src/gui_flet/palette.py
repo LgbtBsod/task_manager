@@ -93,12 +93,19 @@ RADIUS_CARD_COMPACT = 12 # kanban task cards / column frame (denser than a panel
 RADIUS_CARD = 16         # section panels, dialog panels, stat tiles
 
 # Elevation scale: (blur_radius, y-offset, (light_opacity, dark_opacity)).
-# Dark mode needs a higher opacity — a black shadow reads far fainter once the
-# surface behind it is already dark, so the same alpha would look flat.
+# Values and the light-mode navy tint are Horizon's own --sapContent_Shadow0/2/3
+# (theming-base-content/content/Base/baseLib/sap_horizon{,_dark}/css_variables.css),
+# remapped 1:1 by SAP's documented component usage: our 1 (resting card) =
+# Horizon's Shadow0 (general/overview elements), our 2 (popover) = Shadow2
+# (Popover/Toast), our 3 (modal) = Shadow3 (Dialog). Real Horizon dark-mode
+# shadows also pair a white edge-highlight layer with the black diffuse one —
+# skipped here (Flet's single BoxShadow can't express the pair without a
+# second stacked layer); the black-only approximation below is the same
+# opacity Horizon uses for its diffuse layer.
 _ELEVATION = {
-    1: (3, 1, (0.12, 0.35)),    # resting cards (kanban task card, stat tile)
-    2: (8, 2, (0.16, 0.40)),    # raised / floating surfaces (popovers)
-    3: (20, 8, (0.20, 0.50)),   # modals — reserved; Flet's own Dialog handles most of these
+    1: (4, 2, (0.20, 0.20)),    # resting cards (kanban task card, stat tile)
+    2: (30, 10, (0.25, 0.60)),  # raised / floating surfaces (popovers)
+    3: (80, 20, (0.25, 0.60)),  # modals — reserved; Flet's own Dialog handles most of these
 }
 
 
@@ -109,8 +116,11 @@ def elevation(level: int) -> ft.BoxShadow:
     lookup."""
     blur, dy, (light_op, dark_op) = _ELEVATION[level]
     dark = _relative_luminance(COLORS["bg_dark"]) < 0.5
+    # Horizon's light-theme shadow is navy-tinted (#223548), not pure black —
+    # a plain black shadow on a near-white surface reads flatter/muddier.
+    base = "#000000" if dark else "#223548"
     return ft.BoxShadow(blur_radius=blur, offset=ft.Offset(0, dy),
-                        color=ft.Colors.with_opacity(dark_op if dark else light_op, "#000000"))
+                        color=ft.Colors.with_opacity(dark_op if dark else light_op, base))
 
 
 def resolve_dark(mode: str, system_is_dark: bool = True) -> bool:
@@ -177,13 +187,16 @@ def _scheme(accent: str, dark: bool, pal: dict[str, str]) -> ft.ColorScheme:
 
 # One text theme for both modes: no explicit colour, so text follows
 # on_surface / on_surface_variant of whichever scheme is active.
+# Sizes match Horizon's real type scale (@sapFontLargeSize=16 / @sapFontSize=14
+# / @sapFontSmallSize=12 — Horizon defines nothing below 12px):
+# theming-base-content/content/Base/baseLib/sap_horizon/base.less.
 _TEXT_THEME = ft.TextTheme(
-    body_large=ft.TextStyle(size=14),
-    body_medium=ft.TextStyle(size=12),
-    body_small=ft.TextStyle(size=11),
+    body_large=ft.TextStyle(size=16),
+    body_medium=ft.TextStyle(size=14),
+    body_small=ft.TextStyle(size=12),
     label_large=ft.TextStyle(size=14, weight=ft.FontWeight.BOLD),
     label_medium=ft.TextStyle(size=12),
-    label_small=ft.TextStyle(size=11),
+    label_small=ft.TextStyle(size=12),
     title_large=ft.TextStyle(size=22, weight=ft.FontWeight.BOLD),
     title_medium=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD),
     title_small=ft.TextStyle(size=14, weight=ft.FontWeight.W_600),

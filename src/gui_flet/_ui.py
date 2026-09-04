@@ -43,8 +43,14 @@ def dropdown(**kw) -> ft.Dropdown:
 
 
 def switch(**kw) -> ft.Switch:
-    """A ``Switch`` whose label follows the palette (see :func:`field`)."""
-    kw.setdefault("label_text_style", ft.TextStyle(color=COLORS["text_primary"]))
+    """A ``Switch`` whose label follows the palette (see :func:`field`).
+
+    Pins an explicit label size instead of inheriting the theme's body
+    size: switches sit in dense settings rows next to 10-12px helper text,
+    and a longer Russian label at full body size overflows the narrow
+    dialog width Switch's non-wrapping label can't recover from.
+    """
+    kw.setdefault("label_text_style", ft.TextStyle(size=13, color=COLORS["text_primary"]))
     kw.setdefault("active_color", COLORS["accent_blue"])
     return ft.Switch(**kw)
 

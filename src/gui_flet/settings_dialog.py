@@ -397,7 +397,7 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
             ft.TextButton(L.UI.SET_OPEN_DATA_DIR, icon=ic("folder_open"),
                           on_click=open_data_dir),
             err,
-        ], tight=True, width=380, spacing=6, scroll=ft.ScrollMode.AUTO),
+        ], tight=True, width=440, spacing=6, scroll=ft.ScrollMode.AUTO),
         actions=[
             ft.TextButton(L.UI.CANCEL, on_click=cancel),
             ft.Button(L.UI.SAVE, on_click=save,
