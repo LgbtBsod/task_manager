@@ -21,7 +21,7 @@ import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.request import Request, urlopen
@@ -43,62 +43,32 @@ def normalize_version(raw: str) -> str:
     return str(raw).strip().lstrip("vV").strip(". \t\r\n")
 
 
-@dataclass(frozen=True)
-class UpdateJob:
-    has_update: bool
-    latest_version: Optional[str]
-    download_url: Optional[str]
-
-
 @dataclass
 class DownloadProgress:
-    """Tracks download progress with additional metadata."""
+    """Snapshot of an in-flight download, handed to the progress callback."""
     bytes_downloaded: int = 0
     total_bytes: int = 0
-    percent: float = 0.0
-    speed_bps: float = 0.0  # Bytes per second
-    elapsed_time: float = 0.0  # Seconds since download started
-    eta_seconds: float = 0.0  # Estimated time remaining
-    
-    def __post_init__(self):
-        if self.total_bytes > 0:
-            self.percent = (self.bytes_downloaded / self.total_bytes) * 100
-    
+    speed_bps: float = 0.0
+
+    @property
+    def percent(self) -> float:
+        return self.bytes_downloaded / self.total_bytes * 100 if self.total_bytes else 0.0
+
     @property
     def is_complete(self) -> bool:
         return self.total_bytes > 0 and self.bytes_downloaded >= self.total_bytes
-    
+
     @property
     def speed_mbps(self) -> float:
-        """Return download speed in Mbps."""
         return self.speed_bps / (1024 * 1024)
-    
-    @property
-    def formatted_eta(self) -> str:
-        """Return formatted ETA string (MM:SS)."""
-        if self.eta_seconds <= 0:
-            return "--:--"
-        # Cap at 99 hours to avoid very long strings
-        capped_eta = min(self.eta_seconds, 99 * 3600 + 59 * 60 + 59)
-        hours = int(capped_eta // 3600)
-        minutes = int((capped_eta % 3600) // 60)
-        seconds = int(capped_eta % 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        return f"{minutes:02d}:{seconds:02d}"
-    
+
     @property
     def formatted_speed(self) -> str:
-        """Return formatted speed string (B/s, KB/s, or MB/s)."""
-        if self.speed_bps < 0:
-            return "0 B/s"
         if self.speed_bps < 1024:
-            return f"{self.speed_bps:.0f} B/s"
-        elif self.speed_bps < 1024 * 1024:
+            return f"{max(self.speed_bps, 0):.0f} B/s"
+        if self.speed_bps < 1024 * 1024:
             return f"{self.speed_bps / 1024:.1f} KB/s"
-        else:
-            return f"{self.speed_mbps:.2f} MB/s"
-    
+        return f"{self.speed_mbps:.2f} MB/s"
 
 
 class UpdateError(Exception):
@@ -196,61 +166,30 @@ class AutoUpdater:
                     logger.debug("GitHub URL detected, size validation skipped")
                 
                 downloaded = 0
-                start_time = time.time()
+                start_time = time.monotonic()
                 progress = DownloadProgress(total_bytes=total_size)
                 last_update_time = start_time
-                bytes_since_last_update = 0
-                
+
                 with open(dest_path, 'wb') as dest_file:
-                    while True:
-                        chunk = resp.read(self.CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        
+                    while chunk := resp.read(self.CHUNK_SIZE):
                         dest_file.write(chunk)
                         downloaded += len(chunk)
-                        bytes_since_last_update += len(chunk)
-                        
-                        current_time = time.time()
-                        elapsed = current_time - start_time
-                        
-                        # Update speed and ETA every 0.5 seconds
-                        if current_time - last_update_time >= 0.5:
+                        progress.bytes_downloaded = downloaded
+
+                        now = time.monotonic()
+                        if now - last_update_time >= 0.5:
+                            elapsed = now - start_time
                             if elapsed > 0:
                                 progress.speed_bps = downloaded / elapsed
-                            
-                            # Calculate ETA based on current speed
-                            remaining_bytes = max(0, total_size - downloaded) if total_size > 0 else 0
-                            if progress.speed_bps > 0 and total_size > 0:
-                                progress.eta_seconds = remaining_bytes / progress.speed_bps
-                            else:
-                                progress.eta_seconds = 0
-                            
-                            progress.elapsed_time = elapsed
-                            last_update_time = current_time
-                            bytes_since_last_update = 0
-                        
-                        progress.bytes_downloaded = downloaded
-                        
-                        if total_size > 0:
-                            progress.percent = (downloaded / total_size) * 100
-                        
+                            last_update_time = now
+
                         if progress_callback:
                             progress_callback(progress)
-                
-                # Final speed calculation
-                total_elapsed = time.time() - start_time
+
+                total_elapsed = time.monotonic() - start_time
                 if total_elapsed > 0:
                     progress.speed_bps = downloaded / total_elapsed
-                    progress.elapsed_time = total_elapsed
-                    
-                    # Final ETA calculation
-                    remaining_bytes = max(0, total_size - downloaded) if total_size > 0 else 0
-                    if progress.speed_bps > 0 and total_size > 0:
-                        progress.eta_seconds = remaining_bytes / progress.speed_bps
-                    else:
-                        progress.eta_seconds = 0
-                
+
                 # Validate size only if we had a valid Content-Length header
                 if total_size > 0:
                     if total_size < self.MIN_UPDATE_SIZE:
@@ -266,13 +205,9 @@ class AutoUpdater:
                     if downloaded < self.MIN_UPDATE_SIZE:
                         return False, f"Downloaded file too small: {downloaded} bytes"
                 
-                logger.info(
-                    "Download completed: %s (%.1f KB, %.2f MB/s, %s)",
-                    dest_path.name, 
-                    downloaded / 1024,
-                    progress.speed_mbps,
-                    progress.formatted_eta if total_size > 0 else "N/A"
-                )
+                logger.info("Download completed: %s (%.0f KB in %s, %.2f MB/s)",
+                            dest_path.name, downloaded / 1024,
+                            timedelta(seconds=round(total_elapsed)), progress.speed_mbps)
                 return True, ""
                 
         except HTTPError as exc:
@@ -338,9 +273,7 @@ class AutoUpdater:
         if not xml:
             return []
         # <link ... href=".../releases/tag/<TAG>"/>  — order = newest first
-        tags = re.findall(r"/releases/tag/([^\"'<>\s]+)", xml)
-        seen: set[str] = set()
-        return [t for t in tags if not (t in seen or seen.add(t))]
+        return list(dict.fromkeys(re.findall(r"/releases/tag/([^\"'<>\s]+)", xml)))
 
     def _web_asset_url(self, tag: str) -> Optional[str]:
         asset = self._platform_asset()
@@ -527,12 +460,9 @@ class AutoUpdater:
                 logger.warning("Failed to cleanup backup: %s", exc)
 
     def _calculate_checksum(self, file_path: Path, algorithm: str = "sha256") -> str:
-        """Calculate file checksum for integrity verification."""
-        hash_func = hashlib.new(algorithm)
+        """File checksum for integrity verification / logging."""
         with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(self.CHUNK_SIZE), b""):
-                hash_func.update(chunk)
-        return hash_func.hexdigest()
+            return hashlib.file_digest(f, algorithm).hexdigest()
 
     def _find_source_root(self, extracted_dir: Path) -> Path:
         for candidate in sorted(extracted_dir.iterdir(), key=lambda p: p.name.lower()):
@@ -541,17 +471,11 @@ class AutoUpdater:
         return extracted_dir
 
     def _find_exe_in_bundle(self, source_folder: Path, preferred_name: Optional[str] = None) -> Optional[Path]:
-        preferred_name = (preferred_name or "").lower()
-        candidates = []
-        for item in source_folder.rglob("*.exe"):
-            candidates.append(item)
+        candidates = list(source_folder.rglob("*.exe"))
         if not candidates:
             return None
-        if preferred_name:
-            for item in candidates:
-                if item.name.lower() == preferred_name:
-                    return item
-        return candidates[0]
+        preferred = (preferred_name or "").lower()
+        return next((i for i in candidates if i.name.lower() == preferred), candidates[0])
 
     def _copy_update_files(self, source_folder: Path) -> int:
         files_copied = 0
@@ -650,20 +574,18 @@ class AutoUpdater:
         object, which would otherwise kill a direct child) and, as a fallback,
         ``wscript`` broken away from the job.
         """
-        import subprocess as sp
-
         vbs = self._write_relaunch_vbs(target.name)
         started = False
         try:
-            sp.Popen(["explorer.exe", str(vbs)], close_fds=True)
+            subprocess.Popen(["explorer.exe", str(vbs)], close_fds=True)
             started = True
         except OSError as exc:
             logger.warning("explorer.exe relaunch failed (%s); trying wscript", exc)
         if not started:
             try:
                 DETACHED = 0x00000008 | 0x01000000  # DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
-                sp.Popen(["wscript.exe", "//B", "//Nologo", str(vbs)],
-                         creationflags=DETACHED, close_fds=True)
+                subprocess.Popen(["wscript.exe", "//B", "//Nologo", str(vbs)],
+                                 creationflags=DETACHED, close_fds=True)
                 started = True
             except OSError as exc:
                 logger.error("Relaunch helper could not start (%s); the update "
@@ -674,13 +596,12 @@ class AutoUpdater:
     def _relaunch_posix(self, target: Path, staged: Path) -> None:
         """POSIX keeps a running binary alive via its open inode, so we can
         replace the file in place and just spawn the new one detached."""
-        import subprocess as sp
         try:
             os.replace(staged, target)   # atomic; the running process is unaffected
             target.chmod(0o755)
-            sp.Popen([str(target), "--no-update"], start_new_session=True,
-                     cwd=str(self.app_dir),
-                     stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            subprocess.Popen([str(target), "--no-update"], start_new_session=True,
+                             cwd=str(self.app_dir), stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("Update swapped in; new instance spawned.")
         except OSError as exc:
             logger.error("Update installed but relaunch failed (%s); "
