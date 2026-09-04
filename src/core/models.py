@@ -2,7 +2,7 @@ from dataclasses import dataclass, field, asdict, fields
 from datetime import datetime, timedelta
 from enum import Enum
 import uuid
-from typing import Optional, Self, List, Dict, Any
+from typing import Optional, Self, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -219,41 +219,18 @@ class TaskModel(BaseModel):
         return self
     
     def to_task(self) -> 'Task':
-        return Task(
-            id=self.id, title=self.title, description=self.description,
-            status=self.status, priority=self.priority,
-            due_date=self.due_date, start_date=self.start_date,
-            time_spent=self.time_spent, created_at=self.created_at,
-            updated_at=self.updated_at, tags=self.tags,
-            assignee=self.assignee, story_points=self.story_points,
-            task_type=self.task_type,
-        )
-    
+        # TaskModel's fields are a subset of Task's; the rest take dataclass
+        # defaults. model_dump() keeps enum members (no use_enum_values).
+        return Task(**self.model_dump())
+
     @classmethod
     def from_task(cls, task: 'Task') -> 'TaskModel':
-        return cls(
-            id=task.id, title=task.title, description=task.description,
-            status=task.status, priority=task.priority,
-            due_date=task.due_date, start_date=task.start_date,
-            time_spent=task.time_spent, created_at=task.created_at,
-            updated_at=task.updated_at, tags=task.tags,
-            assignee=task.assignee, story_points=task.story_points,
-            task_type=task.task_type,
-        )
+        return cls.model_validate(task, from_attributes=True)
 
 
 def _normalize_tags(tags: List[str]) -> List[str]:
-    """Deduplicate, strip whitespace, lowercase, remove empty, cap at 10."""
-    seen = set()
-    result = []
-    for t in tags:
-        cleaned = t.strip().lower()
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            result.append(cleaned)
-            if len(result) >= 10:
-                break
-    return result
+    """Strip / lowercase / drop-empty / order-preserving dedupe, cap at 10."""
+    return list(dict.fromkeys(s for t in tags if (s := t.strip().lower())))[:10]
 
 
 @dataclass
@@ -374,7 +351,7 @@ class Task:
         return has_time(self.due_date)
 
     def update_timestamp(self):
-        self.updated_at = datetime.now().isoformat()
+        self.updated_at = _now_iso()
 
     def get_gantt_start(self) -> str:
         d = date_part(self.start_date)
