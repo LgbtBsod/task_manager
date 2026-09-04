@@ -259,6 +259,9 @@ class TaskManagerApp:
                     self.search_field,
                     self.sort_dropdown,
                     self._theme_toggle_button(),
+                    ft.IconButton(icon=ic("swap_horiz"), icon_color=COLORS["text_secondary"],
+                                  tooltip=L.UI.BULK_TOOLTIP,
+                                  on_click=lambda e: self.show_bulk_dialog()),
                     ft.IconButton(icon=ic("settings"), icon_color=COLORS["text_secondary"],
                                   tooltip=L.UI.SETTINGS,
                                   on_click=lambda e: self.show_settings_dialog()),
@@ -388,6 +391,10 @@ class TaskManagerApp:
     def show_settings_dialog(self):
         from .settings_dialog import show_settings_dialog
         show_settings_dialog(self)
+
+    def show_bulk_dialog(self):
+        from .bulk_dialog import show_bulk_dialog
+        show_bulk_dialog(self)
 
     def _on_create_task(self, **kwargs):
         try:

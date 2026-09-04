@@ -22,11 +22,13 @@ class _TagPicker(ft.Column):
     """
 
     def __init__(self, page: ft.Page, catalog: list, selected: set[str],
-                 create_tag: Callable[[str], object] | None):
+                 create_tag: Callable[[str], object] | None = None, *,
+                 on_change: Callable[[], None] | None = None):
         super().__init__(spacing=6, tight=True)
         self._page = page
         self._selected = selected
         self._create_tag = create_tag
+        self._on_change = on_change
         self._colors = {t.name: t.color for t in catalog}
         self._wrap = ft.Row(wrap=True, spacing=6, run_spacing=6)
         for t in catalog:
@@ -71,6 +73,8 @@ class _TagPicker(ft.Column):
                 c.content.color = "#ffffff" if on else COLORS["text_secondary"]
                 c.content.weight = ft.FontWeight.W_600 if on else ft.FontWeight.NORMAL
         safe_update(self._wrap)
+        if self._on_change:
+            self._on_change()
 
     def _add_new(self):
         raw = (self._new_field.value or "").strip().lower()
@@ -86,6 +90,8 @@ class _TagPicker(ft.Column):
             self._wrap.controls.append(self._chip(tag.name))   # built as selected
         self._new_field.value = ""
         safe_update(self._wrap, self._new_field)
+        if self._on_change:
+            self._on_change()
 
 
 def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,

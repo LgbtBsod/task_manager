@@ -176,6 +176,19 @@ class UI:
     SET_TAG_DELETE_CONFIRM = 'Удалить тег «{name}» из {n} задач?'
     SET_TAG_EXISTS = "Тег с таким названием уже есть"
 
+    # bulk status transitions by tag (b8)
+    BULK_TITLE = "Перевод задач по тегам"
+    BULK_TOOLTIP = "Массовый перевод по тегам"
+    BULK_HINT = ("Задачи с любым из выбранных тегов, находящиеся в выбранных "
+                "статусах, перейдут в целевой статус.")
+    BULK_FROM = "Из статусов"
+    BULK_TO = "В статус"
+    BULK_NO_TAGS = "Тегов пока нет — добавьте их в настройках."
+    BULK_PICK_FILTERS = "Выберите теги и хотя бы один исходный статус."
+    BULK_PREVIEW = "Будет переведено: {n}"
+    BULK_APPLY = "Перевести"
+    BULK_DONE = "Переведено задач: {n}"
+
     SET_UPDATES = "Обновления"
     SET_CHECK_ON_START = "Проверять обновления при запуске"
     SET_CHECK_NOW = "Проверить сейчас"
