@@ -11,7 +11,8 @@ import flet as ft
 from core import strings as L
 
 from ._ui import field as _field
-from .palette import COLORS, SWATCH_PALETTE, is_hex
+from ._ui import safe_update
+from .palette import COLORS, RADIUS_FIELD, SWATCH_PALETTE, hex_to_rgb01, is_hex
 
 _SQ_W, _SQ_H = 264, 168
 _HUE_H = 14
@@ -20,9 +21,7 @@ _HUE_STOPS = ["#ff0000", "#ffff00", "#00ff00", "#00ffff",
 
 
 def _hex_to_hsv(hx: str) -> tuple[float, float, float]:
-    hx = hx.lstrip("#")
-    r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
-    return colorsys.rgb_to_hsv(r, g, b)
+    return colorsys.rgb_to_hsv(*hex_to_rgb01(hx))
 
 
 def _hsv_to_hex(h: float, s: float, v: float) -> str:
@@ -40,11 +39,11 @@ def show_color_picker(page: ft.Page, initial: str, title: str,
     h, s, v = _hex_to_hsv(initial if is_hex(initial) else "#0070f2")
     st = {"h": h, "s": s, "v": v}
 
-    sq_base = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=8)
-    sq_white = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=8,
+    sq_base = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=RADIUS_FIELD)
+    sq_white = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=RADIUS_FIELD,
                             gradient=ft.LinearGradient(begin=ft.Alignment(-1, 0), end=ft.Alignment(1, 0),
                                                        colors=["#ffffffff", "#ffffff00"]))
-    sq_black = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=8,
+    sq_black = ft.Container(width=_SQ_W, height=_SQ_H, border_radius=RADIUS_FIELD,
                             gradient=ft.LinearGradient(begin=ft.Alignment(0, -1), end=ft.Alignment(0, 1),
                                                        colors=["#00000000", "#000000ff"]))
     sq_dot = ft.Container(width=14, height=14, border_radius=7,
@@ -56,7 +55,7 @@ def show_color_picker(page: ft.Page, initial: str, title: str,
     hue_dot = ft.Container(width=6, height=_HUE_H + 8, border_radius=3, bgcolor="#ffffff",
                            border=ft.Border.all(1, "#00000070"), top=-4)
 
-    preview = ft.Container(width=44, height=44, border_radius=8,
+    preview = ft.Container(width=44, height=44, border_radius=RADIUS_FIELD,
                            border=ft.Border.all(1, COLORS["border_color"]))
     hex_field = _field(width=104, text_size=13, dense=True)
     rgb_label = ft.Text(size=11, color=COLORS["text_secondary"])
@@ -74,11 +73,7 @@ def show_color_picker(page: ft.Page, initial: str, title: str,
         hex_field.value = cur
         r, g, b = _rgb(st["h"], st["s"], st["v"])
         rgb_label.value = f"RGB {r}, {g}, {b}"
-        for c in (sq_base, sq_dot, hue_dot, preview, hex_field, rgb_label):
-            try:
-                c.update()
-            except Exception:
-                pass
+        safe_update(sq_base, sq_dot, hue_dot, preview, hex_field, rgb_label)
         if emit:
             on_pick(cur)
 
@@ -107,13 +102,15 @@ def show_color_picker(page: ft.Page, initial: str, title: str,
 
     sv_gd = ft.GestureDetector(
         content=ft.Stack([sq_base, sq_white, sq_black, sq_dot], width=_SQ_W, height=_SQ_H),
+        drag_interval=50,
         on_tap_down=_sv_at, on_pan_start=_sv_at, on_pan_update=_sv_at)
     hue_gd = ft.GestureDetector(
         content=ft.Stack([hue_track, hue_dot], width=_SQ_W, height=_HUE_H),
+        drag_interval=50,
         on_tap_down=_hue_at, on_pan_start=_hue_at, on_pan_update=_hue_at)
 
     swatches = ft.Row(
-        [ft.Container(width=22, height=22, border_radius=5, bgcolor=c,
+        [ft.Container(width=22, height=22, border_radius=RADIUS_FIELD, bgcolor=c,
                       border=ft.Border.all(1, COLORS["border_color"]),
                       on_click=lambda e, c=c: _from_swatch(c))
          for c in SWATCH_PALETTE],

@@ -4,13 +4,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.settings import AppSettings, SettingsStore
+from core.settings import DEFAULT_ACCENT, AppSettings, SettingsStore
 
 
 def test_defaults():
     s = AppSettings()
     assert s.theme_mode == "dark"
-    assert s.accent_color == "#0a84ff"
+    assert s.accent_color == DEFAULT_ACCENT == "#0070f2"
     assert s.custom_colors == {}
     assert 1 <= s.notify_hours_before <= 720
 
@@ -18,7 +18,7 @@ def test_defaults():
 def test_invalid_values_fall_back():
     s = AppSettings(theme_mode="rainbow", accent_color="not-a-hex")
     assert s.theme_mode == "dark"
-    assert s.accent_color == "#0a84ff"
+    assert s.accent_color == DEFAULT_ACCENT
 
 
 def test_notify_ranges_reject_out_of_bounds():

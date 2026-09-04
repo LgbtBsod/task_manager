@@ -48,9 +48,6 @@ for _p in (_here / "src", Path(__file__).resolve().parent / "src"):
 from core import paths  # noqa: E402
 from core.app_context import AppContext  # noqa: E402
 
-paths.ensure_src_on_path()
-
-
 _ATTEMPTS_STAMP = "update_attempts"
 
 

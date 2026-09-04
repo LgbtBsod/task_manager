@@ -518,13 +518,11 @@ def test_import_malformed_task_data(r):
     bad_data = {"tasks": [{"id": "bad1"}], "sprints": []}
     result = svc.import_data_from_string(json.dumps(bad_data), overwrite=True)
     r.ok("malformed import writes data") if result["tasks_imported"] == 1 else r.fail("malformed write", result)
-    # But reading fails
+    # Reading is resilient: the unparseable record is skipped (and logged),
+    # not crashed on.
     svc3 = make_service()
-    try:
-        svc3.get_all_tasks()
-        r.fail("read malformed", "should raise")
-    except (ValueError, KeyError):
-        r.ok("malformed data fails on read")
+    tasks = svc3.get_all_tasks()
+    r.ok("malformed record skipped on read") if tasks == [] else r.fail("read malformed", f"got {tasks}")
     cleanup()
 
 

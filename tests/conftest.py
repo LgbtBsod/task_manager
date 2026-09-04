@@ -28,4 +28,8 @@ class _PytestResults:
 
 @pytest.fixture
 def r():
-    return _PytestResults()
+    """Legacy assertion collector. The teardown makes ``r.fail(...)`` actually
+    fail the test — for years these ~200 checks were dead under pytest."""
+    res = _PytestResults()
+    yield res
+    assert not res.errors, "\n".join(f"{n}: {why}" for n, why in res.errors)

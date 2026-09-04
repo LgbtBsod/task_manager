@@ -7,6 +7,7 @@ import flet as ft
 from core import paths
 from core import strings as L
 from core.models import TaskStatus
+from core.settings import NOTIFY_HOURS_MAX
 
 from ._ui import dropdown as _dropdown
 from ._ui import field as _field
@@ -393,7 +394,7 @@ class TaskManagerApp:
         )
         err = ft.Text("", size=12, color=COLORS["accent_red"])
 
-        # \u2500\u2500 Theme \u2500\u2500 mode buttons apply on Save; swatches apply on click.
+        # Theme: mode buttons apply on Save; swatches apply live.
         from core.settings import ACCENT_PRESETS
 
         chosen = {"mode": s.get("theme_mode") or "dark",
@@ -543,7 +544,7 @@ class TaskManagerApp:
         def save(e):
             try:
                 h = int(hours.value.strip())
-                if not (1 <= h <= 24 * 30):
+                if not (1 <= h <= NOTIFY_HOURS_MAX):
                     raise ValueError
             except ValueError:
                 err.value = L.ERR.HOURS_RANGE
@@ -689,12 +690,12 @@ class TaskManagerApp:
         self.refresh_all()
 
 
-def run_app(context=None, db_path: str = None, port: int = 8550):
+def run_app(context=None, port: int = 8550):
     """Entry point for the Flet-based task manager.
 
     Args:
-        context: a built ``AppContext`` (from ``main()``). If omitted, one is
-            created — ``db_path`` then still overrides the tasks file for tests.
+        context: a built ``AppContext`` (from ``main()``); one is created here
+            if omitted.
         port: TCP port for the local web server.
     """
     import os
@@ -705,19 +706,7 @@ def run_app(context=None, db_path: str = None, port: int = 8550):
     import flet as ft
 
     from core.app_context import AppContext
-    if context is None:
-        if db_path:
-            from pathlib import Path
-
-            from core.repository import TaskRepository
-            from core.service import TaskService
-            from core.settings import SettingsStore
-            repo = TaskRepository(db_path=str(db_path))
-            settings = SettingsStore(str(Path(db_path).parent / "settings.json"))
-            context = AppContext(settings=settings, repository=repo,
-                                 service=TaskService(repository=repo), version="dev")
-        else:
-            context = AppContext.create()
+    context = context or AppContext.create()
 
     def _port_free(p: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

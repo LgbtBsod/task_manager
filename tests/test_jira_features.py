@@ -381,7 +381,7 @@ def test_export_import_file(r):
         data = json.load(f)
     r.ok('export has tasks') if 'tasks' in data and len(data['tasks']) == 2 else r.fail('export tasks', str(data.keys()))
     r.ok('export has sprints') if 'sprints' in data else r.fail('export sprints', 'missing')
-    r.ok('export has version') if 'version' in data else r.fail('export version', 'missing')
+    r.ok('export has schema_version') if 'schema_version' in data else r.fail('export version', 'missing')
     r.ok('export has timestamp') if 'exported_at' in data else r.fail('export ts', 'missing')
     os.unlink(export_path)
     cleanup()

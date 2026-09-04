@@ -12,22 +12,27 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ._atomic import atomic_write_text
+from ._util import clean_hex
 
 log = logging.getLogger(__name__)
 
-# Named accent presets offered in the settings dialog — the SAP Horizon
-# accent set. The value is the primary colour for both Morning and Evening.
+# Named accent presets offered in the settings dialog — SAP Horizon blue plus
+# accents that don't collide with the reserved semantic tokens
+# (green/orange/red/purple back Done / in-progress / error and must stay
+# distinguishable from the primary accent).
 ACCENT_PRESETS: dict[str, str] = {
     "Horizon": "#0070f2",
     "Индиго": "#5d36ff",
-    "Пурпурный": "#7858ff",
+    "Аметист": "#a100c2",
     "Бирюзовый": "#049f9a",
-    "Зелёный": "#36a41d",
-    "Манго": "#e76500",
-    "Красный": "#f53232",
+    "Небесный": "#4fb0ff",
     "Розовый": "#fa4f96",
+    "Слива": "#d21ac6",
+    "Кобальт": "#2b4a6b",
 }
 
+DEFAULT_ACCENT = ACCENT_PRESETS["Horizon"]        # the one canonical primary accent
+NOTIFY_HOURS_MAX = 24 * 30                        # deadline-warning window ceiling
 THEME_MODES = ("dark", "light", "system")
 
 
@@ -36,12 +41,12 @@ class AppSettings(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     notifications_enabled: bool = True
-    notify_hours_before: int = Field(default=24, ge=1, le=24 * 30)
+    notify_hours_before: int = Field(default=24, ge=1, le=NOTIFY_HOURS_MAX)
     notify_check_seconds: int = Field(default=60, ge=15, le=3600)
     check_updates_on_start: bool = True
     skipped_update_version: str = ""
-    theme_mode: str = "dark"          # dark | light | system
-    accent_color: str = "#0a84ff"    # primary accent, hex "#rrggbb"
+    theme_mode: str = "dark"                 # dark | light | system
+    accent_color: str = DEFAULT_ACCENT       # primary accent, hex "#rrggbb"
     # per-token palette overrides: {"bg_card": "#101010", ...}. Empty keys use
     # the built-in theme colour. Unknown keys are ignored by the palette.
     custom_colors: dict[str, str] = Field(default_factory=dict)
@@ -51,27 +56,15 @@ class AppSettings(BaseModel):
     def _valid_mode(cls, v: str) -> str:
         return v if v in THEME_MODES else "dark"
 
-    @staticmethod
-    def _clean_hex(v: str) -> str | None:
-        s = str(v).strip().lower()
-        if len(s) == 7 and s[0] == "#":
-            try:
-                int(s[1:], 16)
-                return s
-            except ValueError:
-                pass
-        return None
-
     @field_validator("accent_color")
     @classmethod
     def _valid_hex(cls, v: str) -> str:
-        return cls._clean_hex(v) or "#0a84ff"
+        return clean_hex(v) or DEFAULT_ACCENT
 
     @field_validator("custom_colors")
     @classmethod
     def _valid_colors(cls, v: dict) -> dict:
-        return {str(k): h for k, val in (v or {}).items()
-                if (h := cls._clean_hex(val))}
+        return {str(k): h for k, val in (v or {}).items() if (h := clean_hex(val))}
 
 
 class SettingsStore:

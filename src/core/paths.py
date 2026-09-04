@@ -76,15 +76,6 @@ def sync_version_file() -> None:
         pass
 
 
-def ensure_src_on_path() -> None:
-    """Put the source dir on ``sys.path`` (idempotent) so ``import core.*`` works
-    both from a source checkout and a frozen bundle."""
-    for candidate in ({src_dir} | ({meipass / "src"} if meipass else set())):
-        s = str(candidate)
-        if candidate.exists() and s not in sys.path:
-            sys.path.insert(0, s)
-
-
 def ensure_data_dir() -> Path:
     """Create ``data/db`` and seed an empty ``tasks.json`` on first run."""
     data_dir.mkdir(parents=True, exist_ok=True)
