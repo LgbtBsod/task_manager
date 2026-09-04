@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict, fields
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import Enum, StrEnum
 import uuid
 from typing import Optional, Self, List
 
@@ -41,8 +41,9 @@ class _DataclassJSON:
         return cls(**{k: v for k, v in data.items() if k in known and v is not None})
 
 
-class TaskStatus(Enum):
-    """Task statuses for Kanban board."""
+class TaskStatus(StrEnum):
+    """Task statuses for Kanban board. ``StrEnum`` so a member *is* its stored
+    string — ``asdict`` / ``json.dumps`` serialize it with no special-casing."""
     TODO = "Todo"
     IN_PROGRESS = "In Progress"
     DONE = "Done"
@@ -53,7 +54,7 @@ class TaskStatus(Enum):
         return {"In Progress": 0, "Todo": 1, "Done": 2}[self.value]
 
 
-class Priority(Enum):
+class Priority(StrEnum):
     """Task priorities with colour and sort rank."""
     LOW = "Low"
     MEDIUM = "Medium"
@@ -234,11 +235,15 @@ def _normalize_tags(tags: List[str]) -> List[str]:
 
 
 @dataclass
-class Task:
+class Task(_DataclassJSON):
     """Domain model representing a task in the Kanban board.
 
     Supports Jira-like features: tags, subtasks, comments, task links,
     assignee, story points, task type, and full audit history.
+
+    ``to_dict`` is the inherited ``asdict`` — ``status``/``priority`` are
+    ``StrEnum`` so they serialize as their string value. ``from_dict`` is
+    overridden below (enum coercion + nested objects).
     """
     title: str
     description: str = ""
@@ -287,12 +292,6 @@ class Task:
             TaskModel.from_task(self)
         except Exception as e:
             raise ValueError(f"Task validation failed: {e}")
-
-    def to_dict(self) -> dict:
-        data = asdict(self)
-        data['status'] = self.status.value
-        data['priority'] = self.priority.value
-        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Task':
