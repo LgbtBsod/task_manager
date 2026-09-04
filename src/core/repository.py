@@ -16,19 +16,28 @@ import json
 import logging
 import shutil
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Protocol
 
 from ._atomic import atomic_write_text
+from .models import (
+    Category,
+    Notification,
+    Priority,
+    RecurringTask,
+    Sprint,
+    Task,
+    TaskStatus,
+    TaskTemplate,
+    VersionRelease,
+)
+
+log = logging.getLogger(__name__)
 
 # Bumped only when the export/import dict shape changes (not the app version).
 EXPORT_SCHEMA_VERSION = "1"
-
-from .models import (Task, TaskStatus, Priority, Sprint, VersionRelease,
-                     TaskTemplate, Category, RecurringTask, Notification)
-
-log = logging.getLogger(__name__)
 
 
 def _read_json_list(path: Path) -> list:
@@ -112,7 +121,7 @@ class _JsonCollection[T: _Entity]:
     def all(self) -> list[T]:
         return _parse_each(self.load_raw(), self._factory, self._kind)
 
-    def by_id(self, item_id: str) -> Optional[T]:
+    def by_id(self, item_id: str) -> T | None:
         return next((obj for obj in self.all() if obj.id == item_id), None)
 
     def add(self, obj: T) -> T:
@@ -142,19 +151,19 @@ class _JsonCollection[T: _Entity]:
 class TaskRepository:
     """
     Repository for task data persistence using JSON storage.
-    
+
     Implements the Repository pattern to provide a clean interface
     for CRUD operations on Task entities.
-    
+
     Responsibilities:
     - Loading tasks from JSON file
     - Saving tasks to JSON file
     - Basic querying (by ID, by status)
-    
+
     Not responsible for:
     - Business logic validation (handled by TaskService)
     - Data transformation (handled by TaskModel)
-    
+
     Example usage:
         repo = TaskRepository("tasks.json")
         tasks = repo.get_all()
@@ -163,15 +172,15 @@ class TaskRepository:
         repo.update(updated_task)
         repo.delete(task_id)
     """
-    
+
     def __init__(self, db_path: str = "tasks.json"):
         """Initialize repository with database file path.
-        
+
         Args:
             db_path: Path to JSON file for task storage
         """
         self.db_path = Path(db_path)
-        self._task_cache: Optional[list[dict]] = None
+        self._task_cache: list[dict] | None = None
         # The file is created lazily on first write (atomic_write_text mkdirs);
         # missing reads already fall back to []. AppContext also seeds it via
         # paths.ensure_data_dir().
@@ -219,13 +228,13 @@ class TaskRepository:
             except Exception as exc:
                 log.warning("Skipping unparseable task %r: %s", item, exc)
         return out
-    
-    def get_by_id(self, task_id: str) -> Optional[Task]:
+
+    def get_by_id(self, task_id: str) -> Task | None:
         """Find task by unique identifier.
-        
+
         Args:
             task_id: Unique task identifier
-            
+
         Returns:
             Task object if found, None otherwise
         """
@@ -234,25 +243,25 @@ class TaskRepository:
             if task.id == task_id:
                 return task
         return None
-    
+
     def get_by_status(self, status: TaskStatus) -> list[Task]:
         """Filter tasks by status.
-        
+
         Args:
             status: Task status to filter by
-            
+
         Returns:
             List of tasks matching the status
         """
         tasks = self.get_all()
         return [t for t in tasks if t.status == status]
-    
+
     def add(self, task: Task) -> Task:
         """Persist a new task.
-        
+
         Args:
             task: Task object to add
-            
+
         Returns:
             The added task with preserved ID
         """
@@ -261,13 +270,13 @@ class TaskRepository:
         tasks.append(task_dict)
         self._save_tasks(tasks)
         return task
-    
+
     def update(self, task: Task) -> Task:
         """Update an existing task.
-        
+
         Args:
             task: Task object with updated data
-            
+
         Returns:
             Updated task, or original if not found
         """
@@ -278,13 +287,13 @@ class TaskRepository:
                 break
         self._save_tasks(tasks)
         return task
-    
+
     def delete(self, task_id: str) -> bool:
         """Remove task by ID.
-        
+
         Args:
             task_id: ID of task to delete
-            
+
         Returns:
             True if task was deleted, False if not found
         """
@@ -295,18 +304,18 @@ class TaskRepository:
             self._save_tasks(tasks)
             return True
         return False
-    
+
     def count(self) -> int:
         """Get total number of tasks.
-        
+
         Returns:
             Number of tasks in storage
         """
         return len(self._load_tasks())
-    
+
     def get_statistics(self) -> dict:
         """Calculate task statistics for dashboard.
-        
+
         Returns:
             Dictionary containing:
             - total: Total task count
@@ -326,7 +335,7 @@ class TaskRepository:
 
         overdue = sum(1 for t in tasks if t.is_overdue())
         total_time = sum(t.time_spent for t in tasks if t.status == TaskStatus.DONE)
-        
+
         return {
             'total': total,
             'by_status': by_status,
@@ -343,7 +352,7 @@ class TaskRepository:
     def get_all_sprints(self) -> list[Sprint]:
         return self._sprints.all()
 
-    def get_sprint_by_id(self, sprint_id: str) -> Optional[Sprint]:
+    def get_sprint_by_id(self, sprint_id: str) -> Sprint | None:
         return self._sprints.by_id(sprint_id)
 
     def add_sprint(self, sprint: Sprint) -> Sprint:
@@ -358,7 +367,7 @@ class TaskRepository:
     def get_all_versions(self) -> list[VersionRelease]:
         return self._versions.all()
 
-    def get_version_by_id(self, version_id: str) -> Optional[VersionRelease]:
+    def get_version_by_id(self, version_id: str) -> VersionRelease | None:
         return self._versions.by_id(version_id)
 
     def add_version(self, version: VersionRelease) -> VersionRelease:
@@ -373,7 +382,7 @@ class TaskRepository:
     def get_all_templates(self) -> list[TaskTemplate]:
         return self._templates.all()
 
-    def get_template_by_id(self, template_id: str) -> Optional[TaskTemplate]:
+    def get_template_by_id(self, template_id: str) -> TaskTemplate | None:
         return self._templates.by_id(template_id)
 
     def add_template(self, template: TaskTemplate) -> TaskTemplate:
@@ -388,7 +397,7 @@ class TaskRepository:
     def get_all_categories(self) -> list[Category]:
         return self._categories.all()
 
-    def get_category_by_id(self, category_id: str) -> Optional[Category]:
+    def get_category_by_id(self, category_id: str) -> Category | None:
         return self._categories.by_id(category_id)
 
     def add_category(self, category: Category) -> Category:
@@ -403,7 +412,7 @@ class TaskRepository:
     def get_all_recurring(self) -> list[RecurringTask]:
         return self._recurring.all()
 
-    def get_recurring_by_id(self, rec_id: str) -> Optional[RecurringTask]:
+    def get_recurring_by_id(self, rec_id: str) -> RecurringTask | None:
         return self._recurring.by_id(rec_id)
 
     def add_recurring(self, rec: RecurringTask) -> RecurringTask:

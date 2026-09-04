@@ -1,13 +1,15 @@
 """Flet-based Task Manager application.
 Main app module with routing, theme, and view switching.
 """
-import flet as ft
-from typing import Optional
 
-from . import labels as L
-from .palette import COLORS, apply as apply_palette, build_theme
+import flet as ft
+
 from core import paths
 from core.models import TaskStatus
+
+from . import labels as L
+from .palette import COLORS, build_theme
+from .palette import apply as apply_palette
 
 
 def _app_version() -> str:
@@ -51,7 +53,7 @@ class TaskManagerApp:
         self.context = context
         self.service = context.service if context is not None else service
         self.settings = context.settings if context is not None else settings
-        self.page: Optional[ft.Page] = None
+        self.page: ft.Page | None = None
         self.current_view: str = "kanban"
         self._search_query: str = ""
         self._sort_mode: str = "default"
@@ -119,9 +121,9 @@ class TaskManagerApp:
             self.set_theme() if self.settings.get("theme_mode") == "system" else None
         )
 
-        from .kanban_view import KanbanView
-        from .gantt_view import GanttView
         from .dashboard_view import DashboardView
+        from .gantt_view import GanttView
+        from .kanban_view import KanbanView
 
         self.kanban_view = KanbanView(app=self)
         self.gantt_view = GanttView(app=self)
@@ -456,7 +458,8 @@ class TaskManagerApp:
 
         def open_data_dir(e):
             try:
-                import subprocess as _sp, sys as _sys
+                import subprocess as _sp
+                import sys as _sys
                 if _sys.platform == "win32":
                     _sp.Popen(["explorer.exe", data_dir])
                 elif _sys.platform == "darwin":
@@ -590,15 +593,17 @@ def run_app(context=None, db_path: str = None, port: int = 8550):
     import socket
     import time
     import webbrowser
+
     import flet as ft
 
     from core.app_context import AppContext
     if context is None:
         if db_path:
+            from pathlib import Path
+
             from core.repository import TaskRepository
             from core.service import TaskService
             from core.settings import SettingsStore
-            from pathlib import Path
             repo = TaskRepository(db_path=str(db_path))
             settings = SettingsStore(str(Path(db_path).parent / "settings.json"))
             context = AppContext(settings=settings, repository=repo,

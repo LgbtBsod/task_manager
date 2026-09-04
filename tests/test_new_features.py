@@ -17,16 +17,30 @@ Covers:
 - Integration: full lifecycle version + labels + workflow + estimate
 - Edge cases: duplicate version names, version not found, label not found, etc.
 """
-import sys, os, json, tempfile, shutil
-from pathlib import Path
+import json
+import os
+import shutil
+import sys
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from core.models import (
-    Task, TaskStatus, Priority, SubTask, TaskComment,
-    Sprint, SprintStatus, Resolution, Urgency, TaskType,
-    VersionRelease, WORKFLOW_TRANSITIONS, LinkType,
+    WORKFLOW_TRANSITIONS,
+    LinkType,
+    Priority,
+    Resolution,
+    Sprint,
+    SprintStatus,
+    SubTask,
+    Task,
+    TaskComment,
+    TaskStatus,
+    TaskType,
+    Urgency,
+    VersionRelease,
 )
 from core.repository import TaskRepository
 from core.service import TaskService
@@ -649,7 +663,7 @@ def test_export_includes_versions(r):
     tmp = tempfile.mktemp(suffix='.json')
     try:
         svc.export_data(tmp)
-        with open(tmp, 'r') as f:
+        with open(tmp) as f:
             data = json.load(f)
         r.ok('export_has_versions') if "versions" in data and len(data["versions"]) == 2 else \
             r.fail('export_has_versions', f'keys={list(data.keys())}')

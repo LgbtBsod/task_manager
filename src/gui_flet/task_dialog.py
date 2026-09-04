@@ -1,16 +1,19 @@
 """Task create/edit dialog with all Jira fields."""
-import flet as ft
-from typing import Optional, Callable
+from collections.abc import Callable
 from datetime import datetime
-from .app import COLORS, ic
+
+import flet as ft
+
+from core.datetimeutil import date_part, has_time, normalize, parse_dt
+from core.models import Priority, TaskType, Urgency
+
 from . import labels as L
 from ._ui import safe_update
-from core.datetimeutil import parse_dt, date_part, has_time, normalize
-from core.models import Priority, TaskType, Urgency
+from .app import COLORS, ic
 
 
 def show_task_dialog(page: ft.Page, title: str = "Новая задача",
-                      task=None, on_save: Optional[Callable] = None):
+                      task=None, on_save: Callable | None = None):
     title_field = ft.TextField(
         label="Название", value=task.title if task else "",
         text_size=14, autofocus=True, border_radius=8,
@@ -96,7 +99,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
 
     start_display.on_click = pick_start_date
     due_display.on_click = pick_due_date
-    
+
     time_field = ft.TextField(
         label="Затрачено (часы)",
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
@@ -146,12 +149,15 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         start_val = normalize(start_date_value, s_time)
         due_val = normalize(due_date_value, d_time)
         if s_time and not start_date_value.strip():
-            _err("Сначала выберите дату начала"); return
+            _err("Сначала выберите дату начала")
+            return
         if d_time and not due_date_value.strip():
-            _err("Сначала выберите дату дедлайна"); return
+            _err("Сначала выберите дату дедлайна")
+            return
         if (s_time and start_val and " " not in start_val) or \
            (d_time and due_val and " " not in due_val):
-            _err("Время в формате ЧЧ:ММ (например 14:30)"); return
+            _err("Время в формате ЧЧ:ММ (например 14:30)")
+            return
 
         try:
             time_val = float(time_field.value.strip() or "0")

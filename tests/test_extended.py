@@ -4,19 +4,34 @@ Covers: CRITICAL priority, Urgency, Watchers, Epic links, Filters,
 Move task, Log time, Team workload, Crash dump logger, Edge cases,
 Serialization round-trips, Concurrency, Repository edge cases.
 """
-import sys, os, json, tempfile, shutil, traceback as tb_module
-from pathlib import Path
+import json
+import os
+import shutil
+import sys
+import tempfile
+import traceback as tb_module
 from datetime import datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from core.models import (
-    Task, TaskStatus, Priority, TaskModel, SubTask, TaskComment,
-    TaskLink, HistoryEntry, LinkType, TaskType, _normalize_tags, Urgency,
+    HistoryEntry,
+    LinkType,
+    Priority,
+    SubTask,
+    Task,
+    TaskComment,
+    TaskLink,
+    TaskModel,
+    TaskStatus,
+    TaskType,
+    Urgency,
+    _normalize_tags,
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from utils.logger import setup_logging, get_logger
+from utils.logger import get_logger, setup_logging
 
 TMP_DB = tempfile.mktemp(suffix='.json')
 

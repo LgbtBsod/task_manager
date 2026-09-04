@@ -48,7 +48,7 @@ def check_now(app) -> None:
 
 
 async def _run_check(app, *, manual: bool) -> None:
-    from utils.updater import get_current_version, _mark_checked
+    from utils.updater import _mark_checked, get_current_version
 
     current = get_current_version()
     updater = _make_updater(current)

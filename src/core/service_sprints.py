@@ -1,6 +1,5 @@
 """Sprint lifecycle + reporting. Composed into :class:`TaskService`."""
 import logging
-from typing import Optional, List
 
 from ._util import apply_kwargs
 from .models import Sprint, SprintStatus, Task, TaskStatus
@@ -14,34 +13,34 @@ class SprintService:
         self.repo = repository
 
     def create_sprint(self, name: str, goal: str = "",
-                      start_date: Optional[str] = None,
-                      end_date: Optional[str] = None) -> Sprint:
+                      start_date: str | None = None,
+                      end_date: str | None = None) -> Sprint:
         sprint = Sprint(name=name.strip(), goal=goal.strip(),
                         start_date=start_date, end_date=end_date)
         self.repo.add_sprint(sprint)
         log.info("Sprint created: %s - %s", sprint.id, sprint.name)
         return sprint
 
-    def get_all_sprints(self) -> List[Sprint]:
+    def get_all_sprints(self) -> list[Sprint]:
         return self.repo.get_all_sprints()
 
-    def get_sprint(self, sprint_id: str) -> Optional[Sprint]:
+    def get_sprint(self, sprint_id: str) -> Sprint | None:
         return self.repo.get_sprint_by_id(sprint_id)
 
-    def update_sprint(self, sprint_id: str, **kwargs) -> Optional[Sprint]:
+    def update_sprint(self, sprint_id: str, **kwargs) -> Sprint | None:
         sprint = self.repo.get_sprint_by_id(sprint_id)
         if not sprint:
             return None
         log.info("Sprint updated: %s", sprint_id)
         return self.repo.update_sprint(apply_kwargs(sprint, kwargs))
 
-    def start_sprint(self, sprint_id: str) -> Optional[Sprint]:
+    def start_sprint(self, sprint_id: str) -> Sprint | None:
         return self.update_sprint(sprint_id, status=SprintStatus.ACTIVE.value)
 
-    def complete_sprint(self, sprint_id: str) -> Optional[Sprint]:
+    def complete_sprint(self, sprint_id: str) -> Sprint | None:
         return self.update_sprint(sprint_id, status=SprintStatus.COMPLETED.value)
 
-    def cancel_sprint(self, sprint_id: str) -> Optional[Sprint]:
+    def cancel_sprint(self, sprint_id: str) -> Sprint | None:
         return self.update_sprint(sprint_id, status=SprintStatus.CANCELLED.value)
 
     def delete_sprint(self, sprint_id: str) -> bool:
@@ -50,10 +49,10 @@ class SprintService:
             log.info("Sprint deleted: %s", sprint_id)
         return result
 
-    def get_sprint_tasks(self, sprint_id: str) -> List[Task]:
+    def get_sprint_tasks(self, sprint_id: str) -> list[Task]:
         return [t for t in self.repo.get_all() if t.sprint_id == sprint_id]
 
-    def assign_task_to_sprint(self, task_id: str, sprint_id: Optional[str]) -> Optional[Task]:
+    def assign_task_to_sprint(self, task_id: str, sprint_id: str | None) -> Task | None:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None

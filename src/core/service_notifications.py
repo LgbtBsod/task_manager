@@ -4,7 +4,6 @@ Note: the Flet GUI has its own in-app deadline watcher; this store is kept
 for API completeness and future headless use.
 """
 import logging
-from typing import Optional, List
 
 from .models import Notification, TaskStatus
 from .repository import TaskRepository
@@ -16,12 +15,12 @@ class NotificationService:
     def __init__(self, repository: TaskRepository):
         self.repo = repository
 
-    def get_notifications(self, unread_only: bool = False) -> List[Notification]:
+    def get_notifications(self, unread_only: bool = False) -> list[Notification]:
         return (self.repo.get_unread_notifications() if unread_only
                 else self.repo.get_all_notifications())
 
     def add_notification(self, ntype: str, title: str, message: str,
-                         task_id: Optional[str] = None) -> Notification:
+                         task_id: str | None = None) -> Notification:
         notif = Notification(ntype=ntype, title=title.strip(),
                              message=message.strip(), task_id=task_id)
         self.repo.add_notification(notif)
@@ -36,7 +35,7 @@ class NotificationService:
     def delete_notification(self, notif_id: str) -> bool:
         return self.repo.delete_notification(notif_id)
 
-    def generate_overdue_notifications(self) -> List[Notification]:
+    def generate_overdue_notifications(self) -> list[Notification]:
         created = []
         for t in self.repo.get_all():
             if t.status == TaskStatus.DONE:

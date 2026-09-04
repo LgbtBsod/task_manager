@@ -5,12 +5,11 @@ date ("2026-09-18") or a date with time ("2026-09-18 14:30" / ISO
 "2026-09-18T14:30"). Everything that reads those fields goes through here.
 """
 from datetime import date, datetime
-from typing import Optional
 
 _DATE_FMT = "%Y-%m-%d"
 
 
-def parse_dt(value: Optional[str]) -> Optional[datetime]:
+def parse_dt(value: str | None) -> datetime | None:
     """Parse a task date / date-time string ("2026-09-18", "… 14:30",
     ISO "…T14:30[:ss]"). Returns None if empty or unparseable.
 
@@ -26,13 +25,13 @@ def parse_dt(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def to_date(value: Optional[str]) -> Optional[date]:
+def to_date(value: str | None) -> date | None:
     """Parse to a plain ``date`` (drops any time component). None if invalid."""
     dt = parse_dt(value)
     return dt.date() if dt else None
 
 
-def has_time(value: Optional[str]) -> bool:
+def has_time(value: str | None) -> bool:
     """True if the string carries a time component."""
     if not value:
         return False
@@ -40,13 +39,13 @@ def has_time(value: Optional[str]) -> bool:
     return (" " in v or "T" in v) and parse_dt(v) is not None
 
 
-def date_part(value: Optional[str]) -> Optional[str]:
+def date_part(value: str | None) -> str | None:
     """Return just the 'YYYY-MM-DD' part, or None."""
     dt = parse_dt(value)
     return dt.strftime(_DATE_FMT) if dt else None
 
 
-def normalize(date_str: str, time_str: str = "") -> Optional[str]:
+def normalize(date_str: str, time_str: str = "") -> str | None:
     """Combine a picked date + optional 'HH:MM' into a stored string.
 
     Returns None for an empty/invalid date.
@@ -75,7 +74,7 @@ def normalize(date_str: str, time_str: str = "") -> Optional[str]:
     return f"{base} {parsed.strftime('%H:%M')}"
 
 
-def display(value: Optional[str]) -> str:
+def display(value: str | None) -> str:
     """Human-friendly rendering: '18.09.2026' or '18.09.2026 14:30'."""
     dt = parse_dt(value)
     if dt is None:

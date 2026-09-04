@@ -5,11 +5,18 @@ tasks (`create_task_from_template`, `generate_recurring_tasks`) stay on
 :class:`TaskService`. Composed in via the collaborator facade.
 """
 import logging
-from typing import Optional, List
 
 from ._util import apply_kwargs
-from .models import (Category, RecurrenceFrequency, RecurringTask, Task,
-                     TaskStatus, TaskTemplate, TaskType, Priority)
+from .models import (
+    Category,
+    Priority,
+    RecurrenceFrequency,
+    RecurringTask,
+    Task,
+    TaskStatus,
+    TaskTemplate,
+    TaskType,
+)
 from .repository import TaskRepository
 
 log = logging.getLogger(__name__)
@@ -22,10 +29,10 @@ class TemplateService:
     def create_template(self, name: str, description: str = "",
                         task_type: str = TaskType.TASK.value,
                         priority: str = Priority.MEDIUM.value,
-                        tags: Optional[List[str]] = None,
-                        labels: Optional[List[str]] = None,
-                        components: Optional[List[str]] = None,
-                        story_points: Optional[int] = None,
+                        tags: list[str] | None = None,
+                        labels: list[str] | None = None,
+                        components: list[str] | None = None,
+                        story_points: int | None = None,
                         original_estimate: float = 0.0) -> TaskTemplate:
         tpl = TaskTemplate(
             name=name.strip(), description=description.strip(),
@@ -37,13 +44,13 @@ class TemplateService:
         log.info("Template created: %s - %s", tpl.id, tpl.name)
         return tpl
 
-    def get_all_templates(self) -> List[TaskTemplate]:
+    def get_all_templates(self) -> list[TaskTemplate]:
         return self.repo.get_all_templates()
 
-    def get_template(self, template_id: str) -> Optional[TaskTemplate]:
+    def get_template(self, template_id: str) -> TaskTemplate | None:
         return self.repo.get_template_by_id(template_id)
 
-    def update_template(self, template_id: str, **kwargs) -> Optional[TaskTemplate]:
+    def update_template(self, template_id: str, **kwargs) -> TaskTemplate | None:
         tpl = self.repo.get_template_by_id(template_id)
         if not tpl:
             return None
@@ -68,13 +75,13 @@ class CategoryService:
         log.info("Category created: %s - %s", cat.id, cat.name)
         return cat
 
-    def get_all_categories(self) -> List[Category]:
+    def get_all_categories(self) -> list[Category]:
         return self.repo.get_all_categories()
 
-    def get_category(self, category_id: str) -> Optional[Category]:
+    def get_category(self, category_id: str) -> Category | None:
         return self.repo.get_category_by_id(category_id)
 
-    def update_category(self, category_id: str, **kwargs) -> Optional[Category]:
+    def update_category(self, category_id: str, **kwargs) -> Category | None:
         cat = self.repo.get_category_by_id(category_id)
         if not cat:
             return None
@@ -92,10 +99,10 @@ class CategoryService:
             log.info("Category deleted: %s", category_id)
         return result
 
-    def get_category_tasks(self, category_id: str) -> List[Task]:
+    def get_category_tasks(self, category_id: str) -> list[Task]:
         return [t for t in self.repo.get_all() if t.category_id == category_id]
 
-    def assign_task_to_category(self, task_id: str, category_id: Optional[str]) -> Optional[Task]:
+    def assign_task_to_category(self, task_id: str, category_id: str | None) -> Task | None:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None
@@ -126,11 +133,11 @@ class RecurringService:
 
     def create_recurring_task(self, title: str,
                               frequency: str = RecurrenceFrequency.WEEKLY.value,
-                              base_due_date: Optional[str] = None, description: str = "",
+                              base_due_date: str | None = None, description: str = "",
                               task_type: str = TaskType.TASK.value,
                               priority: str = Priority.MEDIUM.value,
-                              tags: Optional[List[str]] = None,
-                              labels: Optional[List[str]] = None,
+                              tags: list[str] | None = None,
+                              labels: list[str] | None = None,
                               estimate_hours: float = 0.0) -> RecurringTask:
         if frequency not in {f.value for f in RecurrenceFrequency}:
             raise ValueError(f"Invalid frequency: {frequency}")
@@ -144,13 +151,13 @@ class RecurringService:
         log.info("Recurring task created: %s - %s", rec.id, rec.title)
         return rec
 
-    def get_all_recurring(self) -> List[RecurringTask]:
+    def get_all_recurring(self) -> list[RecurringTask]:
         return self.repo.get_all_recurring()
 
-    def get_recurring(self, rec_id: str) -> Optional[RecurringTask]:
+    def get_recurring(self, rec_id: str) -> RecurringTask | None:
         return self.repo.get_recurring_by_id(rec_id)
 
-    def update_recurring(self, rec_id: str, **kwargs) -> Optional[RecurringTask]:
+    def update_recurring(self, rec_id: str, **kwargs) -> RecurringTask | None:
         rec = self.repo.get_recurring_by_id(rec_id)
         if not rec:
             return None
@@ -163,7 +170,7 @@ class RecurringService:
             log.info("Recurring task deleted: %s", rec_id)
         return result
 
-    def toggle_recurring_active(self, rec_id: str) -> Optional[RecurringTask]:
+    def toggle_recurring_active(self, rec_id: str) -> RecurringTask | None:
         rec = self.repo.get_recurring_by_id(rec_id)
         if not rec:
             return None

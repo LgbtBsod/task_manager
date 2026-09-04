@@ -1,10 +1,12 @@
-import flet as ft
 from datetime import datetime, timedelta
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from .app import COLORS, ic
-from . import labels as L
+import flet as ft
+
 from core.datetimeutil import to_date
+
+from . import labels as L
+from .app import COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -22,7 +24,7 @@ class GanttView:
 
     def __init__(self, app: 'TaskManagerApp'):
         self.app = app
-        self.container: Optional[ft.Control] = None
+        self.container: ft.Control | None = None
         self._range_var: str = "all"
         self._tasks_data: list = []
         self._min_date = None

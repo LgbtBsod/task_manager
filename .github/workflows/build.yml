@@ -23,12 +23,15 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-mock
+          pip install pytest pytest-asyncio pytest-mock ruff
+      - name: Lint
+        run: ruff check src/ main.py launcher.py build.py
       - name: Run tests
         run: >
           pytest -q
           tests/test_functional.py tests/test_jira_features.py
           tests/test_new_features.py tests/test_extended.py
+          tests/test_datetimeutil.py tests/test_recurring.py
           tests/test_updater.py tests/test_updater_download.py
           test_integration_ux.py
         # test_launcher.py / test_stress.py need a real venv layout or are

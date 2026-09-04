@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.datetimeutil import parse_dt, to_date, has_time, date_part, normalize, display
+from core.datetimeutil import date_part, display, has_time, normalize, parse_dt, to_date
 
 
 @pytest.mark.parametrize("text,expected", [

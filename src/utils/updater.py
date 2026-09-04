@@ -20,12 +20,13 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,8 @@ class AutoUpdater:
         self.is_frozen = paths.frozen
         self.app_dir = paths.app_dir
         self.current_exe = paths.exe_path
-        self.backup_dir: Optional[Path] = None
-        self.progress_callback: Optional[Callable[[DownloadProgress], None]] = None
+        self.backup_dir: Path | None = None
+        self.progress_callback: Callable[[DownloadProgress], None] | None = None
         self._network_reachable: bool = True
         self._rate_limited: bool = False
 
@@ -113,7 +114,7 @@ class AutoUpdater:
         req.add_header("User-Agent", f"TaskManager/{self.current_version}")
         return req
 
-    def _api_get(self, url: str) -> Optional[Any]:
+    def _api_get(self, url: str) -> Any | None:
         try:
             with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
                 return json.loads(resp.read().decode("utf-8"))
@@ -137,34 +138,34 @@ class AutoUpdater:
             return None
 
     def _download_with_progress(
-        self, 
-        url: str, 
+        self,
+        url: str,
         dest_path: Path,
-        progress_callback: Optional[Callable[[DownloadProgress], None]] = None
-    ) -> Tuple[bool, str]:
+        progress_callback: Callable[[DownloadProgress], None] | None = None
+    ) -> tuple[bool, str]:
         """Download a file with progress tracking and validation.
-        
+
         Returns:
             Tuple of (success, error_message)
         """
         import time
-        
+
         try:
             req = self._create_request(url)
             req.add_header('Accept', 'application/octet-stream')
-            
+
             with urlopen(req, timeout=self.TIMEOUT_DOWNLOAD) as resp:
                 # Handle redirects by following them automatically
                 final_url = resp.url if hasattr(resp, 'url') else url
-                
+
                 # Try to get Content-Length, may not be available for all URLs
                 total_size = int(resp.getheader('Content-Length', 0))
-                
+
                 # For GitHub releases, the size might not be available initially
                 # In this case, we'll download without size validation
                 if total_size == 0 and 'github' in final_url.lower():
                     logger.debug("GitHub URL detected, size validation skipped")
-                
+
                 downloaded = 0
                 start_time = time.monotonic()
                 progress = DownloadProgress(total_bytes=total_size)
@@ -194,22 +195,22 @@ class AutoUpdater:
                 if total_size > 0:
                     if total_size < self.MIN_UPDATE_SIZE:
                         return False, f"Update file too small: {total_size} bytes"
-                    
+
                     if total_size > self.MAX_UPDATE_SIZE:
                         return False, f"Update file too large: {total_size} bytes"
-                    
+
                     if downloaded != total_size:
                         return False, f"Incomplete download: {downloaded}/{total_size} bytes"
                 else:
                     # No size info available, just check we got something
                     if downloaded < self.MIN_UPDATE_SIZE:
                         return False, f"Downloaded file too small: {downloaded} bytes"
-                
+
                 logger.info("Download completed: %s (%.0f KB in %s, %.2f MB/s)",
                             dest_path.name, downloaded / 1024,
                             timedelta(seconds=round(total_elapsed)), progress.speed_mbps)
                 return True, ""
-                
+
         except HTTPError as exc:
             return False, f"HTTP error {exc.code}: {exc.reason}"
         except URLError as exc:
@@ -225,14 +226,14 @@ class AutoUpdater:
         any semver release outranks every legacy tag, so the feed stays sane
         through the transition.
         """
-        from packaging.version import Version, InvalidVersion
+        from packaging.version import InvalidVersion, Version
         try:
             return Version(normalize_version(latest)) > Version(normalize_version(current))
         except InvalidVersion:
             a, b = latest.strip(), current.strip()
             return a != b and a > b
 
-    def _platform_asset(self) -> Optional[str]:
+    def _platform_asset(self) -> str | None:
         """The exact release-asset filename for this OS (matches build.yml)."""
         if not self.is_frozen:
             return None
@@ -251,7 +252,7 @@ class AutoUpdater:
 
     # ── Discovery via github.com (no API rate limit) ──────────────────────
 
-    def _http_text(self, url: str) -> Optional[str]:
+    def _http_text(self, url: str) -> str | None:
         try:
             with urlopen(self._create_request(url), timeout=self.TIMEOUT_API) as resp:
                 return resp.read().decode("utf-8", "replace")
@@ -275,7 +276,7 @@ class AutoUpdater:
         # <link ... href=".../releases/tag/<TAG>"/>  — order = newest first
         return list(dict.fromkeys(re.findall(r"/releases/tag/([^\"'<>\s]+)", xml)))
 
-    def _web_asset_url(self, tag: str) -> Optional[str]:
+    def _web_asset_url(self, tag: str) -> str | None:
         asset = self._platform_asset()
         return f"{self.web_url}/releases/download/{tag}/{asset}" if asset else None
 
@@ -292,7 +293,7 @@ class AutoUpdater:
         except Exception:
             return False
 
-    def _check_via_web(self) -> Optional[Tuple[bool, Optional[str], Optional[str]]]:
+    def _check_via_web(self) -> tuple[bool, str | None, str | None] | None:
         """Atom-feed discovery. Returns a check_for_updates result, or None to
         let the caller fall through to the API."""
         tags = self._atom_tags()
@@ -310,7 +311,7 @@ class AutoUpdater:
         logger.info("Release %s is published but its asset isn't ready yet", newest)
         return False, newest, None
 
-    def _resolve_download_url(self, release_info: Dict[str, Any]) -> Optional[str]:
+    def _resolve_download_url(self, release_info: dict[str, Any]) -> str | None:
         assets = release_info.get("assets") or []
         for keyword in self._asset_keywords():
             for asset in assets:
@@ -322,7 +323,7 @@ class AutoUpdater:
             return release_info.get("zipball_url")
         return None
 
-    def _pick_release(self, releases: list) -> Optional[Dict[str, Any]]:
+    def _pick_release(self, releases: list) -> dict[str, Any] | None:
         """From a list of releases, the newest one that beats the current
         version *and* ships an asset for this platform.
 
@@ -330,8 +331,8 @@ class AutoUpdater:
         non-semver tags (``v.1.0.0.0.0.0.2.1.9.b``) left it stuck on an older
         release, and picking by our own comparison is robust either way.
         """
-        best: Optional[Dict[str, Any]] = None
-        best_tag: Optional[str] = None
+        best: dict[str, Any] | None = None
+        best_tag: str | None = None
         for rel in releases:
             if rel.get("draft"):
                 continue
@@ -345,7 +346,7 @@ class AutoUpdater:
                 best, best_tag = rel, tag
         return best
 
-    def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
+    def check_for_updates(self) -> tuple[bool, str | None, str | None]:
         # 1) github.com/releases.atom + a direct download URL — no API limit.
         web = self._check_via_web()
         if web is not None:
@@ -394,7 +395,7 @@ class AutoUpdater:
                 return True, latest_sha, zip_url
         return False, None, None
 
-    def _create_backup(self) -> Optional[Path]:
+    def _create_backup(self) -> Path | None:
         """Snapshot critical files + the user database before an update."""
         try:
             backup_base = self.app_dir / ".update_backup"
@@ -470,7 +471,7 @@ class AutoUpdater:
                 return candidate
         return extracted_dir
 
-    def _find_exe_in_bundle(self, source_folder: Path, preferred_name: Optional[str] = None) -> Optional[Path]:
+    def _find_exe_in_bundle(self, source_folder: Path, preferred_name: str | None = None) -> Path | None:
         candidates = list(source_folder.rglob("*.exe"))
         if not candidates:
             return None
@@ -649,7 +650,7 @@ class AutoUpdater:
         try:
             # Create backup before starting update
             self._create_backup()
-            
+
             temp_base = Path(tempfile.gettempdir()) / "task_manager_update"
             temp_base.mkdir(parents=True, exist_ok=True)
             temp_dir = temp_base / f"update_{latest_version.replace('.', '_')}_{os.getpid()}"
@@ -657,22 +658,22 @@ class AutoUpdater:
 
             zip_path = temp_dir / "update.zip"
             logger.info("Downloading update from %s", zip_url)
-            
+
             # Download with progress tracking
             success, error_msg = self._download_with_progress(
-                zip_url, 
+                zip_url,
                 zip_path,
                 self.progress_callback
             )
-            
+
             if not success:
                 logger.error("Download failed: %s", error_msg)
                 raise UpdateError(f"Download failed: {error_msg}", recoverable=True)
-            
+
             # Verify downloaded file exists and has content
             if not zip_path.exists() or zip_path.stat().st_size < self.MIN_UPDATE_SIZE:
                 raise UpdateError("Downloaded file is empty or missing", recoverable=True)
-            
+
             # Calculate checksum for logging
             checksum = self._calculate_checksum(zip_path)
             logger.info("Download verified. SHA256: %s", checksum[:16])
@@ -690,7 +691,7 @@ class AutoUpdater:
 
             extracted_dir = temp_dir / "extracted"
             extracted_dir.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     # Verify ZIP integrity
@@ -699,10 +700,10 @@ class AutoUpdater:
                         raise UpdateError(f"Corrupted ZIP entry: {bad_file}", recoverable=False)
                     zf.extractall(extracted_dir)
             except zipfile.BadZipFile as exc:
-                raise UpdateError(f"Invalid ZIP archive: {exc}", recoverable=False)
+                raise UpdateError(f"Invalid ZIP archive: {exc}", recoverable=False) from exc
 
             source_folder = self._find_source_root(extracted_dir)
-            
+
             if self.is_frozen:
                 result = self._install_frozen_update(source_folder, latest_version)
             else:
@@ -715,9 +716,9 @@ class AutoUpdater:
             else:
                 logger.warning("Update installation returned no changes")
                 self._restore_from_backup()
-                
+
             return result
-            
+
         except UpdateError as exc:
             logger.error("Update error: %s", exc)
             if exc.recoverable:

@@ -6,7 +6,7 @@ the page, plus a callback to refresh the board.
 """
 import asyncio
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 import flet as ft
 

@@ -1,5 +1,10 @@
 """Test launcher.py steps without actually launching GUI."""
-import sys, os, subprocess, time, tempfile, shutil
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 APP_DIR = Path(__file__).parent.parent

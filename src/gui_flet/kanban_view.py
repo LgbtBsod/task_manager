@@ -1,11 +1,12 @@
 """Kanban board view with Drag-and-Drop support via Flet Draggable/DragTarget.
 """
-import flet as ft
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from .app import COLORS, ic
+import flet as ft
+
 from . import labels as L
 from ._ui import safe_update
+from .app import COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -339,10 +340,10 @@ class KanbanView:
 
     def __init__(self, app: 'TaskManagerApp'):
         self.app = app
-        self.container: Optional[ft.Control] = None
-        self.todo_col: Optional[DropColumn] = None
-        self.progress_col: Optional[DropColumn] = None
-        self.done_col: Optional[DropColumn] = None
+        self.container: ft.Control | None = None
+        self.todo_col: DropColumn | None = None
+        self.progress_col: DropColumn | None = None
+        self.done_col: DropColumn | None = None
 
     def build(self):
         def _col(value: str) -> DropColumn:

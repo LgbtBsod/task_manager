@@ -1,0 +1,29 @@
+# Tooling config only — this project is NOT a pip-installable package
+# (PyInstaller drives the build from build.py; deps live in requirements.txt).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src"]
+extend-exclude = ["venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pyflakes + pycodestyle
+    "UP",            # pyupgrade — PEP 585/604 modern typing
+    "I",             # isort
+    "B",             # flake8-bugbear
+    "SIM",           # flake8-simplify
+]
+ignore = [
+    "E501",   # line length — long strings / URLs are fine
+    "E741",   # ambiguous names (l, I) — a few legacy loop vars
+    "B008",   # function call in default arg — Flet/pydantic patterns
+    "SIM105", # contextlib.suppress — try/except pass reads fine here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are gated by pytest; keep lint light (unused locals, import order, one-liners).
+"tests/*" = ["E402", "E701", "E702", "F401", "F841", "I001", "SIM"]
+"test_integration_ux.py" = ["E402", "E701", "E702", "F401", "F841", "I001", "SIM"]
+"main.py" = ["E402"]          # deliberate sys.path bootstrap before imports

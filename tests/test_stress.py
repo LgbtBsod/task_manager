@@ -12,16 +12,32 @@ Covers:
 - Swimlanes with many lanes
 - Filter combinations at scale
 """
-import sys, os, json, tempfile, shutil, threading, time
-from pathlib import Path
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from core.models import (
-    Task, TaskStatus, Priority, SubTask, TaskComment,
-    Sprint, SprintStatus, Resolution, Urgency, TaskType,
-    ActivityEntry, HistoryEntry, _normalize_tags,
+    ActivityEntry,
+    HistoryEntry,
+    Priority,
+    Resolution,
+    Sprint,
+    SprintStatus,
+    SubTask,
+    Task,
+    TaskComment,
+    TaskStatus,
+    TaskType,
+    Urgency,
+    _normalize_tags,
 )
 from core.repository import TaskRepository
 from core.service import TaskService
@@ -401,7 +417,7 @@ def test_swimlanes_many_assignees(r):
     svc = make_service()
     for i in range(50):
         svc.create_task(f"T{i}", assignee=f"user{i % 10}")
-        svc.update_task_status(f"placeholder", TaskStatus.IN_PROGRESS)  # won't match
+        svc.update_task_status("placeholder", TaskStatus.IN_PROGRESS)  # won't match
 
     # Set various statuses
     tasks = svc.get_all_tasks()

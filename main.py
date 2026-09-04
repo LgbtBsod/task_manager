@@ -25,10 +25,10 @@ def _ensure_std_streams() -> None:
         try:
             log_path = Path(sys.executable).parent / "logs" / "console.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            stream = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")
+            stream = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 — lives for the process
         except OSError:
             try:
-                stream = open(os.devnull, "w")
+                stream = open(os.devnull, "w")  # noqa: SIM115
             except OSError:
                 stream = None
         if stream is not None:
@@ -91,14 +91,14 @@ def _cleanup_update_leftovers(log) -> None:
 
 
 def main() -> None:
-    from utils.logger import setup_logging, get_logger
+    from utils.logger import get_logger, setup_logging
     setup_logging(str(paths.app_dir))
     log = get_logger("main")
     log.info("App dir: %s | frozen: %s | python: %s", paths.app_dir, paths.frozen,
              sys.version.split()[0])
     log.info("Args: %s", sys.argv)
 
-    from utils.error_handler import install_error_handler, ErrorContext
+    from utils.error_handler import ErrorContext, install_error_handler
     install_error_handler(str(paths.app_dir))
     ErrorContext().set("app_dir", str(paths.app_dir))
 

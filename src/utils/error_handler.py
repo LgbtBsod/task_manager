@@ -23,7 +23,6 @@ import threading
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 _log = logging.getLogger("crash")
 _RULE = "=" * 70
@@ -60,8 +59,8 @@ def install_error_handler(app_dir: str = ".") -> Path:
     return _logs_dir
 
 
-def write_error_log(error_msg: str, app_dir: Optional[str] = None,
-                    context: Optional[dict] = None) -> Path:
+def write_error_log(error_msg: str, app_dir: str | None = None,
+                    context: dict | None = None) -> Path:
     """Append a full report for a caught exception. Returns the log path."""
     logs_dir = (Path(app_dir) / "logs") if app_dir else _logs_dir
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +92,7 @@ def _crash_handler(exc_type, exc_value, exc_tb) -> None:
 # ── report building (the one place it happens) ────────────────────────
 
 def _build_report(title: str, error_msg: str, exc_info, *,
-                  extra: Optional[dict] = None, deep: bool = False) -> str:
+                  extra: dict | None = None, deep: bool = False) -> str:
     lines = [
         "", _RULE, f"{title} — {datetime.now().isoformat()}", _RULE,
         f"Python:    {sys.version}",
@@ -125,7 +124,7 @@ def _build_report(title: str, error_msg: str, exc_info, *,
     return "\n".join(lines) + "\n"
 
 
-def _section(name: str, items, *, header: Optional[str] = None) -> list[str]:
+def _section(name: str, items, *, header: str | None = None) -> list[str]:
     return ["", f"--- {header or name} ---", *(f"  {it}" for it in items)]
 
 

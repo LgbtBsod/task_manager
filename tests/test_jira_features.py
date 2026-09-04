@@ -10,20 +10,31 @@ Covers:
 - Sprint model edge cases (days_remaining, is_active)
 - Full integration: sprint + resolution + export round-trip
 """
-import sys, os, json, tempfile, shutil
-from pathlib import Path
+import json
+import os
+import shutil
+import sys
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
+import utils.error_handler as _eh
 from core.models import (
-    Task, TaskStatus, Priority, SubTask, TaskComment,
-    Sprint, SprintStatus, Resolution, Urgency,
+    Priority,
+    Resolution,
+    Sprint,
+    SprintStatus,
+    SubTask,
+    Task,
+    TaskComment,
+    TaskStatus,
+    Urgency,
 )
 from core.repository import TaskRepository
 from core.service import TaskService
-from utils.error_handler import ErrorContext, write_error_log, install_error_handler
-import utils.error_handler as _eh
+from utils.error_handler import ErrorContext, install_error_handler, write_error_log
 
 
 class TestResults:
@@ -366,7 +377,7 @@ def test_export_import_file(r):
     svc.export_data(export_path)
     r.ok('export file created') if os.path.exists(export_path) else r.fail('export file', 'not found')
 
-    with open(export_path, 'r') as f:
+    with open(export_path) as f:
         data = json.load(f)
     r.ok('export has tasks') if 'tasks' in data and len(data['tasks']) == 2 else r.fail('export tasks', str(data.keys()))
     r.ok('export has sprints') if 'sprints' in data else r.fail('export sprints', 'missing')

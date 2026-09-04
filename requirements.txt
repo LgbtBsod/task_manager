@@ -1,4 +1,7 @@
-# Runtime dependencies. Python 3.10+ (tested on 3.14).
+# Runtime dependencies. Python 3.12+ (StrEnum, PEP 695 generics; tested on 3.14).
 flet[web]>=0.86.5,<0.90
 pydantic>=2.0.0
 packaging>=23.0          # PEP 440 version comparison in the self-updater
+
+# Dev / CI only (not bundled by PyInstaller):
+#   pytest pytest-asyncio pytest-mock ruff

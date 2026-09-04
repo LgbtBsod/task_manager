@@ -5,9 +5,8 @@ Composed into :class:`TaskService` as ``self.analytics`` and reached through
 the collaborator facade (``service.get_personal_dashboard()`` etc.).
 """
 from datetime import datetime
-from typing import Optional, List
 
-from .models import Priority, SprintStatus, Task, TaskStatus
+from .models import Priority, SprintStatus, TaskStatus
 from .repository import TaskRepository
 
 
@@ -21,7 +20,7 @@ class BoardAnalytics:
     def get_statistics(self) -> dict:
         return self.repo.get_statistics()
 
-    def get_team_workload(self) -> List[dict]:
+    def get_team_workload(self) -> list[dict]:
         lanes: dict[str, dict] = {}
         for t in self.repo.get_all():
             w = lanes.setdefault(t.assignee or "Unassigned", {
@@ -47,7 +46,7 @@ class BoardAnalytics:
 
     # ── velocity (needs the sprint service) ──
 
-    def get_sprint_velocity(self, last_n: int = 5) -> List[dict]:
+    def get_sprint_velocity(self, last_n: int = 5) -> list[dict]:
         completed = [s for s in self.repo.get_all_sprints()
                      if s.status == SprintStatus.COMPLETED.value]
         completed.sort(key=lambda s: s.created_at, reverse=True)
@@ -69,7 +68,7 @@ class BoardAnalytics:
 
     # ── feeds / boards ──
 
-    def get_activity_feed(self, limit: int = 50) -> List[dict]:
+    def get_activity_feed(self, limit: int = 50) -> list[dict]:
         feed = []
         for t in self.repo.get_all():
             for h in t.history:
@@ -83,7 +82,7 @@ class BoardAnalytics:
         feed.sort(key=lambda x: x["timestamp"], reverse=True)
         return feed[:limit]
 
-    def get_board_data(self, sprint_id: Optional[str] = None) -> dict:
+    def get_board_data(self, sprint_id: str | None = None) -> dict:
         tasks = self.repo.get_all()
         if sprint_id:
             tasks = [t for t in tasks if t.sprint_id == sprint_id]

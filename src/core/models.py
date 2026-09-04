@@ -1,13 +1,12 @@
-from dataclasses import dataclass, field, asdict, fields
+import uuid
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
-import uuid
-from typing import Optional, Self, List
+from typing import Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .datetimeutil import parse_dt, date_part
-
+from .datetimeutil import date_part, parse_dt
 
 # Type aliases for better type hints
 TaskID = str
@@ -125,15 +124,15 @@ class Sprint(_DataclassJSON):
     name: str = ""
     goal: str = ""
     status: str = SprintStatus.PLANNING.value
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
+    start_date: str | None = None
+    end_date: str | None = None
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
 
     def is_active(self) -> bool:
         return self.status == SprintStatus.ACTIVE.value
 
-    def days_remaining(self) -> Optional[int]:
+    def days_remaining(self) -> int | None:
         if not self.end_date or self.status != SprintStatus.ACTIVE.value:
             return None
         try:
@@ -178,30 +177,30 @@ class HistoryEntry(_DataclassJSON):
 
 class TaskModel(BaseModel):
     """Pydantic model for task data validation."""
-    id: Optional[TaskID] = Field(default=None, description="Unique task identifier")
+    id: TaskID | None = Field(default=None, description="Unique task identifier")
     title: str = Field(..., min_length=1, max_length=200, description="Task title")
     description: str = Field(default="", max_length=5000, description="Task description")
     status: TaskStatus = Field(default=TaskStatus.TODO)
     priority: Priority = Field(default=Priority.MEDIUM)
-    due_date: Optional[DateStr] = Field(default=None, description="Due date in YYYY-MM-DD format")
-    start_date: Optional[DateStr] = Field(default=None, description="Start date in YYYY-MM-DD format")
+    due_date: DateStr | None = Field(default=None, description="Due date in YYYY-MM-DD format")
+    start_date: DateStr | None = Field(default=None, description="Start date in YYYY-MM-DD format")
     time_spent: float = Field(default=0.0, ge=0, description="Time spent in hours")
-    created_at: Optional[str] = Field(default=None, description="Creation timestamp (ISO format)")
-    updated_at: Optional[str] = Field(default=None, description="Last update timestamp (ISO format)")
-    tags: List[str] = Field(default_factory=list, max_length=10, description="Tags for categorization")
-    assignee: Optional[str] = Field(default=None, max_length=100, description="Assigned person")
-    story_points: Optional[int] = Field(default=None, ge=0, le=100, description="Agile story points")
+    created_at: str | None = Field(default=None, description="Creation timestamp (ISO format)")
+    updated_at: str | None = Field(default=None, description="Last update timestamp (ISO format)")
+    tags: list[str] = Field(default_factory=list, max_length=10, description="Tags for categorization")
+    assignee: str | None = Field(default=None, max_length=100, description="Assigned person")
+    story_points: int | None = Field(default=None, ge=0, le=100, description="Agile story points")
     task_type: str = Field(default=TaskType.TASK.value, description="Task type (Task/Bug/Story/Epic)")
-    
+
     @field_validator('due_date', 'start_date')
     @classmethod
-    def validate_date_format(cls, v: Optional[str]) -> Optional[str]:
+    def validate_date_format(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
         if parse_dt(v) is None:
             raise ValueError("Формат даты: ГГГГ-ММ-ДД или ГГГГ-ММ-ДД ЧЧ:ММ")
         return v.strip()
-    
+
     @field_validator('task_type')
     @classmethod
     def validate_task_type(cls, v: str) -> str:
@@ -209,7 +208,7 @@ class TaskModel(BaseModel):
         if v not in valid:
             raise ValueError(f"Invalid task_type. Must be one of: {valid}")
         return v
-    
+
     @model_validator(mode='after')
     def validate_dates_consistency(self) -> Self:
         if self.start_date and self.due_date:
@@ -218,7 +217,7 @@ class TaskModel(BaseModel):
             if start_dt and due_dt and due_dt < start_dt:
                 raise ValueError("Дедлайн должен быть не раньше даты начала")
         return self
-    
+
     def to_task(self) -> 'Task':
         # TaskModel's fields are a subset of Task's; the rest take dataclass
         # defaults. model_dump() keeps enum members (no use_enum_values).
@@ -229,7 +228,7 @@ class TaskModel(BaseModel):
         return cls.model_validate(task, from_attributes=True)
 
 
-def _normalize_tags(tags: List[str]) -> List[str]:
+def _normalize_tags(tags: list[str]) -> list[str]:
     """Strip / lowercase / drop-empty / order-preserving dedupe, cap at 10."""
     return list(dict.fromkeys(s for t in tags if (s := t.strip().lower())))[:10]
 
@@ -249,31 +248,31 @@ class Task(_DataclassJSON):
     description: str = ""
     status: TaskStatus = TaskStatus.TODO
     priority: Priority = Priority.MEDIUM
-    due_date: Optional[str] = None
+    due_date: str | None = None
     created_at: str = field(default_factory=_now_iso)
-    updated_at: Optional[str] = None
-    id: Optional[str] = None
+    updated_at: str | None = None
+    id: str | None = None
     time_spent: float = 0.0
-    start_date: Optional[str] = None
-    tags: List[str] = field(default_factory=list)
-    subtasks: List[SubTask] = field(default_factory=list)
-    comments: List[TaskComment] = field(default_factory=list)
-    links: List[TaskLink] = field(default_factory=list)
-    history: List[HistoryEntry] = field(default_factory=list)
-    assignee: Optional[str] = None
-    story_points: Optional[int] = None
+    start_date: str | None = None
+    tags: list[str] = field(default_factory=list)
+    subtasks: list[SubTask] = field(default_factory=list)
+    comments: list[TaskComment] = field(default_factory=list)
+    links: list[TaskLink] = field(default_factory=list)
+    history: list[HistoryEntry] = field(default_factory=list)
+    assignee: str | None = None
+    story_points: int | None = None
     task_type: str = TaskType.TASK.value
     urgency: str = Urgency.NORMAL.value
-    watchers: List[str] = field(default_factory=list)
-    epic_link: Optional[str] = None
-    resolution: Optional[str] = None
-    sprint_id: Optional[str] = None
-    components: List[str] = field(default_factory=list)
-    labels: List[str] = field(default_factory=list)
-    version_id: Optional[str] = None
+    watchers: list[str] = field(default_factory=list)
+    epic_link: str | None = None
+    resolution: str | None = None
+    sprint_id: str | None = None
+    components: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
+    version_id: str | None = None
     original_estimate: float = 0.0  # hours
-    category_id: Optional[str] = None
-    recurring_task_id: Optional[str] = None
+    category_id: str | None = None
+    recurring_task_id: str | None = None
     rank: int = 0
 
     def __post_init__(self):
@@ -291,7 +290,7 @@ class Task(_DataclassJSON):
         try:
             TaskModel.from_task(self)
         except Exception as e:
-            raise ValueError(f"Task validation failed: {e}")
+            raise ValueError(f"Task validation failed: {e}") from e
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Task':
@@ -332,13 +331,13 @@ class Task(_DataclassJSON):
         dt = self._due_dt()
         return dt is not None and dt < datetime.now()
 
-    def days_until_due(self) -> Optional[int]:
+    def days_until_due(self) -> int | None:
         dt = self._due_dt()
         if dt is None:
             return None
         return (dt - datetime.now()).days
 
-    def seconds_until_due(self) -> Optional[float]:
+    def seconds_until_due(self) -> float | None:
         """Signed seconds to the deadline (negative once overdue)."""
         dt = self._due_dt()
         if dt is None:
@@ -427,7 +426,7 @@ class ActivityEntry(_DataclassJSON):
     id: str = field(default_factory=_short_id)
     timestamp: str = field(default_factory=_now_iso)
     action: str = ""  # e.g. "created", "status_changed", "comment_added"
-    task_id: Optional[str] = None
+    task_id: str | None = None
     task_title: str = ""
     author: str = ""
     details: str = ""
@@ -455,7 +454,7 @@ class VersionRelease(_DataclassJSON):
     name: str = ""
     description: str = ""
     status: str = "Unreleased"  # Unreleased | Released | Archived
-    release_date: Optional[str] = None  # YYYY-MM-DD
+    release_date: str | None = None  # YYYY-MM-DD
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
 
@@ -483,12 +482,12 @@ class TaskTemplate(_DataclassJSON):
     description: str = ""
     task_type: str = TaskType.TASK.value
     priority: str = Priority.MEDIUM.value
-    tags: List[str] = field(default_factory=list)
-    labels: List[str] = field(default_factory=list)
-    components: List[str] = field(default_factory=list)
-    story_points: Optional[int] = None
+    tags: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
+    components: list[str] = field(default_factory=list)
+    story_points: int | None = None
     original_estimate: float = 0.0
-    assignee: Optional[str] = None
+    assignee: str | None = None
     urgency: str = Urgency.NORMAL.value
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
@@ -512,7 +511,7 @@ class Notification(_DataclassJSON):
     ntype: str = "info"  # info | warning | error | success
     title: str = ""
     message: str = ""
-    task_id: Optional[str] = None
+    task_id: str | None = None
     is_read: bool = False
 
 
@@ -526,14 +525,14 @@ class RecurringTask(_DataclassJSON):
     title: str = ""
     description: str = ""
     frequency: str = RecurrenceFrequency.WEEKLY.value
-    base_due_date: Optional[str] = None  # YYYY-MM-DD, the reference date
+    base_due_date: str | None = None  # YYYY-MM-DD, the reference date
     task_type: str = TaskType.TASK.value
     priority: str = Priority.MEDIUM.value
-    tags: List[str] = field(default_factory=list)
-    labels: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
     estimate_hours: float = 0.0
     is_active: bool = True
-    last_generated_date: Optional[str] = None  # YYYY-MM-DD of last auto-gen
+    last_generated_date: str | None = None  # YYYY-MM-DD of last auto-gen
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
 
@@ -545,7 +544,7 @@ class RecurringTask(_DataclassJSON):
         RecurrenceFrequency.QUARTERLY.value: timedelta(days=90),
     }
 
-    def next_due_date(self, after_date: Optional[str] = None) -> Optional[str]:
+    def next_due_date(self, after_date: str | None = None) -> str | None:
         """The first occurrence on or after ``after_date`` (or today).
         YYYY-MM-DD, or None if ``base_due_date`` is unset/invalid.
         """
@@ -562,7 +561,7 @@ class RecurringTask(_DataclassJSON):
             occ += step
         return occ.strftime("%Y-%m-%d")
 
-    def due_occurrence(self, today: str, after: Optional[str] = None) -> Optional[str]:
+    def due_occurrence(self, today: str, after: str | None = None) -> str | None:
         """The *latest* occurrence that has come due (``<= today``) and is
         strictly after ``after`` (the last one already generated), or None.
 

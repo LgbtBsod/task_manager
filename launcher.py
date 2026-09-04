@@ -12,11 +12,11 @@ Responsibilities:
 Usage:
     python launcher.py [--no-update] [--skip-deps] [--port N]
 """
-import sys
 import os
-import traceback
-import subprocess
 import shutil
+import subprocess
+import sys
+import traceback
 from pathlib import Path
 
 # Project root is the directory containing this script
@@ -43,9 +43,9 @@ def _write_crash_log(error_msg: str):
             f.write(f"CWD: {os.getcwd()}\n")
             f.write(f"argv: {sys.argv}\n")
             f.write(f"Error: {error_msg}\n")
-            f.write(f"\nTraceback:\n")
+            f.write("\nTraceback:\n")
             f.write(traceback.format_exc())
-            f.write(f"\n")
+            f.write("\n")
         print(f"[ERROR] Crash log written to: {crash_path}")
     except Exception:
         pass

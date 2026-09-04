@@ -1,12 +1,13 @@
 """Dashboard view with statistics, priority breakdown, type breakdown, team workload, and progress tracking."""
 from collections import Counter
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import flet as ft
 
-from .app import COLORS, ic
-from . import labels as L
 from core.models import Priority, TaskStatus, TaskType
+
+from . import labels as L
+from .app import COLORS, ic
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -80,11 +81,11 @@ class DashboardView:
 
     def __init__(self, app: 'TaskManagerApp'):
         self.app = app
-        self.container: Optional[ft.Control] = None
-        self.stat_total: Optional[StatCard] = None
-        self.stat_done: Optional[StatCard] = None
-        self.stat_progress: Optional[StatCard] = None
-        self.stat_overdue: Optional[StatCard] = None
+        self.container: ft.Control | None = None
+        self.stat_total: StatCard | None = None
+        self.stat_done: StatCard | None = None
+        self.stat_progress: StatCard | None = None
+        self.stat_overdue: StatCard | None = None
         self.prio_bars: dict[str, BreakdownBar] = {}
         self.type_bars: dict[str, BreakdownBar] = {}
         self._status_bars: dict[str, ft.Container] = {}

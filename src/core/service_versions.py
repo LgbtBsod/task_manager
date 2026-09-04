@@ -1,10 +1,9 @@
 """Version / Release lifecycle + reporting. Composed into :class:`TaskService`."""
 import logging
 from datetime import datetime
-from typing import Optional, List
 
 from ._util import apply_kwargs
-from .models import VersionRelease, Task, TaskStatus, TaskType
+from .models import Task, TaskStatus, TaskType, VersionRelease
 from .repository import TaskRepository
 
 log = logging.getLogger(__name__)
@@ -20,13 +19,13 @@ class VersionService:
         log.info("Version created: %s - %s", version.id, version.name)
         return version
 
-    def get_all_versions(self) -> List[VersionRelease]:
+    def get_all_versions(self) -> list[VersionRelease]:
         return self.repo.get_all_versions()
 
-    def get_version(self, version_id: str) -> Optional[VersionRelease]:
+    def get_version(self, version_id: str) -> VersionRelease | None:
         return self.repo.get_version_by_id(version_id)
 
-    def update_version(self, version_id: str, **kwargs) -> Optional[VersionRelease]:
+    def update_version(self, version_id: str, **kwargs) -> VersionRelease | None:
         version = self.repo.get_version_by_id(version_id)
         if not version:
             return None
@@ -34,12 +33,12 @@ class VersionService:
         return self.repo.update_version(apply_kwargs(version, kwargs))
 
     def release_version(self, version_id: str,
-                        release_date: Optional[str] = None) -> Optional[VersionRelease]:
+                        release_date: str | None = None) -> VersionRelease | None:
         return self.update_version(
             version_id, status="Released",
             release_date=release_date or datetime.now().strftime("%Y-%m-%d"))
 
-    def archive_version(self, version_id: str) -> Optional[VersionRelease]:
+    def archive_version(self, version_id: str) -> VersionRelease | None:
         return self.update_version(version_id, status="Archived")
 
     def delete_version(self, version_id: str) -> bool:
@@ -53,10 +52,10 @@ class VersionService:
             log.info("Version deleted: %s", version_id)
         return result
 
-    def get_version_tasks(self, version_id: str) -> List[Task]:
+    def get_version_tasks(self, version_id: str) -> list[Task]:
         return [t for t in self.repo.get_all() if t.version_id == version_id]
 
-    def assign_task_to_version(self, task_id: str, version_id: Optional[str]) -> Optional[Task]:
+    def assign_task_to_version(self, task_id: str, version_id: str | None) -> Task | None:
         task = self.repo.get_by_id(task_id)
         if not task:
             return None

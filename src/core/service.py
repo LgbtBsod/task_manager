@@ -6,12 +6,20 @@ audit history, bulk operations, search, clone, assignee management.
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Optional, List
 
 from .models import (
-    Task, TaskStatus, Priority, TaskModel, SubTask,
-    LinkType, TaskType, Urgency, Resolution, WORKFLOW_TRANSITIONS,
+    WORKFLOW_TRANSITIONS,
+    LinkType,
+    Priority,
+    Resolution,
+    SubTask,
+    Task,
+    TaskModel,
+    TaskStatus,
+    TaskType,
+    Urgency,
 )
 from .repository import TaskRepository
 
@@ -29,12 +37,12 @@ def _to_priority(value: str) -> Priority:
 class TaskService:
     """Business logic service for task management."""
 
-    def __init__(self, repository: Optional[TaskRepository] = None):
+    def __init__(self, repository: TaskRepository | None = None):
         self.repo = repository or TaskRepository()
+        from .service_catalog import CategoryService, RecurringService, TemplateService
+        from .service_notifications import NotificationService
         from .service_sprints import SprintService
         from .service_versions import VersionService
-        from .service_catalog import TemplateService, CategoryService, RecurringService
-        from .service_notifications import NotificationService
         self.sprints = SprintService(self.repo)
         self.versions = VersionService(self.repo)
         self.templates = TemplateService(self.repo)
@@ -57,7 +65,7 @@ class TaskService:
         raise AttributeError(
             f"{type(self).__name__!r} object has no attribute {name!r}")
 
-    def _edit(self, task_id: str, mutate: Callable[[Task], object]) -> Optional[Task]:
+    def _edit(self, task_id: str, mutate: Callable[[Task], object]) -> Task | None:
         """load task → apply ``mutate`` → bump timestamp → save.
 
         ``mutate`` records its own audit entry and returns ``False`` to abort
@@ -78,19 +86,19 @@ class TaskService:
         title: str,
         description: str = "",
         priority: Priority = Priority.MEDIUM,
-        due_date: Optional[str] = None,
-        start_date: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        assignee: Optional[str] = None,
-        story_points: Optional[int] = None,
+        due_date: str | None = None,
+        start_date: str | None = None,
+        tags: list[str] | None = None,
+        assignee: str | None = None,
+        story_points: int | None = None,
         task_type: str = TaskType.TASK.value,
         time_spent: float = 0.0,
         urgency: str = Urgency.NORMAL.value,
-        watchers: Optional[List[str]] = None,
-        epic_link: Optional[str] = None,
-        components: Optional[List[str]] = None,
-        labels: Optional[List[str]] = None,
-        version_id: Optional[str] = None,
+        watchers: list[str] | None = None,
+        epic_link: str | None = None,
+        components: list[str] | None = None,
+        labels: list[str] | None = None,
+        version_id: str | None = None,
         original_estimate: float = 0.0,
     ) -> Task:
         log.info(f"Creating task: {title[:50]}")
@@ -120,19 +128,19 @@ class TaskService:
                 task.original_estimate = original_estimate
         except (ValueError, TypeError) as e:
             log.error(f"Validation failed for task '{title}': {e}")
-            raise ValueError(f"Validation failed: {e}")
+            raise ValueError(f"Validation failed: {e}") from e
 
         created = self.repo.add(task)
         log.info(f"Task created: id={created.id}")
         return created
 
-    def get_all_tasks(self) -> List[Task]:
+    def get_all_tasks(self) -> list[Task]:
         return self.repo.get_all()
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         return self.repo.get_by_id(task_id)
 
-    def update_task_status(self, task_id: str, status: TaskStatus) -> Optional[Task]:
+    def update_task_status(self, task_id: str, status: TaskStatus) -> Task | None:
         task = self.repo.get_by_id(task_id)
         if not task:
             log.warning(f"update_task_status: task {task_id} not found")
@@ -148,26 +156,24 @@ class TaskService:
     def update_task(
         self,
         task_id: str,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        priority: Optional[Priority] = None,
-        due_date: Optional[str] = None,
-        time_spent: Optional[float] = None,
-        start_date: Optional[str] = None,
-        status: Optional[TaskStatus] = None,
-        tags: Optional[List[str]] = None,
-        assignee: Optional[str] = None,
-        story_points: Optional[int] = None,
-        task_type: Optional[str] = None,
-        urgency: Optional[str] = None,
-        watchers: Optional[List[str]] = None,
-    ) -> Optional[Task]:
+        title: str | None = None,
+        description: str | None = None,
+        priority: Priority | None = None,
+        due_date: str | None = None,
+        time_spent: float | None = None,
+        start_date: str | None = None,
+        status: TaskStatus | None = None,
+        tags: list[str] | None = None,
+        assignee: str | None = None,
+        story_points: int | None = None,
+        task_type: str | None = None,
+        urgency: str | None = None,
+        watchers: list[str] | None = None,
+    ) -> Task | None:
         task = self.repo.get_by_id(task_id)
         if not task:
             log.warning(f"update_task: task {task_id} not found")
             return None
-
-        old_status = task.status
 
         # Track changes for audit
         def _track(field: str, old: str, new_val):
@@ -219,7 +225,7 @@ class TaskService:
             TaskModel.from_task(task)
         except Exception as e:
             log.error(f"Validation failed on update for {task_id}: {e}")
-            raise ValueError(f"Validation failed: {e}")
+            raise ValueError(f"Validation failed: {e}") from e
 
         task.update_timestamp()
         updated = self.repo.update(task)
@@ -235,20 +241,20 @@ class TaskService:
             log.info(f"Task deleted: {task_id}")
         return result
 
-    def get_tasks_by_status(self, status: TaskStatus) -> List[Task]:
+    def get_tasks_by_status(self, status: TaskStatus) -> list[Task]:
         return self.repo.get_by_status(status)
 
-    def get_overdue_tasks(self) -> List[Task]:
+    def get_overdue_tasks(self) -> list[Task]:
         return [t for t in self.get_all_tasks() if t.is_overdue()]
 
     # ── Tags ──
 
-    def get_tasks_by_tag(self, tag: str) -> List[Task]:
+    def get_tasks_by_tag(self, tag: str) -> list[Task]:
         """Find tasks by tag (case-insensitive)."""
         tag_lower = tag.strip().lower()
         return [t for t in self.get_all_tasks() if tag_lower in t.tags]
 
-    def get_all_tags(self) -> List[str]:
+    def get_all_tags(self) -> list[str]:
         """Get all unique tags across all tasks, sorted alphabetically."""
         tag_set = set()
         for t in self.get_all_tasks():
@@ -257,7 +263,7 @@ class TaskService:
 
     # ── Subtasks ──
 
-    def add_subtask(self, task_id: str, title: str) -> Optional[Task]:
+    def add_subtask(self, task_id: str, title: str) -> Task | None:
         """Add a subtask to a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -270,7 +276,7 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def toggle_subtask(self, task_id: str, index: int) -> Optional[Task]:
+    def toggle_subtask(self, task_id: str, index: int) -> Task | None:
         """Toggle subtask completion."""
         def m(task: Task):
             if not task.toggle_subtask(index):
@@ -280,7 +286,7 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def delete_subtask(self, task_id: str, index: int) -> Optional[Task]:
+    def delete_subtask(self, task_id: str, index: int) -> Task | None:
         """Delete a subtask by index."""
         def m(task: Task):
             if not (0 <= index < len(task.subtasks)):
@@ -291,7 +297,7 @@ class TaskService:
 
     # ── Comments ──
 
-    def add_comment(self, task_id: str, author: str, text: str) -> Optional[Task]:
+    def add_comment(self, task_id: str, author: str, text: str) -> Task | None:
         """Add a comment to a task."""
         author, text = author.strip(), text.strip()
 
@@ -301,7 +307,7 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def delete_comment(self, task_id: str, comment_id: str) -> Optional[Task]:
+    def delete_comment(self, task_id: str, comment_id: str) -> Task | None:
         """Delete a comment from a task."""
         def m(task: Task):
             if not task.delete_comment(comment_id):
@@ -312,7 +318,7 @@ class TaskService:
 
     # ── Task Links ──
 
-    def add_task_link(self, task_id: str, target_task_id: str, link_type: str = "relates_to") -> Optional[Task]:
+    def add_task_link(self, task_id: str, target_task_id: str, link_type: str = "relates_to") -> Task | None:
         """Link two tasks."""
         if task_id == target_task_id:
             raise ValueError("Cannot link a task to itself")
@@ -332,13 +338,12 @@ class TaskService:
             if existing.target_task_id == target_task_id and existing.link_type == link_type:
                 return task  # Already linked
 
-        link = task.add_link(target_task_id, link_type)
+        task.add_link(target_task_id, link_type)
         # Auto-add reverse link for symmetric types
-        if link_type == LinkType.RELATES_TO.value or link_type == LinkType.DUPLICATES.value or link_type == LinkType.CLONES.value:
+        if link_type in (LinkType.RELATES_TO.value, LinkType.DUPLICATES.value, LinkType.CLONES.value):
             target = self.repo.get_by_id(target_task_id)
             if target:
-                reverse = link_type  # symmetric
-                target.add_link(task_id, reverse)
+                target.add_link(task_id, link_type)   # symmetric
                 target.update_timestamp()
                 self.repo.update(target)
 
@@ -348,7 +353,7 @@ class TaskService:
         log.info(f"Link added: {task_id} {link_type} -> {target_task_id}")
         return updated
 
-    def remove_task_link(self, task_id: str, target_task_id: str) -> Optional[Task]:
+    def remove_task_link(self, task_id: str, target_task_id: str) -> Task | None:
         """Remove a link between tasks."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -381,7 +386,7 @@ class TaskService:
 
     # ── Bulk Operations ──
 
-    def bulk_delete(self, task_ids: List[str]) -> int:
+    def bulk_delete(self, task_ids: list[str]) -> int:
         """Delete multiple tasks. Returns count of deleted tasks."""
         count = 0
         for tid in task_ids:
@@ -390,7 +395,7 @@ class TaskService:
         log.info(f"Bulk delete: {count}/{len(task_ids)} tasks")
         return count
 
-    def bulk_status_change(self, task_ids: List[str], status: TaskStatus) -> int:
+    def bulk_status_change(self, task_ids: list[str], status: TaskStatus) -> int:
         """Change status of multiple tasks. Returns count of updated tasks."""
         count = 0
         for tid in task_ids:
@@ -401,7 +406,7 @@ class TaskService:
 
     # ── Search ──
 
-    def search_tasks(self, query: str) -> List[Task]:
+    def search_tasks(self, query: str) -> list[Task]:
         """Full-text search across title, description, tags, assignee."""
         q = query.strip().lower()
         if not q:
@@ -419,13 +424,13 @@ class TaskService:
 
     # ── Assignee ──
 
-    def get_tasks_by_assignee(self, assignee: str) -> List[Task]:
+    def get_tasks_by_assignee(self, assignee: str) -> list[Task]:
         """Get all tasks assigned to a person."""
         name = assignee.strip().lower()
         return [t for t in self.get_all_tasks()
                 if t.assignee and t.assignee.lower() == name]
 
-    def get_all_assignees(self) -> List[str]:
+    def get_all_assignees(self) -> list[str]:
         """Get all unique assignees."""
         names = {t.assignee for t in self.get_all_tasks() if t.assignee}
         return sorted(names)
@@ -434,15 +439,15 @@ class TaskService:
 
     def filter_tasks(
         self,
-        status: Optional[TaskStatus] = None,
-        priority: Optional[Priority] = None,
-        assignee: Optional[str] = None,
-        tag: Optional[str] = None,
-        task_type: Optional[str] = None,
-        urgency: Optional[str] = None,
-        is_overdue: Optional[bool] = None,
-        query: Optional[str] = None,
-    ) -> List[Task]:
+        status: TaskStatus | None = None,
+        priority: Priority | None = None,
+        assignee: str | None = None,
+        tag: str | None = None,
+        task_type: str | None = None,
+        urgency: str | None = None,
+        is_overdue: bool | None = None,
+        query: str | None = None,
+    ) -> list[Task]:
         """Jira-style advanced task filtering with multiple criteria."""
         results = self.get_all_tasks()
         if status is not None:
@@ -472,7 +477,7 @@ class TaskService:
 
     # ── Move Task (Jira workflow transition) ──
 
-    def move_task(self, task_id: str, direction: str = "forward") -> Optional[Task]:
+    def move_task(self, task_id: str, direction: str = "forward") -> Task | None:
         """Move task forward or backward through the workflow.
 
         Args:
@@ -505,7 +510,7 @@ class TaskService:
 
     # ── Watchers ──
 
-    def add_watcher(self, task_id: str, watcher: str) -> Optional[Task]:
+    def add_watcher(self, task_id: str, watcher: str) -> Task | None:
         """Add a watcher to a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -520,7 +525,7 @@ class TaskService:
             return updated
         return task
 
-    def remove_watcher(self, task_id: str, watcher: str) -> Optional[Task]:
+    def remove_watcher(self, task_id: str, watcher: str) -> Task | None:
         """Remove a watcher from a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -536,7 +541,7 @@ class TaskService:
             return updated
         return task
 
-    def get_all_watchers(self) -> List[str]:
+    def get_all_watchers(self) -> list[str]:
         """Get all unique watchers across all tasks."""
         names = set()
         for t in self.get_all_tasks():
@@ -545,7 +550,7 @@ class TaskService:
 
     # ── Epic Link ──
 
-    def set_epic_link(self, task_id: str, epic_task_id: Optional[str]) -> Optional[Task]:
+    def set_epic_link(self, task_id: str, epic_task_id: str | None) -> Task | None:
         """Set or clear the epic link for a task."""
         def m(task: Task):
             if epic_task_id and epic_task_id != task.epic_link:
@@ -559,13 +564,13 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def get_epic_children(self, epic_id: str) -> List[Task]:
+    def get_epic_children(self, epic_id: str) -> list[Task]:
         """Get all tasks linked to an epic."""
         return [t for t in self.get_all_tasks() if t.epic_link == epic_id]
 
     # ── Time Tracking ──
 
-    def log_time(self, task_id: str, hours: float) -> Optional[Task]:
+    def log_time(self, task_id: str, hours: float) -> Task | None:
         """Add time spent to a task."""
         if hours <= 0:
             raise ValueError("Hours must be positive")
@@ -579,7 +584,7 @@ class TaskService:
 
     # ── Clone ──
 
-    def clone_task(self, task_id: str, new_title: Optional[str] = None) -> Optional[Task]:
+    def clone_task(self, task_id: str, new_title: str | None = None) -> Task | None:
         """Clone a task. Copies title (+ '(copy)'), description, priority, tags, assignee, story_points, task_type."""
         original = self.repo.get_by_id(task_id)
         if not original:
@@ -603,7 +608,7 @@ class TaskService:
 
     # ── History / Audit ──
 
-    def get_task_history(self, task_id: str) -> List[dict]:
+    def get_task_history(self, task_id: str) -> list[dict]:
         """Get change history for a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -612,21 +617,21 @@ class TaskService:
 
     # ── Components ──
 
-    def get_all_components(self) -> List[str]:
+    def get_all_components(self) -> list[str]:
         """Get all unique components across all tasks."""
         comps = set()
         for t in self.get_all_tasks():
             comps.update(t.components)
         return sorted(comps)
 
-    def get_tasks_by_component(self, component: str) -> List[Task]:
+    def get_tasks_by_component(self, component: str) -> list[Task]:
         """Get all tasks with a specific component."""
         c = component.strip().lower()
         return [t for t in self.get_all_tasks() if c in [x.lower() for x in t.components]]
 
     # ── Task Ranking ──
 
-    def set_task_rank(self, task_id: str, rank: int) -> Optional[Task]:
+    def set_task_rank(self, task_id: str, rank: int) -> Task | None:
         """Set manual rank for a task (lower = higher priority in backlog)."""
         def m(task: Task):
             old_rank = task.rank
@@ -636,14 +641,14 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def get_backlog(self) -> List[Task]:
+    def get_backlog(self) -> list[Task]:
         """Get all Todo tasks sorted by rank (backlog view)."""
         return sorted(
             [t for t in self.get_all_tasks() if t.status == TaskStatus.TODO],
             key=lambda t: t.rank,
         )
 
-    def reorder_backlog(self, task_ids: List[str]) -> bool:
+    def reorder_backlog(self, task_ids: list[str]) -> bool:
         """Reorder the backlog by assigning ranks based on the provided order.
 
         Args:
@@ -664,7 +669,7 @@ class TaskService:
 
     # ── Resolution ──
 
-    def set_resolution(self, task_id: str, resolution: str) -> Optional[Task]:
+    def set_resolution(self, task_id: str, resolution: str) -> Task | None:
         """Set a task's resolution (Jira-style); moves it to Done."""
         if resolution not in Resolution:                    # Enum value-membership (3.12+)
             raise ValueError(f"Invalid resolution. Must be one of: {[r.value for r in Resolution]}")
@@ -679,7 +684,7 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def clear_resolution(self, task_id: str) -> Optional[Task]:
+    def clear_resolution(self, task_id: str) -> Task | None:
         """Clear resolution and move a Done task back to In Progress."""
         def m(task: Task):
             task.record_change("resolution", task.resolution or "", "")
@@ -703,7 +708,7 @@ class TaskService:
 
     def import_data(self, file_path: str, overwrite: bool = False) -> dict:
         """Import tasks and sprints from a JSON file."""
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
         result = self.repo.import_all(data, overwrite=overwrite)
         log.info(f"Import: {result}")
@@ -718,7 +723,7 @@ class TaskService:
 
     # ── Workflow Transitions ──
 
-    def get_allowed_transitions(self, task_id: str) -> List[str]:
+    def get_allowed_transitions(self, task_id: str) -> list[str]:
         """Get list of allowed target statuses for a task based on workflow rules.
 
         Returns list of TaskStatus.value strings.
@@ -734,7 +739,7 @@ class TaskService:
             return []
         return type_transitions.get(task.status.value, [])
 
-    def transition_task(self, task_id: str, new_status: TaskStatus) -> Optional[Task]:
+    def transition_task(self, task_id: str, new_status: TaskStatus) -> Task | None:
         """Move a task through the workflow with validation.
 
         Raises ValueError if the transition is not allowed.
@@ -759,7 +764,7 @@ class TaskService:
 
     # ── Time Estimates ──
 
-    def set_original_estimate(self, task_id: str, hours: float) -> Optional[Task]:
+    def set_original_estimate(self, task_id: str, hours: float) -> Task | None:
         """Set the original time estimate for a task."""
         if hours < 0:
             raise ValueError("Estimate must be non-negative")
@@ -772,7 +777,7 @@ class TaskService:
 
         return self._edit(task_id, m)
 
-    def get_time_remaining(self, task_id: str) -> Optional[dict]:
+    def get_time_remaining(self, task_id: str) -> dict | None:
         """Get time tracking info: original_estimate, time_spent, remaining, over."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -788,19 +793,19 @@ class TaskService:
 
     # ── Labels ──
 
-    def get_all_labels(self) -> List[str]:
+    def get_all_labels(self) -> list[str]:
         """Get all unique labels across all tasks, sorted."""
         label_set = set()
         for t in self.get_all_tasks():
             label_set.update(t.labels)
         return sorted(label_set)
 
-    def get_tasks_by_label(self, label: str) -> List[Task]:
+    def get_tasks_by_label(self, label: str) -> list[Task]:
         """Find tasks by label (case-insensitive)."""
         lbl = label.strip().lower()
         return [t for t in self.get_all_tasks() if lbl in t.labels]
 
-    def add_label(self, task_id: str, label: str) -> Optional[Task]:
+    def add_label(self, task_id: str, label: str) -> Task | None:
         """Add a label to a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -816,7 +821,7 @@ class TaskService:
             return updated
         return task
 
-    def remove_label(self, task_id: str, label: str) -> Optional[Task]:
+    def remove_label(self, task_id: str, label: str) -> Task | None:
         """Remove a label from a task."""
         task = self.repo.get_by_id(task_id)
         if not task:
@@ -833,7 +838,7 @@ class TaskService:
 
     # ── task-creating orchestrations (need self.create_task) ──
 
-    def create_task_from_template(self, template_id: str, title_override: Optional[str] = None) -> Task:
+    def create_task_from_template(self, template_id: str, title_override: str | None = None) -> Task:
         """Create a task from a template. Optionally override the title."""
         tpl = self.repo.get_template_by_id(template_id)
         if not tpl:
@@ -850,13 +855,13 @@ class TaskService:
             original_estimate=tpl.original_estimate,
         )
 
-    def generate_recurring_tasks(self) -> List[Task]:
+    def generate_recurring_tasks(self) -> list[Task]:
         """Create a task for every active recurring definition that has an
         occurrence due since it was last generated. At most one task per
         definition per call (a launch-time catch-up).
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        created: List[Task] = []
+        created: list[Task] = []
         for rec in self.repo.get_all_recurring():
             if not rec.is_active:
                 continue
