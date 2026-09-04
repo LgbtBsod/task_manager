@@ -6,7 +6,7 @@ import flet as ft
 
 from core import strings as L
 from core.datetimeutil import date_part, has_time, normalize, parse_dt
-from core.models import Priority, TaskType, Urgency
+from core.models import LinkType, Priority, TaskType, Urgency
 
 from ._ui import dropdown, field, restyle_toggle_chip, safe_update, toggle_chip
 from .app import COLORS, ic
@@ -82,13 +82,53 @@ class _TagPicker(ft.Column):
             self._on_change()
 
 
+class _TaskLinkPicker(ft.Column):
+    """Toggle-chip "blocked by" picker over other tasks — the same look as
+    :class:`_TagPicker`, keyed by task id and coloured by priority instead of
+    a tag colour. Mutates ``selected`` (task ids) in place."""
+
+    def __init__(self, candidates: list, selected: set[str]):
+        super().__init__(spacing=6, tight=True)
+        self._selected = selected
+        self._colors = {t.id: t.priority.color for t in candidates}
+        self._titles = {t.id: t.title for t in candidates}
+        self._wrap = ft.Row(wrap=True, spacing=6, run_spacing=6)
+        for t in candidates:
+            self._wrap.controls.append(self._chip(t.id))
+
+        label = ft.Text(L.UI.F_BLOCKED_BY, size=12, color=COLORS["text_secondary"])
+        rows = [label, self._wrap]
+        if not candidates:
+            rows.append(ft.Text(L.UI.F_BLOCKED_BY_NONE, size=11, color=COLORS["text_secondary"]))
+        self.controls = rows
+
+    def _chip(self, task_id: str) -> ft.Container:
+        on = task_id in self._selected
+        color = self._colors.get(task_id, COLORS["accent_blue"])
+        chip = toggle_chip(self._titles[task_id][:24], color, on,
+                           lambda e, tid=task_id: self._toggle(tid))
+        chip.key = task_id
+        return chip
+
+    def _toggle(self, task_id: str):
+        self._selected.discard(task_id) if task_id in self._selected else self._selected.add(task_id)
+        for c in self._wrap.controls:
+            if c.key == task_id:
+                restyle_toggle_chip(c, task_id in self._selected,
+                                    self._colors.get(task_id, COLORS["accent_blue"]))
+        safe_update(self._wrap)
+
+
 def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
                       task=None, on_save: Callable | None = None,
                       tag_catalog: list | None = None,
-                      create_tag: Callable[[str], object] | None = None):
+                      create_tag: Callable[[str], object] | None = None,
+                      all_tasks: list | None = None):
     """``tag_catalog`` (a list of Tag-like objects with ``.name`` / ``.color``)
     switches the free-text tags field for a chip picker; ``create_tag(name)``
-    registers a tag typed inline and should return the new Tag."""
+    registers a tag typed inline and should return the new Tag. ``all_tasks``
+    (every OTHER task) feeds the Epic dropdown (its Epic-type tasks) and the
+    "blocked by" chip picker; omit it to hide both."""
     title_field = field(
         label=L.UI.F_TITLE, value=task.title if task else "",
         text_size=14, autofocus=True, border_radius=8,
@@ -208,6 +248,27 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         options=[ft.dropdown.Option(u.value, text=L.urgency(u.value)) for u in Urgency],
         text_size=14, border_radius=8, width=200,
     )
+    # Epic parent + "blocked by" dependencies — both built on relationships the
+    # data model already had (epic_link, Task.links/LinkType.BLOCKED_BY); see
+    # core.service_workflow. Omitted entirely when the caller passes no
+    # all_tasks (e.g. tests exercising just the base fields).
+    epic_field = None
+    link_control = None
+    if all_tasks is not None:
+        epic_options = [t for t in all_tasks if t.task_type == TaskType.EPIC.value]
+        epic_field = dropdown(
+            label=L.UI.F_EPIC,
+            value=getattr(task, 'epic_link', None) or "",
+            options=[ft.dropdown.Option("", text=L.UI.F_EPIC_NONE)]
+                   + [ft.dropdown.Option(t.id, text=t.title[:40]) for t in epic_options],
+            text_size=14, border_radius=8, width=250,
+        )
+        selected_blocked_by: set[str] = ({l.target_task_id for l in task.links
+                                          if l.link_type == LinkType.BLOCKED_BY.value}
+                                         if task else set())
+        link_candidates = [t for t in all_tasks if t.status.value != "Done"]
+        link_control = _TaskLinkPicker(link_candidates, selected_blocked_by)
+
     watchers_field = field(
         label=L.UI.F_WATCHERS,
         value=", ".join(getattr(task, 'watchers', []) or []) if task and getattr(task, 'watchers', None) else "",
@@ -265,6 +326,10 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         watcher_list = [w.strip() for w in raw_watchers.split(",") if w.strip()] if raw_watchers else []
 
         if on_save:
+            extra = {}
+            if all_tasks is not None:
+                extra["epic_link"] = epic_field.value or None
+                extra["blocked_by"] = sorted(selected_blocked_by)
             try:
                 on_save(
                     title=t, description=desc_field.value.strip(),
@@ -272,6 +337,7 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
                     time_spent=time_val, tags=tags, assignee=assignee,
                     story_points=sp, task_type=task_type_field.value,
                     urgency=urgency_val, watchers=watcher_list,
+                    **extra,
                 )
             except ValueError as ex:
                 error_label.value = str(ex)
@@ -303,6 +369,8 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
             assignee_field, ft.Container(height=4),
             urgency_field, ft.Container(height=4),
             watchers_field, ft.Container(height=4),
+            *([epic_field, ft.Container(height=4), link_control, ft.Container(height=4)]
+              if all_tasks is not None else []),
             error_label,
         ], spacing=6, width=560, tight=True, scroll=ft.ScrollMode.AUTO),
         actions=[

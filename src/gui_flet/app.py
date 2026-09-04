@@ -5,7 +5,7 @@ Main app module with routing, theme, and view switching.
 import flet as ft
 
 from core import strings as L
-from core.models import TaskStatus
+from core.models import LinkType, TaskStatus
 
 from ._ui import dropdown as _dropdown
 from ._ui import field as _field
@@ -386,7 +386,7 @@ class TaskManagerApp:
     def show_create_dialog(self):
         from .task_dialog import show_task_dialog
         show_task_dialog(self.page, title=L.UI.NEW_TASK, on_save=self._on_create_task,
-                         **self._tag_dialog_kwargs())
+                         all_tasks=self.service.get_all_tasks(), **self._tag_dialog_kwargs())
 
     def show_settings_dialog(self):
         from .settings_dialog import show_settings_dialog
@@ -397,8 +397,11 @@ class TaskManagerApp:
         show_bulk_dialog(self)
 
     def _on_create_task(self, **kwargs):
+        blocked_by = kwargs.pop("blocked_by", [])
         try:
-            self.service.create_task(**kwargs)
+            new_task = self.service.create_task(**kwargs)   # epic_link is a create_task kwarg
+            for target_id in blocked_by:
+                self.service.add_task_link(new_task.id, target_id, LinkType.BLOCKED_BY.value)
             self.refresh_all()
         except ValueError as e:
             self._show_snackbar(str(e), error=True)
@@ -407,13 +410,23 @@ class TaskManagerApp:
         from .task_dialog import show_task_dialog
 
         def on_save(**kwargs):
+            epic_link = kwargs.pop("epic_link", None)
+            blocked_by = set(kwargs.pop("blocked_by", []))
             try:
                 self.service.update_task(task.id, **kwargs)
+                self.service.set_epic_link(task.id, epic_link)
+                current = {ln.target_task_id for ln in task.links
+                          if ln.link_type == LinkType.BLOCKED_BY.value}
+                for target_id in blocked_by - current:
+                    self.service.add_task_link(task.id, target_id, LinkType.BLOCKED_BY.value)
+                for target_id in current - blocked_by:
+                    self.service.remove_task_link(task.id, target_id)
                 self.refresh_all()
             except ValueError as e:
                 self._show_snackbar(str(e), error=True)
 
         show_task_dialog(self.page, title=L.UI.EDIT_TASK, task=task, on_save=on_save,
+                         all_tasks=[t for t in self.service.get_all_tasks() if t.id != task.id],
                          **self._tag_dialog_kwargs())
 
     def delete_task(self, task):
@@ -444,6 +457,10 @@ class TaskManagerApp:
             duration=3000,
         ))
 
+    def toggle_hold(self, task):
+        self.service.set_on_hold(task.id, not task.on_hold)
+        self.refresh_all()
+
     def _clone_task(self, task):
         try:
             cloned = self.service.clone_task(task.id)
@@ -460,7 +477,10 @@ class TaskManagerApp:
             return
         if new_status == task.status:
             return
-        self.service.update_task_status(task.id, new_status)
+        self.service.update_task_status(
+            task.id, new_status,
+            auto_start_unblocked=bool(self.settings.get("auto_start_unblocked")),
+            auto_close_epic=bool(self.settings.get("auto_close_epic")))
         self.refresh_all()
 
 
@@ -479,11 +499,7 @@ def run_app(context=None, port: int = 8550):
     from ._single_instance import resolve_port
 
     context = context or AppContext.create()
-
-    resolved = resolve_port(port)
-    if resolved is None:        # an instance is already serving; tab opened for us
-        return
-    port = resolved
+    port = resolve_port(port)
 
     # IMPORTANT: a fresh TaskManagerApp per browser session. One shared instance
     # means a second tab/window overwrites self.page and the first session's

@@ -35,6 +35,7 @@ jobs:
           tests/test_updater.py tests/test_updater_download.py
           tests/test_update_flow.py tests/test_settings.py
           tests/test_tags.py tests/test_bulk_transition.py
+          tests/test_workflow.py
           test_integration_ux.py
         # test_launcher.py / test_stress.py need a real venv layout or are
         # timing-sensitive -> run those locally, not in CI.

@@ -50,6 +50,7 @@ class TaskService:
         from .service_sprints import SprintService
         from .service_tags import TagService
         from .service_versions import VersionService
+        from .service_workflow import WorkflowService
         self.sprints = SprintService(self.repo)
         self.versions = VersionService(self.repo)
         self.templates = TemplateService(self.repo)
@@ -57,11 +58,12 @@ class TaskService:
         self.recurring = RecurringService(self.repo)
         self.notifications = NotificationService(self.repo)
         self.tags = TagService(self.repo)
+        self.workflow = WorkflowService(self.repo)
         from .analytics import BoardAnalytics
         self.analytics = BoardAnalytics(self.repo, self.sprints)
         self._collaborators = (self.sprints, self.versions, self.templates,
                                self.categories, self.recurring, self.notifications,
-                               self.tags, self.analytics)
+                               self.tags, self.workflow, self.analytics)
 
     def __getattr__(self, name: str):
         # Delegate sprint/version/… calls to the composed services without a
@@ -148,7 +150,14 @@ class TaskService:
     def get_task(self, task_id: str) -> Task | None:
         return self.repo.get_by_id(task_id)
 
-    def update_task_status(self, task_id: str, status: TaskStatus) -> Task | None:
+    def update_task_status(
+        self, task_id: str, status: TaskStatus, *,
+        auto_start_unblocked: bool = False, auto_close_epic: bool = False,
+    ) -> Task | None:
+        """``auto_start_unblocked`` / ``auto_close_epic`` are opt-in workflow
+        advances applied once ``status`` lands on Done — see
+        ``WorkflowService.plan_after_done``. Both default off; a caller not
+        passing them gets today's plain status change."""
         task = self.repo.get_by_id(task_id)
         if not task:
             log.warning(f"update_task_status: task {task_id} not found")
@@ -159,7 +168,30 @@ class TaskService:
         task.update_timestamp()
         updated = self.repo.update(task)
         log.info(f"Task {task_id}: {old_status.value} -> {status.value}")
+
+        if status == TaskStatus.DONE and (auto_start_unblocked or auto_close_epic):
+            plan = self.workflow.plan_after_done(updated)
+            if auto_start_unblocked:
+                for dep in plan["unblocked"]:
+                    self.update_task_status(dep.id, TaskStatus.IN_PROGRESS)
+                    log.info("Workflow: %s auto-started (unblocked by %s)", dep.id, task_id)
+            if auto_close_epic and plan["epic_to_close"]:
+                self.update_task_status(plan["epic_to_close"], TaskStatus.DONE,
+                                        auto_start_unblocked=auto_start_unblocked)
+                log.info("Workflow: epic %s auto-closed (all children done)",
+                        plan["epic_to_close"])
         return updated
+
+    def set_on_hold(self, task_id: str, on_hold: bool) -> Task | None:
+        """Pause/resume a task in place — it keeps its column and status;
+        the board greys it and its deadline warnings snooze while paused
+        (see DeadlineWatcher)."""
+        def m(task: Task):
+            if task.on_hold == on_hold:
+                return False
+            task.record_change("on_hold", str(task.on_hold), str(on_hold))
+            task.on_hold = on_hold
+        return self._edit(task_id, m)
 
     def update_task(
         self,
@@ -403,11 +435,15 @@ class TaskService:
         log.info(f"Bulk delete: {count}/{len(task_ids)} tasks")
         return count
 
-    def bulk_status_change(self, task_ids: list[str], status: TaskStatus) -> int:
+    def bulk_status_change(
+        self, task_ids: list[str], status: TaskStatus, *,
+        auto_start_unblocked: bool = False, auto_close_epic: bool = False,
+    ) -> int:
         """Change status of multiple tasks. Returns count of updated tasks."""
         count = 0
         for tid in task_ids:
-            if self.update_task_status(tid, status):
+            if self.update_task_status(tid, status, auto_start_unblocked=auto_start_unblocked,
+                                       auto_close_epic=auto_close_epic):
                 count += 1
         log.info(f"Bulk status change to {status.value}: {count}/{len(task_ids)} tasks")
         return count
@@ -447,6 +483,8 @@ class TaskService:
         to_status: TaskStatus,
         *,
         match_all: bool = False,
+        auto_start_unblocked: bool = False,
+        auto_close_epic: bool = False,
     ) -> int:
         """Move every :meth:`bulk_transition_candidates` task to ``to_status``.
         Returns the count actually moved. Each move goes through
@@ -456,7 +494,9 @@ class TaskService:
         target = TaskStatus(to_status)
         cands = self.bulk_transition_candidates(
             tag_names, from_statuses, to_status, match_all=match_all)
-        moved = self.bulk_status_change([t.id for t in cands], target)
+        moved = self.bulk_status_change([t.id for t in cands], target,
+                                        auto_start_unblocked=auto_start_unblocked,
+                                        auto_close_epic=auto_close_epic)
         log.info("bulk_transition_by_tag tags=%s from=%s -> %s: %d moved",
                  sorted(_clean_tag_names(tag_names)),
                  [TaskStatus(s).value for s in from_statuses], target.value, moved)
@@ -609,9 +649,13 @@ class TaskService:
     # ── Epic Link ──
 
     def set_epic_link(self, task_id: str, epic_task_id: str | None) -> Task | None:
-        """Set or clear the epic link for a task."""
+        """Set or clear the epic link for a task. A no-op call (unchanged
+        value) skips the write — callers may pass it unconditionally on every
+        edit-save without padding history with redundant entries."""
         def m(task: Task):
-            if epic_task_id and epic_task_id != task.epic_link:
+            if epic_task_id == task.epic_link:
+                return False
+            if epic_task_id:
                 epic = self.repo.get_by_id(epic_task_id)
                 if not epic:
                     raise ValueError(f"Epic task {epic_task_id} not found")

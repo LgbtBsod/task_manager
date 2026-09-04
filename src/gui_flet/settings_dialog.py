@@ -58,6 +58,10 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
                    width=200, keyboard_type=ft.KeyboardType.NUMBER)
     auto_updates = _switch(value=bool(s.get("check_updates_on_start")),
                            label=L.UI.SET_CHECK_ON_START)
+    auto_start_unblocked = _switch(value=bool(s.get("auto_start_unblocked")),
+                                   label=L.UI.SET_AUTO_START_UNBLOCKED)
+    auto_close_epic = _switch(value=bool(s.get("auto_close_epic")),
+                              label=L.UI.SET_AUTO_CLOSE_EPIC)
     err = ft.Text("", size=12, color=COLORS["accent_red"])
 
     # ── theme mode (Утро / Вечер / Системная) ──
@@ -322,7 +326,9 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
             err.update()
             return
         s.update(notifications_enabled=enabled.value, notify_hours_before=h,
-                 check_updates_on_start=auto_updates.value)
+                 check_updates_on_start=auto_updates.value,
+                 auto_start_unblocked=auto_start_unblocked.value,
+                 auto_close_epic=auto_close_epic.value)
         if app.deadline_watcher is not None:
             app.deadline_watcher.reset()
         page.pop_dialog()
@@ -368,6 +374,12 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
             colors_expander,
             ft.Divider(color=COLORS["border_color"]),
             tags_expander,
+            ft.Divider(color=COLORS["border_color"]),
+            ft.Text(L.UI.SET_SECTION_WORKFLOW, size=12, weight=ft.FontWeight.BOLD,
+                    color=COLORS["text_secondary"]),
+            auto_start_unblocked,
+            ft.Text(L.UI.SET_AUTO_START_UNBLOCKED_HINT, size=10, color=COLORS["text_secondary"]),
+            auto_close_epic,
             ft.Divider(color=COLORS["border_color"]),
             ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
                     color=COLORS["text_secondary"]),

@@ -50,6 +50,10 @@ class AppSettings(BaseModel):
     # per-token palette overrides: {"bg_card": "#101010", ...}. Empty keys use
     # the built-in theme colour. Unknown keys are ignored by the palette.
     custom_colors: dict[str, str] = Field(default_factory=dict)
+    # opt-in workflow auto-advance (TaskService.update_task_status kwargs) —
+    # both default off so a board never reshuffles itself unasked.
+    auto_start_unblocked: bool = False
+    auto_close_epic: bool = False
 
     @field_validator("theme_mode")
     @classmethod

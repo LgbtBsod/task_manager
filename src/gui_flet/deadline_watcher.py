@@ -46,7 +46,7 @@ class DeadlineWatcher:
         from core.models import TaskStatus
         just_passed = []
         for t in self.service.get_all_tasks():
-            if t.status == TaskStatus.DONE or not t.due_date:
+            if t.status == TaskStatus.DONE or t.on_hold or not t.due_date:
                 continue
             secs = t.seconds_until_due()
             if secs is not None and secs < 0 and t.id not in self._notified:

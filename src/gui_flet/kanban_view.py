@@ -8,6 +8,7 @@ from core import strings as L
 
 from ._ui import safe_update
 from .app import COLORS, ic
+from .palette import readable_variant
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -22,12 +23,18 @@ def _format_due_info(task) -> tuple:
     if days is None or task.status.value == "Done":
         return shown, COLORS["text_secondary"]
     secs = task.seconds_until_due()
+    # readable_variant: at 9-10sp these accents-as-text can fall short of the
+    # 4.5:1 text bar (confirmed against Fiori Horizon's own tokens) even where
+    # they're fine as a fill/stripe — nudge only when actually needed.
     if secs is not None and secs < 0:
-        return L.UI.D_OVERDUE_ON.format(when=shown), COLORS["accent_red"]
+        return (L.UI.D_OVERDUE_ON.format(when=shown),
+                readable_variant(COLORS["accent_red"], COLORS["bg_card"]))
     if days == 0:
-        return L.UI.D_TODAY.format(when=shown), COLORS["accent_orange"]
+        return (L.UI.D_TODAY.format(when=shown),
+                readable_variant(COLORS["accent_orange"], COLORS["bg_card"]))
     if days <= 3:
-        return L.UI.D_SOON.format(when=shown), COLORS["accent_orange"]
+        return (L.UI.D_SOON.format(when=shown),
+                readable_variant(COLORS["accent_orange"], COLORS["bg_card"]))
     return shown, COLORS["text_secondary"]
 
 
@@ -119,6 +126,25 @@ class TaskCard:
         # ── Header row: type badge + title + actions ──
         type_color = L.type_color(task.task_type)
         header_right = []
+        if app.service.is_blocked(task):
+            blockers = app.service.blocking_tasks(task)
+            header_right.append(ft.Container(
+                content=ft.Row([ft.Icon(ic("lock"), size=10, color="#ffffff"),
+                                ft.Text(L.UI.D_BLOCKED, size=9, color="#ffffff",
+                                        weight=ft.FontWeight.BOLD)],
+                               spacing=3, tight=True),
+                padding=ft.Padding.symmetric(horizontal=5, vertical=2),
+                bgcolor=COLORS["text_secondary"], border_radius=4,
+                tooltip=L.UI.D_BLOCKED_TOOLTIP.format(
+                    titles=", ".join(b.title for b in blockers[:3])),
+            ))
+        if task.on_hold:
+            header_right.append(ft.Container(
+                content=ft.Text(L.UI.D_ON_HOLD, size=9, color=COLORS["text_secondary"],
+                                weight=ft.FontWeight.W_600),
+                padding=ft.Padding.symmetric(horizontal=5, vertical=2),
+                bgcolor=COLORS["bg_button"], border_radius=4,
+            ))
         _dbadge = _deadline_badge(task, app)
         if _dbadge is not None:
             header_right.append(_dbadge)
@@ -136,10 +162,11 @@ class TaskCard:
             ))
 
         tag_chips = []
+        _tag_text_color = readable_variant(COLORS["accent_blue"], COLORS["bg_card"])
         for tag in task.tags[:4]:
             tag_chips.append(
                 ft.Container(
-                    content=ft.Text(tag, size=9, color=COLORS["accent_blue"]),
+                    content=ft.Text(tag, size=9, color=_tag_text_color),
                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                     bgcolor=ft.Colors.with_opacity(0.15, COLORS["accent_blue"]), border_radius=6,
                 )
@@ -184,6 +211,13 @@ class TaskCard:
             ], spacing=4)
 
         action_btns = [
+            ft.IconButton(
+                icon=ic('play_circle_outline' if task.on_hold else 'pause_circle_outline'),
+                icon_size=14, icon_color=COLORS["text_secondary"],
+                on_click=lambda e, t=task: app.toggle_hold(t),
+                tooltip=L.UI.ACTION_RESUME if task.on_hold else L.UI.ACTION_PAUSE,
+                style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
+            ),
             ft.IconButton(
                 icon=ic('content_copy'), icon_size=14, icon_color=COLORS["text_secondary"],
                 on_click=lambda e, t=task: app._clone_task(t),
@@ -236,6 +270,7 @@ class TaskCard:
         card = ft.Container(
             content=ft.Column(card_children, spacing=5),
             padding=12, bgcolor=COLORS["bg_card"], border_radius=12,
+            opacity=0.6 if task.on_hold else 1.0,
         )
         return card
 

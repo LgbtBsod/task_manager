@@ -201,4 +201,35 @@ def contrast_ratio(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+def readable_variant(hex_color: str, bg_hex: str, min_ratio: float = 4.5) -> str:
+    """``hex_color`` as-is if it already clears ``min_ratio`` contrast against
+    ``bg_hex``; otherwise the same hue nudged toward white/black (whichever
+    moves away from the background) until it does.
+
+    Fiori's own dark-theme link/button-text tokens shift to a lighter tint
+    rather than reusing brand blue as text — raw accents (chosen by the user,
+    so never hardcoded here) can fail the 4.5:1 *text* bar even when they're
+    fine as a solid fill or a decorative stripe. Use this only where an accent
+    is the actual text/icon colour, not a background.
+    """
+    if contrast_ratio(hex_color, bg_hex) >= min_ratio:
+        return hex_color
+    # Tint toward white / shade toward black in RGB space (not a pure HSV
+    # value bump): a fully-saturated hue like #0070f2 is luminance-capped —
+    # blue's WCAG weight is only 0.0722, so even maximum brightness at full
+    # saturation can't clear 4.5:1 on a dark surface. Blending toward
+    # white/black lowers saturation too, exactly how Fiori's own lightened
+    # dark-mode link colour (e.g. #4db1ff from #0070f2) reads as a paler tint.
+    lighten = _relative_luminance(bg_hex) < 0.5
+    r, g, b = hex_to_rgb01(hex_color)
+    target = 1.0 if lighten else 0.0
+    for step in range(1, 21):
+        t = step / 20
+        mixed = (r + (target - r) * t, g + (target - g) * t, b + (target - b) * t)
+        candidate = "#{:02x}{:02x}{:02x}".format(*(round(c * 255) for c in mixed))
+        if contrast_ratio(candidate, bg_hex) >= min_ratio:
+            return candidate
+    return "#ffffff" if lighten else "#000000"
+
+
 apply("dark", DEFAULT_ACCENT)   # never leave COLORS empty at import time

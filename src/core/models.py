@@ -276,6 +276,7 @@ class Task(_DataclassJSON):
     category_id: str | None = None
     recurring_task_id: str | None = None
     rank: int = 0
+    on_hold: bool = False   # paused — stays in its column, greyed, excluded from active counts
 
     def __post_init__(self):
         if self.id is None:

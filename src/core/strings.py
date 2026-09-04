@@ -102,6 +102,10 @@ class UI:
     F_ASSIGNEE = "Исполнитель"
     F_STORY_POINTS = "Очки истории"
     F_WATCHERS = "Наблюдатели (через запятую)"
+    F_EPIC = "Эпик"
+    F_EPIC_NONE = "Без эпика"
+    F_BLOCKED_BY = "Заблокировано задачами"
+    F_BLOCKED_BY_NONE = "Нет других задач для связи"
 
     # tags — registry chooser on the task dialog
     F_TAGS_PICK = "Теги"
@@ -117,6 +121,13 @@ class UI:
     D_MINUTES = "{n} мин"
     D_HOURS = "{n} ч"
     D_DAYS = "{n} дн."
+
+    # kanban card: blocked (derived) / on-hold (paused) state
+    D_BLOCKED = "Заблокировано"
+    D_BLOCKED_TOOLTIP = "Ждёт: {titles}"
+    D_ON_HOLD = "Приостановлено"
+    ACTION_PAUSE = "Приостановить"
+    ACTION_RESUME = "Возобновить"
 
     # deadline popup
     DEADLINE_POPUP_TITLE = "Наступил срок задач"
@@ -175,6 +186,14 @@ class UI:
     SET_TAG_DELETE_TITLE = "Удалить тег"
     SET_TAG_DELETE_CONFIRM = 'Удалить тег «{name}» из {n} задач?'
     SET_TAG_EXISTS = "Тег с таким названием уже есть"
+
+    # workflow: auto-advance on completion (Settings → "Автоматизация")
+    SET_SECTION_WORKFLOW = "Автоматизация"
+    SET_AUTO_START_UNBLOCKED = "Автоматически запускать разблокированные задачи"
+    SET_AUTO_START_UNBLOCKED_HINT = (
+        "Когда задача переходит в «Готово», задачи, которые ждали только её, "
+        "сами переходят в «В работе».")
+    SET_AUTO_CLOSE_EPIC = "Автоматически закрывать эпик, когда все его задачи готовы"
 
     # bulk status transitions by tag (b8)
     BULK_TITLE = "Перевод задач по тегам"
@@ -248,9 +267,8 @@ class ERR:
 
 
 class APP:
-    """Single-instance / port handling (src/gui_flet/app.py)."""
-    ALREADY_RUNNING = "Менеджер задач уже запущен: http://127.0.0.1:{port}/"
-    KILLED_STALE = "Остановлен зависший экземпляр (PID {pid}) на порту {port}"
+    """Single-instance / port handling (src/gui_flet/_single_instance.py)."""
+    KILLED_STALE = "Остановлен предыдущий экземпляр (PID {pid}) на порту {port}"
     PORT_BUSY = "Порт {port} занят другим приложением, запуск на {alt}"
 
 

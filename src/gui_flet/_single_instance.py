@@ -1,45 +1,30 @@
 """Single-instance / port arbitration for the local Flet web server.
 
-``run_app`` calls :func:`resolve_port` once at startup. The rules, in order:
-
-1. Port free                    -> serve on it.
-2. A healthy instance of *this* app already serving there
-                                -> open a browser tab at it, return ``None``
-                                   (the caller should just exit).
-3. A hung / orphaned instance of *ours* holding the port
-                                -> kill it, serve on the now-free port.
-4. A foreign process holding it -> serve on the next free port.
-
-Only processes recognisable as this app (``TaskManager.exe`` or a Python
-running ``main.py`` / ``task_manager``) are ever killed.
+Flet's ``WEB_BROWSER`` view means the "app" is really a local server plus a
+browser tab; closing the tab does not stop the server, and there is no
+"window close" event tied to the process. Left alone, every relaunch could
+pile up another orphaned server. So instead of trying to detect and reuse a
+still-healthy instance (fragile — a slow health probe reads as "not ours" and
+falls through to spawning yet another one, which is how orphans piled up),
+``run_app`` calls :func:`resolve_port` once at startup and it unconditionally
+terminates anything already on our port before serving: at most one instance
+of this app ever holds the port. Only processes recognisable as this app
+(``TaskManager.exe`` or a Python running ``main.py`` / ``task_manager``) are
+ever killed.
 """
 import socket
 import subprocess
 import sys
 import time
-import urllib.request
-import webbrowser
 
 from core import strings as L
 
-_PROBE_TIMEOUT = 2.0
 _PORT_SCAN_SPAN = 40
 
 
 def port_is_free(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("127.0.0.1", port)) != 0
-
-
-def _healthy_instance_serving(port: int) -> bool:
-    """Is the thing on ``port`` a live Flet/Flutter app (i.e. us)?"""
-    try:
-        body = urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/", timeout=_PROBE_TIMEOUT
-        ).read(4096)
-    except Exception:
-        return False
-    return b"flutter" in body.lower() or b"flet" in body.lower()
 
 
 def _pids_listening_on(port: int) -> list[int]:
@@ -96,25 +81,20 @@ def _kill_stale_on_port(port: int) -> None:
             pass
 
 
-def resolve_port(port: int) -> int | None:
-    """See the module docstring. ``None`` means "an instance is already running,
-    a browser tab was opened, just exit"."""
+def resolve_port(port: int) -> int:
+    """See the module docstring: always end up the sole instance on ``port``."""
     if port_is_free(port):
         return port
 
-    if _healthy_instance_serving(port):
-        webbrowser.open(f"http://127.0.0.1:{port}/")
-        print(L.APP.ALREADY_RUNNING.format(port=port))
-        return None
-
-    # Busy but not answering -> a hung old instance of ours.
+    # Something (healthy or hung, doesn't matter) is on our port -> it's an
+    # earlier instance of us; take the port back.
     _kill_stale_on_port(port)
     for _ in range(15):                       # up to ~3s for the OS to release it
         if port_is_free(port):
             return port
         time.sleep(0.2)
 
-    # Still busy -> a foreign process. Take the next free port.
+    # Kill didn't free it in time (or it's a foreign process) -> next free port.
     for cand in range(port + 1, port + _PORT_SCAN_SPAN):
         if port_is_free(cand):
             print(L.APP.PORT_BUSY.format(port=port, alt=cand))

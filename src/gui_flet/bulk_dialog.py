@@ -57,7 +57,9 @@ def show_bulk_dialog(app: "TaskManagerApp") -> None:
         n = app.service.bulk_transition_by_tag(
             list(selected_tags),
             [TaskStatus(s) for s in selected_sources],
-            TaskStatus(target["v"]))
+            TaskStatus(target["v"]),
+            auto_start_unblocked=bool(app.settings.get("auto_start_unblocked")),
+            auto_close_epic=bool(app.settings.get("auto_close_epic")))
         page.pop_dialog()
         app._show_snackbar(L.UI.BULK_DONE.format(n=n))
         app.refresh_all()
