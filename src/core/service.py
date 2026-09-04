@@ -406,6 +406,56 @@ class TaskService:
         log.info(f"Bulk status change to {status.value}: {count}/{len(task_ids)} tasks")
         return count
 
+    def bulk_transition_candidates(
+        self,
+        tag_names: list[str],
+        from_statuses: list[TaskStatus],
+        to_status: TaskStatus,
+        *,
+        match_all: bool = False,
+    ) -> list[Task]:
+        """Tasks that carry the wanted tag(s), sit in one of ``from_statuses``,
+        and aren't already in ``to_status``. Pure read — no writes; this is what
+        the bulk-transition panel's live preview count is built from, so it must
+        never mutate. ``match_all`` False = task has ANY wanted tag; True = ALL.
+        Statuses may be ``TaskStatus`` members or their raw string values.
+        """
+        wanted = {n.strip().lower() for n in tag_names if n and n.strip()}
+        if not wanted or not from_statuses:
+            return []
+        froms = {TaskStatus(s) for s in from_statuses}
+        target = TaskStatus(to_status)
+        out = []
+        for t in self.get_all_tasks():
+            if t.status not in froms or t.status == target:
+                continue
+            tags = set(t.tags)
+            if (wanted <= tags) if match_all else (wanted & tags):
+                out.append(t)
+        return out
+
+    def bulk_transition_by_tag(
+        self,
+        tag_names: list[str],
+        from_statuses: list[TaskStatus],
+        to_status: TaskStatus,
+        *,
+        match_all: bool = False,
+    ) -> int:
+        """Move every :meth:`bulk_transition_candidates` task to ``to_status``.
+        Returns the count actually moved. Each move goes through
+        ``update_task_status`` so it records the same ``status`` history entry a
+        board drag would — mirrors the board: no ``WORKFLOW_TRANSITIONS`` check.
+        """
+        target = TaskStatus(to_status)
+        cands = self.bulk_transition_candidates(
+            tag_names, from_statuses, to_status, match_all=match_all)
+        moved = self.bulk_status_change([t.id for t in cands], target)
+        log.info("bulk_transition_by_tag tags=%s from=%s -> %s: %d moved",
+                 sorted({n.strip().lower() for n in tag_names if n.strip()}),
+                 [TaskStatus(s).value for s in from_statuses], target.value, moved)
+        return moved
+
     # ── Search ──
 
     def search_tasks(self, query: str) -> list[Task]:
