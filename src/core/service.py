@@ -863,38 +863,31 @@ class TaskService:
         )
 
     def generate_recurring_tasks(self) -> List[Task]:
-        """Generate tasks from all active recurring definitions that are due.
-
-        A recurring task is due if next_due_date(today) <= today.
-        After generating, updates last_generated_date.
-        Returns list of newly created tasks.
+        """Create a task for every active recurring definition that has an
+        occurrence due since it was last generated. At most one task per
+        definition per call (a launch-time catch-up).
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        created_tasks = []
+        prio_values = {p.value for p in Priority}
+        created: List[Task] = []
         for rec in self.repo.get_all_recurring():
-            if not rec.is_active or not rec.base_due_date:
+            if not rec.is_active:
                 continue
-            next_due = rec.next_due_date(today)
-            if next_due and next_due <= today:
-                # Skip if already generated on this due date
-                if rec.last_generated_date and rec.last_generated_date >= next_due:
-                    continue
-                task = self.create_task(
-                    title=rec.title,
-                    description=rec.description,
-                    task_type=rec.task_type,
-                    priority=Priority(rec.priority) if rec.priority in {p.value for p in Priority} else Priority.MEDIUM,
-                    tags=list(rec.tags),
-                    labels=list(rec.labels),
-                    original_estimate=rec.estimate_hours,
-                    due_date=next_due,
-                )
-                task.recurring_task_id = rec.id
-                task.update_timestamp()
-                self.repo.update(task)
-                # Update last_generated_date
-                rec.last_generated_date = today
-                self.repo.update_recurring(rec)
-                created_tasks.append(task)
-                log.info(f"Generated recurring task: {task.id} from {rec.id}")
-        return created_tasks
+            occ = rec.due_occurrence(today, rec.last_generated_date)
+            if occ is None:
+                continue
+            task = self.create_task(
+                title=rec.title, description=rec.description,
+                task_type=rec.task_type,
+                priority=Priority(rec.priority) if rec.priority in prio_values else Priority.MEDIUM,
+                tags=list(rec.tags), labels=list(rec.labels),
+                original_estimate=rec.estimate_hours, due_date=occ,
+            )
+            task.recurring_task_id = rec.id
+            task.update_timestamp()
+            self.repo.update(task)
+            rec.last_generated_date = occ
+            self.repo.update_recurring(rec)
+            created.append(task)
+            log.info("Generated recurring task %s from %s (due %s)", task.id, rec.id, occ)
+        return created

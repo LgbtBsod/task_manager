@@ -561,30 +561,53 @@ class RecurringTask(_DataclassJSON):
     created_at: str = field(default_factory=_now_iso)
     id: str = field(default_factory=_short_id)
 
-    def next_due_date(self, after_date: Optional[str] = None) -> Optional[str]:
-        """Calculate the next due date on or after after_date.
+    _STEP = {
+        RecurrenceFrequency.DAILY.value: timedelta(days=1),
+        RecurrenceFrequency.WEEKLY.value: timedelta(weeks=1),
+        RecurrenceFrequency.BIWEEKLY.value: timedelta(weeks=2),
+        RecurrenceFrequency.MONTHLY.value: timedelta(days=30),
+        RecurrenceFrequency.QUARTERLY.value: timedelta(days=90),
+    }
 
-        Returns YYYY-MM-DD or None if base_due_date is not set.
+    def next_due_date(self, after_date: Optional[str] = None) -> Optional[str]:
+        """The first occurrence on or after ``after_date`` (or today).
+        YYYY-MM-DD, or None if ``base_due_date`` is unset/invalid.
         """
         if not self.base_due_date:
             return None
         try:
             base = datetime.strptime(self.base_due_date, "%Y-%m-%d")
             after = datetime.strptime(after_date, "%Y-%m-%d") if after_date else datetime.now()
-            delta_map = {
-                RecurrenceFrequency.DAILY.value: timedelta(days=1),
-                RecurrenceFrequency.WEEKLY.value: timedelta(weeks=1),
-                RecurrenceFrequency.BIWEEKLY.value: timedelta(weeks=2),
-                RecurrenceFrequency.MONTHLY.value: timedelta(days=30),
-                RecurrenceFrequency.QUARTERLY.value: timedelta(days=90),
-            }
-            step = delta_map.get(self.frequency, timedelta(weeks=1))
-            candidate = base
-            while candidate < after:
-                candidate += step
-            return candidate.strftime("%Y-%m-%d")
         except ValueError:
             return None
+        step = self._STEP.get(self.frequency, timedelta(weeks=1))
+        occ = base
+        while occ < after:
+            occ += step
+        return occ.strftime("%Y-%m-%d")
+
+    def due_occurrence(self, today: str, after: Optional[str] = None) -> Optional[str]:
+        """The *latest* occurrence that has come due (``<= today``) and is
+        strictly after ``after`` (the last one already generated), or None.
+
+        Latest-not-earliest: if the app was closed for three weekly cycles you
+        want one "do it now" task, not three backlog items. Drives auto-generation.
+        """
+        if not self.base_due_date:
+            return None
+        try:
+            base = datetime.strptime(self.base_due_date, "%Y-%m-%d")
+            limit = datetime.strptime(today, "%Y-%m-%d")
+            floor = datetime.strptime(after, "%Y-%m-%d") if after else None
+        except ValueError:
+            return None
+        step = self._STEP.get(self.frequency, timedelta(weeks=1))
+        occ, result = base, None
+        while occ <= limit:
+            if floor is None or occ > floor:
+                result = occ.strftime("%Y-%m-%d")
+            occ += step
+        return result
 
 
 __all__ = [
