@@ -8,7 +8,18 @@ from core import paths
 from core import strings as L
 from core.models import TaskStatus
 
-from .palette import COLORS, build_theme
+from ._ui import dropdown as _dropdown
+from ._ui import field as _field
+from ._ui import switch as _switch
+from .palette import (
+    COLORS,
+    CUSTOMISABLE,
+    SWATCH_PALETTE,
+    base_colors,
+    build_theme,
+    is_hex,
+    resolve_dark,
+)
 from .palette import apply as apply_palette
 
 
@@ -81,20 +92,24 @@ class TaskManagerApp:
         """
         mode = self.settings.get("theme_mode") or "dark"
         accent = self.settings.get("accent_color") or "#0a84ff"
+        overrides = self.settings.get("custom_colors") or {}
         system_is_dark = getattr(page, "platform_brightness", None) != ft.Brightness.LIGHT
-        apply_palette(mode, accent, system_is_dark=system_is_dark)
-        page.theme = build_theme(accent, dark=False)
-        page.dark_theme = build_theme(accent, dark=True)
+        apply_palette(mode, accent, system_is_dark=system_is_dark, overrides=overrides)
+        page.theme = build_theme(accent, dark=False, overrides=overrides)
+        page.dark_theme = build_theme(accent, dark=True, overrides=overrides)
         page.theme_mode = ft.ThemeMode(mode)   # "dark" | "light" | "system"
         page.bgcolor = COLORS["bg_dark"]
 
-    def set_theme(self, *, mode: str | None = None, accent: str | None = None) -> None:
-        """Apply a new theme mode / accent, persist it, and repaint every view."""
+    def set_theme(self, *, mode: str | None = None, accent: str | None = None,
+                  colors: dict | None = None) -> None:
+        """Apply a new theme mode / accent / per-token colours, persist, repaint."""
         changes = {}
         if mode is not None:
             changes["theme_mode"] = mode
         if accent is not None:
             changes["accent_color"] = accent
+        if colors is not None:
+            changes["custom_colors"] = colors
         if changes:
             self.settings.update(**changes)
         self._apply_theme(self.page)
@@ -195,10 +210,10 @@ class TaskManagerApp:
             self.nav_buttons[view_id] = btn
             nav_buttons_row.append(btn)
 
-        self.search_field = ft.TextField(
+        self.search_field = _field(
             hint_text=L.UI.SEARCH,
             width=200, height=36, text_size=13,
-            prefix_icon=ic("search"), border_radius=8,
+            prefix_icon=ic("search"),
             filled=True, fill_color=COLORS["bg_button"],
             focused_bgcolor=COLORS["bg_card_hover"],
             border_color=ft.Colors.TRANSPARENT,
@@ -210,14 +225,14 @@ class TaskManagerApp:
         # ~48 px min touch target, so it towered over the 36 px search field.
         # Pinning ``text_style.height`` + zero vertical content-padding brings it
         # down to the same line as the rest of the top bar.
-        self.sort_dropdown = ft.Dropdown(
-            width=185, text_size=13,
+        self.sort_dropdown = _dropdown(
+            width=185,
             options=[ft.dropdown.Option(k, text=v) for k, v in L.UI.SORT.items()],
             value="default", filled=True,
             fill_color=COLORS["bg_button"],
-            border_color=ft.Colors.TRANSPARENT, border_radius=8,
+            border_color=ft.Colors.TRANSPARENT,
             on_select=self._on_sort,
-            text_style=ft.TextStyle(size=13, height=1.0),
+            text_style=ft.TextStyle(size=13, height=1.0, color=COLORS["text_primary"]),
             content_padding=ft.Padding.only(left=10, right=6, top=0, bottom=0),
         )
 
@@ -363,15 +378,14 @@ class TaskManagerApp:
 
     def show_settings_dialog(self):
         s = self.settings
-        enabled = ft.Switch(value=bool(s.get("notifications_enabled")),
-                            label=L.UI.SET_NOTIFY_ENABLED)
-        hours = ft.TextField(
+        enabled = _switch(value=bool(s.get("notifications_enabled")),
+                          label=L.UI.SET_NOTIFY_ENABLED)
+        hours = _field(
             label=L.UI.SET_HOURS_BEFORE,
             value=str(s.get("notify_hours_before")),
-            width=200, text_size=14, border_radius=8,
-            keyboard_type=ft.KeyboardType.NUMBER,
+            width=200, keyboard_type=ft.KeyboardType.NUMBER,
         )
-        auto_updates = ft.Switch(
+        auto_updates = _switch(
             value=bool(s.get("check_updates_on_start")),
             label=L.UI.SET_CHECK_ON_START,
         )
@@ -428,6 +442,98 @@ class TaskManagerApp:
             swatches.append(sw)
         accent_row = ft.Row(swatches, spacing=8, wrap=True)
 
+        # ── per-token colour overrides (live preview on a complete #rrggbb) ──
+        chosen["colors"] = dict(s.get("custom_colors") or {})
+        _dark_now = resolve_dark(chosen["mode"],
+                                 getattr(self.page, "platform_brightness", None)
+                                 != ft.Brightness.LIGHT)
+        _defaults = base_colors(_dark_now)
+        color_fields: dict[str, tuple[ft.TextField, ft.Container]] = {}
+
+        def _preview_colors():
+            self.set_theme(colors=dict(chosen["colors"]))
+
+        def _set_color(key: str, hex_or_empty: str):
+            fld, sw = color_fields[key]
+            hex_or_empty = hex_or_empty.strip().lower()
+            if not hex_or_empty:
+                chosen["colors"].pop(key, None)
+            elif is_hex(hex_or_empty):
+                chosen["colors"][key] = hex_or_empty
+            else:
+                return
+            if fld.value != hex_or_empty:
+                fld.value = hex_or_empty
+                fld.update()
+            sw.bgcolor = chosen["colors"].get(key, _defaults[key])
+            sw.update()
+            _preview_colors()
+
+        def _pick_from_palette(key: str, label: str):
+            def choose(hx: str):
+                self.page.pop_dialog()
+                _set_color(key, hx)
+
+            grid = ft.Row(
+                [ft.Container(width=26, height=26, bgcolor=c, border_radius=6,
+                              border=ft.Border.all(1, COLORS["border_color"]),
+                              on_click=lambda e, c=c: choose(c))
+                 for c in SWATCH_PALETTE],
+                wrap=True, spacing=6, run_spacing=6)
+            self.page.show_dialog(ft.AlertDialog(
+                modal=True,
+                title=ft.Text(label, size=15, weight=ft.FontWeight.BOLD),
+                content=ft.Container(grid, width=320),
+                actions=[
+                    ft.TextButton(L.UI.SET_COLOR_DEFAULT, on_click=lambda e: choose("")),
+                    ft.TextButton(L.UI.CANCEL, on_click=lambda e: self.page.pop_dialog()),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            ))
+
+        color_rows = []
+        for key, label in CUSTOMISABLE:
+            fld = _field(
+                value=chosen["colors"].get(key, ""), hint_text=_defaults[key],
+                width=100, text_size=12, dense=True,
+                on_change=lambda e, k=key: _set_color(k, e.control.value),
+            )
+            sw = ft.Container(width=24, height=24, border_radius=6,
+                              bgcolor=chosen["colors"].get(key, _defaults[key]),
+                              border=ft.Border.all(1, COLORS["border_color"]),
+                              tooltip=L.UI.SET_COLORS,
+                              on_click=lambda e, k=key, lbl=label: _pick_from_palette(k, lbl))
+            color_fields[key] = (fld, sw)
+            color_rows.append(ft.Row(
+                [sw, ft.Text(label, size=12, color=COLORS["text_secondary"],
+                             expand=True), fld],
+                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+
+        def _reset_colors(e):
+            chosen["colors"].clear()
+            for k, (fld, sw) in color_fields.items():
+                fld.value = ""
+                sw.bgcolor = _defaults[k]
+                fld.update()
+                sw.update()
+            _preview_colors()
+
+        colors_expander = ft.ExpansionTile(
+            title=ft.Text(L.UI.SET_COLORS, size=12, weight=ft.FontWeight.BOLD,
+                          color=COLORS["text_secondary"]),
+            tile_padding=ft.Padding.symmetric(horizontal=0),
+            controls_padding=ft.Padding.only(bottom=8),
+            text_color=COLORS["text_secondary"], collapsed_text_color=COLORS["text_secondary"],
+            icon_color=COLORS["text_secondary"], collapsed_icon_color=COLORS["text_secondary"],
+            controls=[
+                ft.Text(L.UI.SET_COLORS_HINT, size=10, color=COLORS["text_secondary"]),
+                ft.Container(height=4),
+                *color_rows,
+                ft.Container(height=4),
+                ft.TextButton(L.UI.SET_COLORS_RESET, on_click=_reset_colors),
+            ],
+        )
+
         def save(e):
             try:
                 h = int(hours.value.strip())
@@ -482,6 +588,7 @@ class TaskManagerApp:
                 mode_row,
                 ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
                 accent_row,
+                colors_expander,
                 ft.Divider(color=COLORS["border_color"]),
                 ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),

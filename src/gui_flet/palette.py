@@ -41,6 +41,35 @@ _FIXED_ACCENTS = {
     "accent_purple": "#bf5af2",
 }
 
+# Every COLORS key the user may recolour in Settings, with its RU label and a
+# section hint. The primary accent (``accent_blue``) is handled separately by
+# the accent-preset swatches.
+CUSTOMISABLE: list[tuple[str, str]] = [
+    ("bg_dark",        "Фон приложения"),
+    ("bg_card",        "Фон карточек"),
+    ("bg_card_hover",  "Карточка при наведении"),
+    ("bg_button",      "Фон кнопок и полей"),
+    ("text_primary",   "Основной текст"),
+    ("text_secondary", "Второстепенный текст"),
+    ("border_color",   "Границы и разделители"),
+    ("accent_green",   "Акцент «выполнено»"),
+    ("accent_orange",  "Акцент «в работе»"),
+    ("accent_red",     "Акцент «ошибка»"),
+    ("accent_purple",  "Акцент «история»"),
+]
+
+# Ready-made swatches for the settings colour picker (grey ramp + a spectrum).
+SWATCH_PALETTE: list[str] = [
+    "#000000", "#1c1c1e", "#2c2c2e", "#3a3a3c", "#6c6c70",
+    "#86868b", "#aeaeb2", "#d1d1d6", "#f2f2f7", "#ffffff",
+    "#ff453a", "#ff375f", "#ff6482", "#ff9f0a", "#ffb340",
+    "#ffd60a", "#ffe066", "#30d158", "#4cd964", "#00c7be",
+    "#40c8e0", "#64d2ff", "#0a84ff", "#409cff", "#5e5ce6",
+    "#7d7aff", "#bf5af2", "#da8fff", "#d158c8", "#ff6ac1",
+    "#a2845e", "#c0a080", "#8e8e93", "#1a3a5e", "#0d2818",
+    "#3a1a5e", "#5e1a2e", "#1c1c2e", "#101014", "#f5f5f7",
+]
+
 COLORS: dict[str, str] = {}
 
 
@@ -53,12 +82,24 @@ def resolve_dark(mode: str, system_is_dark: bool = True) -> bool:
     return system_is_dark
 
 
-def apply(mode: str, accent: str = DEFAULT_ACCENT, *, system_is_dark: bool = True) -> bool:
-    """Rebuild ``COLORS`` for the mode + accent. Returns whether it is dark."""
+def base_colors(dark: bool) -> dict[str, str]:
+    """The built-in palette for a mode (``accent_blue`` not included).
+
+    Used both by :func:`apply` and by the settings dialog to show / restore
+    a token's default.
+    """
+    return {**(_DARK if dark else _LIGHT), **_FIXED_ACCENTS}
+
+
+def apply(mode: str, accent: str = DEFAULT_ACCENT, *, system_is_dark: bool = True,
+          overrides: dict[str, str] | None = None) -> bool:
+    """Rebuild ``COLORS`` for the mode + accent + any per-token ``overrides``
+    (from ``settings.custom_colors``). Returns whether it is dark."""
     dark = resolve_dark(mode, system_is_dark)
     COLORS.clear()
-    COLORS.update(_DARK if dark else _LIGHT)
-    COLORS.update(_FIXED_ACCENTS)
+    COLORS.update(base_colors(dark))
+    if overrides:
+        COLORS.update({k: v for k, v in overrides.items() if k in COLORS})
     COLORS["accent_blue"] = accent or DEFAULT_ACCENT
     return dark
 
@@ -105,10 +146,38 @@ _TEXT_THEME = ft.TextTheme(
 )
 
 
-def build_theme(accent: str, dark: bool) -> ft.Theme:
-    return ft.Theme(color_scheme_seed=accent,
-                    color_scheme=_scheme(accent, dark),
-                    text_theme=_TEXT_THEME)
+def build_theme(accent: str, dark: bool, *,
+                overrides: dict[str, str] | None = None) -> ft.Theme:
+    palette = base_colors(dark)
+    if overrides:
+        palette.update({k: v for k, v in overrides.items() if k in palette})
+    # Dropdown / popup menus: same fill as the main window, slightly see-through.
+    menu_bg = ft.Colors.with_opacity(0.90, palette["bg_dark"])
+    menu_style = ft.MenuStyle(
+        bgcolor=menu_bg, elevation=6,
+        shadow_color=ft.Colors.TRANSPARENT,
+        shape=ft.RoundedRectangleBorder(radius=10),
+        side=ft.BorderSide(1, palette["border_color"]),
+    )
+    return ft.Theme(
+        color_scheme_seed=accent,
+        color_scheme=_scheme(accent, dark),
+        text_theme=_TEXT_THEME,
+        dropdown_theme=ft.DropdownTheme(menu_style=menu_style),
+        popup_menu_theme=ft.PopupMenuTheme(color=menu_bg,
+                                           shadow_color=ft.Colors.TRANSPARENT),
+    )
+
+
+def is_hex(value: str) -> bool:
+    v = str(value).strip()
+    if len(v) != 7 or v[0] != "#":
+        return False
+    try:
+        int(v[1:], 16)
+        return True
+    except ValueError:
+        return False
 
 
 apply("dark", DEFAULT_ACCENT)   # never leave COLORS empty at import time

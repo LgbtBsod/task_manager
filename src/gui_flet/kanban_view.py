@@ -20,15 +20,15 @@ def _format_due_info(task) -> tuple:
     shown = _dsp(task.due_date)
     days = task.days_until_due()
     if days is None or task.status.value == "Done":
-        return shown, "#86868b"
+        return shown, COLORS["text_secondary"]
     secs = task.seconds_until_due()
     if secs is not None and secs < 0:
-        return L.UI.D_OVERDUE_ON.format(when=shown), "#F44336"
+        return L.UI.D_OVERDUE_ON.format(when=shown), COLORS["accent_red"]
     if days == 0:
-        return L.UI.D_TODAY.format(when=shown), "#ff9f0a"
+        return L.UI.D_TODAY.format(when=shown), COLORS["accent_orange"]
     if days <= 3:
-        return L.UI.D_SOON.format(when=shown), "#ff9f0a"
-    return shown, "#86868b"
+        return L.UI.D_SOON.format(when=shown), COLORS["accent_orange"]
+    return shown, COLORS["text_secondary"]
 
 
 
@@ -43,7 +43,7 @@ def _deadline_badge(task, app):
         return None
     window = app.notify_hours_before() * 3600
     if secs < 0:
-        text, bg = L.UI.D_OVERDUE, "#F44336"
+        text, bg = L.UI.D_OVERDUE, COLORS["accent_red"]
     elif secs <= window:
         hrs = secs / 3600
         if hrs < 1:
@@ -52,12 +52,12 @@ def _deadline_badge(task, app):
             text = L.UI.D_HOURS.format(n=int(hrs))
         else:
             text = L.UI.D_DAYS.format(n=int(hrs // 24))
-        bg = "#ff9f0a"
+        bg = COLORS["accent_orange"]
     else:
         return None
     return ft.Container(
-        content=ft.Row([ft.Icon(ic("schedule"), size=10, color="#000000"),
-                        ft.Text(text, size=9, color="#000000", weight=ft.FontWeight.BOLD)],
+        content=ft.Row([ft.Icon(ic("schedule"), size=10, color="#ffffff"),
+                        ft.Text(text, size=9, color="#ffffff", weight=ft.FontWeight.BOLD)],
                        spacing=3, tight=True),
         padding=ft.Padding.symmetric(horizontal=5, vertical=2),
         bgcolor=bg, border_radius=4,
@@ -130,7 +130,7 @@ class TaskCard:
             ))
         if task.story_points is not None:
             header_right.append(ft.Container(
-                content=ft.Text(f"{L.STORY_POINTS}:{task.story_points}", size=9, color="#86868b"),
+                content=ft.Text(f"{L.STORY_POINTS}:{task.story_points}", size=9, color=COLORS["text_secondary"]),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=COLORS["bg_button"], border_radius=4,
             ))
@@ -145,13 +145,13 @@ class TaskCard:
                 )
             )
         if len(task.tags) > 4:
-            tag_chips.append(ft.Text(f"+{len(task.tags) - 4}", size=9, color="#86868b"))
+            tag_chips.append(ft.Text(f"+{len(task.tags) - 4}", size=9, color=COLORS["text_secondary"]))
 
         bottom_items = []
         if task.assignee:
             bottom_items.append(ft.Row([
-                ft.Icon(ic('person'), size=12, color="#86868b"),
-                ft.Text(task.assignee, size=10, color="#86868b"),
+                ft.Icon(ic('person'), size=12, color=COLORS["text_secondary"]),
+                ft.Text(task.assignee, size=10, color=COLORS["text_secondary"]),
             ], spacing=3))
         if due_text:
             bottom_items.append(ft.Row([
@@ -160,13 +160,13 @@ class TaskCard:
             ], spacing=3))
         if time_text:
             bottom_items.append(ft.Row([
-                ft.Icon(ic('timer_outlined'), size=12, color="#86868b"),
-                ft.Text(time_text, size=10, color="#86868b"),
+                ft.Icon(ic('timer_outlined'), size=12, color=COLORS["text_secondary"]),
+                ft.Text(time_text, size=10, color=COLORS["text_secondary"]),
             ], spacing=3))
         if task.comments:
             bottom_items.append(ft.Row([
-                ft.Icon(ic('chat_bubble_outline'), size=12, color="#86868b"),
-                ft.Text(str(len(task.comments)), size=10, color="#86868b"),
+                ft.Icon(ic('chat_bubble_outline'), size=12, color=COLORS["text_secondary"]),
+                ft.Text(str(len(task.comments)), size=10, color=COLORS["text_secondary"]),
             ], spacing=3))
 
         subtask_info = None
@@ -175,8 +175,8 @@ class TaskCard:
             total_count = len(task.subtasks)
             progress = done_count / total_count if total_count > 0 else 0
             subtask_info = ft.Row([
-                ft.Icon(ic('checklist'), size=12, color="#86868b"),
-                ft.Text(f"{done_count}/{total_count}", size=10, color="#86868b"),
+                ft.Icon(ic('checklist'), size=12, color=COLORS["text_secondary"]),
+                ft.Text(f"{done_count}/{total_count}", size=10, color=COLORS["text_secondary"]),
                 ft.Container(expand=1),
                 ft.ProgressBar(width=60, height=4, value=progress,
                               color=COLORS["accent_green"],
@@ -185,19 +185,19 @@ class TaskCard:
 
         action_btns = [
             ft.IconButton(
-                icon=ic('content_copy'), icon_size=14, icon_color="#86868b",
+                icon=ic('content_copy'), icon_size=14, icon_color=COLORS["text_secondary"],
                 on_click=lambda e, t=task: app._clone_task(t),
                 tooltip=L.UI.CLONE,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
-                icon=ic('edit_outlined'), icon_size=14, icon_color="#86868b",
+                icon=ic('edit_outlined'), icon_size=14, icon_color=COLORS["text_secondary"],
                 on_click=lambda e, t=task: app.show_edit_dialog(t),
                 tooltip=L.UI.EDIT,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
-                icon=ic('delete_outline'), icon_size=14, icon_color="#86868b",
+                icon=ic('delete_outline'), icon_size=14, icon_color=COLORS["text_secondary"],
                 on_click=lambda e, t=task: app.delete_task(t),
                 tooltip=L.UI.DELETE,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),

@@ -8,29 +8,29 @@ from core import strings as L
 from core.datetimeutil import date_part, has_time, normalize, parse_dt
 from core.models import Priority, TaskType, Urgency
 
-from ._ui import safe_update
+from ._ui import dropdown, field, safe_update
 from .app import COLORS, ic
 
 
 def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
                       task=None, on_save: Callable | None = None):
-    title_field = ft.TextField(
+    title_field = field(
         label=L.UI.F_TITLE, value=task.title if task else "",
         text_size=14, autofocus=True, border_radius=8,
     )
-    desc_field = ft.TextField(
+    desc_field = field(
         label=L.UI.F_DESCRIPTION, value=task.description if task else "",
         text_size=14, multiline=True, min_lines=2, max_lines=4, border_radius=8,
     )
     priority_var = task.priority.value if task else "Medium"
-    priority_field = ft.Dropdown(
+    priority_field = dropdown(
         label=L.UI.F_PRIORITY, value=priority_var,
         options=[ft.dropdown.Option(p.value, text=L.priority(p.value)) for p in Priority],
         text_size=14, border_radius=8, width=200,
     )
 
     task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
-    task_type_field = ft.Dropdown(
+    task_type_field = dropdown(
         label=L.UI.F_TYPE, value=task_type_var,
         options=[ft.dropdown.Option(t.value, text=L.task_type(t.value)) for t in TaskType],
         text_size=14, border_radius=8, width=200,
@@ -48,21 +48,21 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
     start_date_value, start_time_value = _split(task.start_date if task else "")
     due_date_value, due_time_value = _split(task.due_date if task else "")
 
-    start_display = ft.TextField(
+    start_display = field(
         label=L.UI.F_START_DATE, value=start_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
-    start_time_field = ft.TextField(
+    start_time_field = field(
         label=L.UI.F_TIME, value=start_time_value, hint_text=L.UI.F_TIME_HINT,
         text_size=14, border_radius=8, width=90,
     )
-    due_display = ft.TextField(
+    due_display = field(
         label=L.UI.F_DUE_DATE, value=due_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
-    due_time_field = ft.TextField(
+    due_time_field = field(
         label=L.UI.F_TIME, value=due_time_value, hint_text=L.UI.F_TIME_HINT,
         text_size=14, border_radius=8, width=90,
     )
@@ -99,33 +99,33 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
     start_display.on_click = pick_start_date
     due_display.on_click = pick_due_date
 
-    time_field = ft.TextField(
+    time_field = field(
         label=L.UI.F_TIME_SPENT,
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
         text_size=14, border_radius=8, width=200,
     )
-    tags_field = ft.TextField(
+    tags_field = field(
         label=L.UI.F_TAGS,
         value=", ".join(task.tags) if task and task.tags else "",
         text_size=14, border_radius=8, hint_text="frontend, bug, feature",
     )
-    assignee_field = ft.TextField(
+    assignee_field = field(
         label=L.UI.F_ASSIGNEE,
         value=getattr(task, 'assignee', None) or "",
         text_size=14, border_radius=8, width=200,
     )
-    story_points_field = ft.TextField(
+    story_points_field = field(
         label=L.UI.F_STORY_POINTS,
         value=str(task.story_points) if task and task.story_points else "",
         text_size=14, border_radius=8, width=200,
     )
 
-    urgency_field = ft.Dropdown(
+    urgency_field = dropdown(
         label=L.UI.F_URGENCY, value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
         options=[ft.dropdown.Option(u.value, text=L.urgency(u.value)) for u in Urgency],
         text_size=14, border_radius=8, width=200,
     )
-    watchers_field = ft.TextField(
+    watchers_field = field(
         label=L.UI.F_WATCHERS,
         value=", ".join(getattr(task, 'watchers', []) or []) if task and getattr(task, 'watchers', None) else "",
         text_size=14, border_radius=8, hint_text="alice, bob",

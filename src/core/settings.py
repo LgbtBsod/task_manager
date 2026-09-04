@@ -39,24 +39,37 @@ class AppSettings(BaseModel):
     check_updates_on_start: bool = True
     skipped_update_version: str = ""
     theme_mode: str = "dark"          # dark | light | system
-    accent_color: str = "#0a84ff"    # hex "#rrggbb"
+    accent_color: str = "#0a84ff"    # primary accent, hex "#rrggbb"
+    # per-token palette overrides: {"bg_card": "#101010", ...}. Empty keys use
+    # the built-in theme colour. Unknown keys are ignored by the palette.
+    custom_colors: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("theme_mode")
     @classmethod
     def _valid_mode(cls, v: str) -> str:
         return v if v in THEME_MODES else "dark"
 
+    @staticmethod
+    def _clean_hex(v: str) -> str | None:
+        s = str(v).strip().lower()
+        if len(s) == 7 and s[0] == "#":
+            try:
+                int(s[1:], 16)
+                return s
+            except ValueError:
+                pass
+        return None
+
     @field_validator("accent_color")
     @classmethod
     def _valid_hex(cls, v: str) -> str:
-        v = str(v).strip().lower()
-        if len(v) == 7 and v[0] == "#":
-            try:
-                int(v[1:], 16)
-                return v
-            except ValueError:
-                pass
-        return "#0a84ff"
+        return cls._clean_hex(v) or "#0a84ff"
+
+    @field_validator("custom_colors")
+    @classmethod
+    def _valid_colors(cls, v: dict) -> dict:
+        return {str(k): h for k, val in (v or {}).items()
+                if (h := cls._clean_hex(val))}
 
 
 class SettingsStore:
