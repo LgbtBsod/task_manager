@@ -187,13 +187,28 @@ class GanttView:
             duration_label = f"{duration} {L.UNIT_DAYS}" if duration > 0 else ""
             due_info = " !" if (task.due_date and task.is_overdue()) else ""
 
+            # Dependencies (Task.links / LinkType.BLOCKED_BY) aren't drawn as
+            # cross-row connectors — the bars are laid out with flex `expand`
+            # weights, not fixed pixel coordinates, so there's no reliable X
+            # to anchor an arrow to without rewriting the whole timeline to a
+            # fixed px/day grid. A lock badge + tooltip naming the blockers
+            # carries the same information without that risk.
+            title_row = [
+                ft.Icon(ic(status_icon), size=14, color=icon_color),
+                ft.Text(task.title[:24], size=12, color=COLORS["text_primary"],
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+            ]
+            blockers = self.app.service.blocking_tasks(task)
+            if blockers:
+                title_row.append(ft.Icon(
+                    ic("lock"), size=12, color=COLORS["text_secondary"],
+                    tooltip=L.UI.D_BLOCKED_TOOLTIP.format(
+                        titles=", ".join(b.title for b in blockers[:3])),
+                ))
+
             row_children = [
                 ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ic(status_icon), size=14, color=icon_color),
-                        ft.Text(task.title[:24], size=12, color=COLORS["text_primary"],
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ], spacing=6),
+                    content=ft.Row(title_row, spacing=6),
                     width=LEFT_MARGIN - 10,
                 ),
             ]
