@@ -52,10 +52,10 @@ STATUS_STYLE = {
     "In Progress": ("pending",                "accent_orange"),
     "Done":        ("check_circle",            "accent_green"),
 }
-# task-type value -> chip / bar colour (hex, theme-independent).
+# task-type value -> chip / bar colour (SAP Horizon accents, both modes).
 TYPE_COLOR = {
-    "Task": "#86868b", "Bug": "#ff453a", "Story": "#bf5af2",
-    "Epic": "#ff9f0a", "Sub-task": "#30d158",
+    "Task": "#788fa6", "Bug": "#f53232", "Story": "#7858ff",
+    "Epic": "#e76500", "Sub-task": "#36a41d",
 }
 
 # ── unit suffixes ──
@@ -146,15 +146,16 @@ class UI:
     SET_HOURS_BEFORE = "Часов до срока"
     SET_NOTIFY_HINT = ("Карточки с приближающимся дедлайном подсвечиваются; когда "
                        "срок наступает — появляется окно.")
-    SET_THEME = "Тема"
-    SET_THEME_DARK = "Тёмная"
-    SET_THEME_LIGHT = "Светлая"
+    SET_THEME = "Тема · SAP Horizon"
+    SET_THEME_DARK = "Вечер"        # Evening Horizon
+    SET_THEME_LIGHT = "Утро"        # Morning Horizon
     SET_THEME_SYSTEM = "Системная"
     SET_ACCENT = "Акцентный цвет"
     SET_COLORS = "Цвета интерфейса"
     SET_COLORS_HINT = "Пусто — цвет темы. Кликните образец для палитры, или введите #rrggbb."
     SET_COLORS_RESET = "Сбросить все цвета"
     SET_COLOR_DEFAULT = "Цвет темы"
+    SET_COLORS_LOW_CONTRAST = "⚠ Текст плохо читается на фоне карточек — увеличьте контраст."
     SET_UPDATES = "Обновления"
     SET_CHECK_ON_START = "Проверять обновления при запуске"
     SET_CHECK_NOW = "Проверить сейчас"

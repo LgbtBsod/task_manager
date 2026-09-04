@@ -15,15 +15,17 @@ from ._atomic import atomic_write_text
 
 log = logging.getLogger(__name__)
 
-# Named accent presets offered in the settings dialog. The value is the hex
-# used for the primary colour of both the light and the dark scheme.
+# Named accent presets offered in the settings dialog — the SAP Horizon
+# accent set. The value is the primary colour for both Morning and Evening.
 ACCENT_PRESETS: dict[str, str] = {
-    "Синий": "#0a84ff",
-    "Фиолетовый": "#bf5af2",
-    "Зелёный": "#30d158",
-    "Оранжевый": "#ff9f0a",
-    "Красный": "#ff375f",
-    "Бирюзовый": "#40c8e0",
+    "Horizon": "#0070f2",
+    "Индиго": "#5d36ff",
+    "Пурпурный": "#7858ff",
+    "Бирюзовый": "#049f9a",
+    "Зелёный": "#36a41d",
+    "Манго": "#e76500",
+    "Красный": "#f53232",
+    "Розовый": "#fa4f96",
 }
 
 THEME_MODES = ("dark", "light", "system")

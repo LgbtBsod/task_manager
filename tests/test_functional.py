@@ -318,9 +318,12 @@ def test_normalize_tags_helper(r):
 
 
 def test_priority_colors(r):
-    r.ok('low green' if Priority.LOW.color == '#4CAF50' else 'wrong color')
-    r.ok('medium orange' if Priority.MEDIUM.color == '#FF9800' else 'wrong color')
-    r.ok('high red' if Priority.HIGH.color == '#F44336' else 'wrong color')
+    # SAP Horizon severity ramp
+    assert Priority.LOW.color == '#36a41d'
+    assert Priority.MEDIUM.color == '#e76500'
+    assert Priority.HIGH.color == '#f53232'
+    assert Priority.CRITICAL.color == '#d20a0a'
+    assert len({p.color for p in Priority}) == 4
 
 
 def test_task_with_new_fields(r):

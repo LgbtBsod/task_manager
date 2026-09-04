@@ -14,9 +14,10 @@ from ._ui import switch as _switch
 from .palette import (
     COLORS,
     CUSTOMISABLE,
-    SWATCH_PALETTE,
+    DEFAULT_ACCENT,
     base_colors,
     build_theme,
+    contrast_ratio,
     is_hex,
     resolve_dark,
 )
@@ -91,7 +92,7 @@ class TaskManagerApp:
         widget chrome agree.
         """
         mode = self.settings.get("theme_mode") or "dark"
-        accent = self.settings.get("accent_color") or "#0a84ff"
+        accent = self.settings.get("accent_color") or DEFAULT_ACCENT
         overrides = self.settings.get("custom_colors") or {}
         system_is_dark = getattr(page, "platform_brightness", None) != ft.Brightness.LIGHT
         apply_palette(mode, accent, system_is_dark=system_is_dark, overrides=overrides)
@@ -241,7 +242,7 @@ class TaskManagerApp:
             icon=ic("add"),
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
-                bgcolor=COLORS["accent_green"], color="#000000",
+                bgcolor=COLORS["accent_green"], color="#ffffff",
                 padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                 text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             ),
@@ -395,7 +396,7 @@ class TaskManagerApp:
         from core.settings import ACCENT_PRESETS
 
         chosen = {"mode": s.get("theme_mode") or "dark",
-                  "accent": s.get("accent_color") or "#0a84ff"}
+                  "accent": s.get("accent_color") or DEFAULT_ACCENT}
 
         mode_buttons: dict[str, ft.Button] = {}
 
@@ -450,8 +451,23 @@ class TaskManagerApp:
         _defaults = base_colors(_dark_now)
         color_fields: dict[str, tuple[ft.TextField, ft.Container]] = {}
 
+        contrast_warn = ft.Text(L.UI.SET_COLORS_LOW_CONTRAST, size=10,
+                                color=COLORS["accent_red"], visible=False)
+
+        def _check_contrast():
+            eff = {**_defaults, **chosen["colors"]}
+            bad = min(contrast_ratio(eff["text_primary"], eff["bg_card"]),
+                      contrast_ratio(eff["text_secondary"], eff["bg_card"])) < 3.0
+            if contrast_warn.visible != bad:
+                contrast_warn.visible = bad
+                try:
+                    contrast_warn.update()
+                except Exception:
+                    pass
+
         def _preview_colors():
             self.set_theme(colors=dict(chosen["colors"]))
+            _check_contrast()
 
         def _set_color(key: str, hex_or_empty: str):
             fld, sw = color_fields[key]
@@ -470,26 +486,14 @@ class TaskManagerApp:
             _preview_colors()
 
         def _pick_from_palette(key: str, label: str):
-            def choose(hx: str):
-                self.page.pop_dialog()
-                _set_color(key, hx)
-
-            grid = ft.Row(
-                [ft.Container(width=26, height=26, bgcolor=c, border_radius=6,
-                              border=ft.Border.all(1, COLORS["border_color"]),
-                              on_click=lambda e, c=c: choose(c))
-                 for c in SWATCH_PALETTE],
-                wrap=True, spacing=6, run_spacing=6)
-            self.page.show_dialog(ft.AlertDialog(
-                modal=True,
-                title=ft.Text(label, size=15, weight=ft.FontWeight.BOLD),
-                content=ft.Container(grid, width=320),
-                actions=[
-                    ft.TextButton(L.UI.SET_COLOR_DEFAULT, on_click=lambda e: choose("")),
-                    ft.TextButton(L.UI.CANCEL, on_click=lambda e: self.page.pop_dialog()),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            ))
+            from .color_picker import show_color_picker
+            show_color_picker(
+                self.page,
+                initial=chosen["colors"].get(key) or _defaults[key],
+                title=label,
+                on_pick=lambda hx: _set_color(key, hx),
+                on_default=lambda: _set_color(key, ""),
+            )
 
         color_rows = []
         for key, label in CUSTOMISABLE:
@@ -529,10 +533,12 @@ class TaskManagerApp:
                 ft.Text(L.UI.SET_COLORS_HINT, size=10, color=COLORS["text_secondary"]),
                 ft.Container(height=4),
                 *color_rows,
+                contrast_warn,
                 ft.Container(height=4),
                 ft.TextButton(L.UI.SET_COLORS_RESET, on_click=_reset_colors),
             ],
         )
+        _check_contrast()
 
         def save(e):
             try:

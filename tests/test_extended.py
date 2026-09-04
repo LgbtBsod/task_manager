@@ -69,7 +69,7 @@ def test_critical_priority(r):
     r.ok('CRITICAL exists' if hasattr(Priority, 'CRITICAL') else 'no CRITICAL')
     t = Task(title='Critical task', priority=Priority.CRITICAL)
     r.ok('CRITICAL assigned' if t.priority == Priority.CRITICAL else f'got {t.priority}')
-    r.ok('CRITICAL color' if Priority.CRITICAL.color == '#FF1744' else f'got {Priority.CRITICAL.color}')
+    r.ok('CRITICAL color' if Priority.CRITICAL.color == '#d20a0a' else f'got {Priority.CRITICAL.color}')
     d = t.to_dict()
     r.ok('CRITICAL serializes' if d['priority'] == 'Critical' else f'got {d["priority"]}')
     t2 = Task.from_dict(d)

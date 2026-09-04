@@ -165,7 +165,7 @@ class GanttView:
             is_done = task.status.value == "Done"
 
             status_icon, _ckey = L.status_style(task.status.value)
-            icon_color = COLORS.get(_ckey, "#86868b")
+            icon_color = COLORS.get(_ckey, COLORS["text_secondary"])
 
             bar_text = None
             if duration / td > 0.04:

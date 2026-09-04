@@ -63,9 +63,10 @@ class Priority(StrEnum):
 
     @property
     def color(self) -> str:
+        # SAP Horizon severity ramp (positive -> critical -> negative).
         return {
-            "Low": "#4CAF50", "Medium": "#FF9800",
-            "High": "#F44336", "Critical": "#FF1744",
+            "Low": "#36a41d", "Medium": "#e76500",
+            "High": "#f53232", "Critical": "#d20a0a",
         }[self.value]
 
     @property
