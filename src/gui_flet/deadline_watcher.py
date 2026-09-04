@@ -10,6 +10,8 @@ from collections.abc import Callable
 
 import flet as ft
 
+from core import strings as L
+
 from .palette import COLORS
 
 log = logging.getLogger(__name__)
@@ -56,13 +58,13 @@ class DeadlineWatcher:
 
     def _popup(self, tasks) -> None:
         from .app import ic
-        names = "\n".join(f"•  {t.title}" for t in tasks[:8])
-        extra = f"\n… и ещё {len(tasks) - 8}" if len(tasks) > 8 else ""
+        names = "\n".join(L.UI.DEADLINE_POPUP_ITEM.format(title=t.title) for t in tasks[:8])
+        extra = L.UI.DEADLINE_POPUP_MORE.format(n=len(tasks) - 8) if len(tasks) > 8 else ""
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
             title=ft.Row([ft.Icon(ic("warning"), color=COLORS["accent_red"]),
-                          ft.Text("Наступил срок задач")], spacing=8),
+                          ft.Text(L.UI.DEADLINE_POPUP_TITLE)], spacing=8),
             content=ft.Text(names + extra),
-            actions=[ft.TextButton("Понятно", on_click=lambda e: self.page.pop_dialog())],
+            actions=[ft.TextButton(L.UI.OK, on_click=lambda e: self.page.pop_dialog())],
             actions_alignment=ft.MainAxisAlignment.END,
         ))

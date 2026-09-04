@@ -4,35 +4,34 @@ from datetime import datetime
 
 import flet as ft
 
+from core import strings as L
 from core.datetimeutil import date_part, has_time, normalize, parse_dt
 from core.models import Priority, TaskType, Urgency
 
-from . import labels as L
 from ._ui import safe_update
 from .app import COLORS, ic
 
 
-def show_task_dialog(page: ft.Page, title: str = "Новая задача",
+def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
                       task=None, on_save: Callable | None = None):
     title_field = ft.TextField(
-        label="Название", value=task.title if task else "",
+        label=L.UI.F_TITLE, value=task.title if task else "",
         text_size=14, autofocus=True, border_radius=8,
     )
     desc_field = ft.TextField(
-        label="Описание", value=task.description if task else "",
+        label=L.UI.F_DESCRIPTION, value=task.description if task else "",
         text_size=14, multiline=True, min_lines=2, max_lines=4, border_radius=8,
     )
     priority_var = task.priority.value if task else "Medium"
     priority_field = ft.Dropdown(
-        label="Приоритет", value=priority_var,
+        label=L.UI.F_PRIORITY, value=priority_var,
         options=[ft.dropdown.Option(p.value, text=L.priority(p.value)) for p in Priority],
         text_size=14, border_radius=8, width=200,
     )
 
-    # Тип задачи
     task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
     task_type_field = ft.Dropdown(
-        label="Тип", value=task_type_var,
+        label=L.UI.F_TYPE, value=task_type_var,
         options=[ft.dropdown.Option(t.value, text=L.task_type(t.value)) for t in TaskType],
         text_size=14, border_radius=8, width=200,
     )
@@ -50,21 +49,21 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     due_date_value, due_time_value = _split(task.due_date if task else "")
 
     start_display = ft.TextField(
-        label="Дата начала", value=start_date_value,
+        label=L.UI.F_START_DATE, value=start_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
     start_time_field = ft.TextField(
-        label="Время", value=start_time_value, hint_text="ЧЧ:ММ",
+        label=L.UI.F_TIME, value=start_time_value, hint_text=L.UI.F_TIME_HINT,
         text_size=14, border_radius=8, width=90,
     )
     due_display = ft.TextField(
-        label="Дедлайн", value=due_date_value,
+        label=L.UI.F_DUE_DATE, value=due_date_value,
         text_size=14, border_radius=8, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
     due_time_field = ft.TextField(
-        label="Время", value=due_time_value, hint_text="ЧЧ:ММ",
+        label=L.UI.F_TIME, value=due_time_value, hint_text=L.UI.F_TIME_HINT,
         text_size=14, border_radius=8, width=90,
     )
 
@@ -101,33 +100,33 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     due_display.on_click = pick_due_date
 
     time_field = ft.TextField(
-        label="Затрачено (часы)",
+        label=L.UI.F_TIME_SPENT,
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
         text_size=14, border_radius=8, width=200,
     )
     tags_field = ft.TextField(
-        label="Теги (через запятую)",
+        label=L.UI.F_TAGS,
         value=", ".join(task.tags) if task and task.tags else "",
         text_size=14, border_radius=8, hint_text="frontend, bug, feature",
     )
     assignee_field = ft.TextField(
-        label="Исполнитель",
+        label=L.UI.F_ASSIGNEE,
         value=getattr(task, 'assignee', None) or "",
         text_size=14, border_radius=8, width=200,
     )
     story_points_field = ft.TextField(
-        label="Очки истории",
+        label=L.UI.F_STORY_POINTS,
         value=str(task.story_points) if task and task.story_points else "",
         text_size=14, border_radius=8, width=200,
     )
 
     urgency_field = ft.Dropdown(
-        label="Срочность", value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
+        label=L.UI.F_URGENCY, value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
         options=[ft.dropdown.Option(u.value, text=L.urgency(u.value)) for u in Urgency],
         text_size=14, border_radius=8, width=200,
     )
     watchers_field = ft.TextField(
-        label="Наблюдатели (через запятую)",
+        label=L.UI.F_WATCHERS,
         value=", ".join(getattr(task, 'watchers', []) or []) if task and getattr(task, 'watchers', None) else "",
         text_size=14, border_radius=8, hint_text="alice, bob",
     )
@@ -141,7 +140,7 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
     def on_save_click(e):
         t = title_field.value.strip()
         if not t:
-            _err("Название обязательно")
+            _err(L.ERR.TITLE_REQUIRED)
             return
 
         s_time = (start_time_field.value or "").strip()
@@ -149,14 +148,14 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
         start_val = normalize(start_date_value, s_time)
         due_val = normalize(due_date_value, d_time)
         if s_time and not start_date_value.strip():
-            _err("Сначала выберите дату начала")
+            _err(L.ERR.PICK_START_FIRST)
             return
         if d_time and not due_date_value.strip():
-            _err("Сначала выберите дату дедлайна")
+            _err(L.ERR.PICK_DUE_FIRST)
             return
         if (s_time and start_val and " " not in start_val) or \
            (d_time and due_val and " " not in due_val):
-            _err("Время в формате ЧЧ:ММ (например 14:30)")
+            _err(L.ERR.TIME_FORMAT)
             return
 
         try:
@@ -221,8 +220,8 @@ def show_task_dialog(page: ft.Page, title: str = "Новая задача",
             error_label,
         ], spacing=6, width=560, tight=True, scroll=ft.ScrollMode.AUTO),
         actions=[
-            ft.TextButton("Отмена", on_click=on_cancel),
-            ft.Button("Сохранить", on_click=on_save_click,
+            ft.TextButton(L.UI.CANCEL, on_click=on_cancel),
+            ft.Button(L.UI.SAVE, on_click=on_save_click,
                      style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff",
                                         padding=ft.Padding.symmetric(horizontal=20, vertical=8))),
         ],

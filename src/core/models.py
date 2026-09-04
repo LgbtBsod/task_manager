@@ -7,6 +7,7 @@ from typing import Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .datetimeutil import date_part, parse_dt
+from .strings import ERR
 
 # Type aliases for better type hints
 TaskID = str
@@ -198,7 +199,7 @@ class TaskModel(BaseModel):
         if v is None or v == "":
             return None
         if parse_dt(v) is None:
-            raise ValueError("Формат даты: ГГГГ-ММ-ДД или ГГГГ-ММ-ДД ЧЧ:ММ")
+            raise ValueError(ERR.DATE_FORMAT)
         return v.strip()
 
     @field_validator('task_type')
@@ -215,7 +216,7 @@ class TaskModel(BaseModel):
             start_dt = parse_dt(self.start_date)
             due_dt = parse_dt(self.due_date)
             if start_dt and due_dt and due_dt < start_dt:
-                raise ValueError("Дедлайн должен быть не раньше даты начала")
+                raise ValueError(ERR.DUE_BEFORE_START)
         return self
 
     def to_task(self) -> 'Task':

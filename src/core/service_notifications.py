@@ -7,6 +7,7 @@ import logging
 
 from .models import Notification, TaskStatus
 from .repository import TaskRepository
+from .strings import NOTIFY
 
 log = logging.getLogger(__name__)
 
@@ -42,11 +43,11 @@ class NotificationService:
                 continue
             if t.is_overdue():
                 created.append(self.add_notification(
-                    "warning", "Просрочено",
-                    f"{t.title} просрочена ({t.due_date})", task_id=t.id))
+                    "warning", NOTIFY.OVERDUE_TITLE,
+                    NOTIFY.OVERDUE_BODY.format(title=t.title, due=t.due_date), task_id=t.id))
             elif (d := t.days_until_due()) is not None and 0 <= d <= 2:
                 created.append(self.add_notification(
-                    "info", "Скоро дедлайн",
-                    f"{t.title} — через {d} дн.", task_id=t.id))
+                    "info", NOTIFY.DUE_SOON_TITLE,
+                    NOTIFY.DUE_SOON_BODY.format(title=t.title, days=d), task_id=t.id))
         self.repo.clear_old_notifications(100)
         return created

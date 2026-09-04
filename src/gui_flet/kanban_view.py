@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 import flet as ft
 
-from . import labels as L
+from core import strings as L
+
 from ._ui import safe_update
 from .app import COLORS, ic
 
@@ -22,11 +23,11 @@ def _format_due_info(task) -> tuple:
         return shown, "#86868b"
     secs = task.seconds_until_due()
     if secs is not None and secs < 0:
-        return f"Просрочен: {shown}", "#F44336"
+        return L.UI.D_OVERDUE_ON.format(when=shown), "#F44336"
     if days == 0:
-        return f"Сегодня: {shown}", "#ff9f0a"
+        return L.UI.D_TODAY.format(when=shown), "#ff9f0a"
     if days <= 3:
-        return f"Скоро: {shown}", "#ff9f0a"
+        return L.UI.D_SOON.format(when=shown), "#ff9f0a"
     return shown, "#86868b"
 
 
@@ -42,15 +43,15 @@ def _deadline_badge(task, app):
         return None
     window = app.notify_hours_before() * 3600
     if secs < 0:
-        text, bg = "просрочено", "#F44336"
+        text, bg = L.UI.D_OVERDUE, "#F44336"
     elif secs <= window:
         hrs = secs / 3600
         if hrs < 1:
-            text = f"{int(secs // 60)} мин"
+            text = L.UI.D_MINUTES.format(n=int(secs // 60))
         elif hrs < 36:
-            text = f"{int(hrs)} ч"
+            text = L.UI.D_HOURS.format(n=int(hrs))
         else:
-            text = f"{int(hrs // 24)} дн."
+            text = L.UI.D_DAYS.format(n=int(hrs // 24))
         bg = "#ff9f0a"
     else:
         return None
@@ -186,19 +187,19 @@ class TaskCard:
             ft.IconButton(
                 icon=ic('content_copy'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app._clone_task(t),
-                tooltip="Клонировать",
+                tooltip=L.UI.CLONE,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
                 icon=ic('edit_outlined'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app.show_edit_dialog(t),
-                tooltip="Редактировать",
+                tooltip=L.UI.EDIT,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
             ft.IconButton(
                 icon=ic('delete_outline'), icon_size=14, icon_color="#86868b",
                 on_click=lambda e, t=task: app.delete_task(t),
-                tooltip="Удалить",
+                tooltip=L.UI.DELETE,
                 style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=2),
             ),
         ]
@@ -348,7 +349,7 @@ class KanbanView:
     def build(self):
         def _col(value: str) -> DropColumn:
             icon, ckey = L.status_style(value)
-            return DropColumn(self.app, L.STATUS[value], COLORS[ckey], value, icon=icon)
+            return DropColumn(self.app, L.STATUS_LABEL[value], COLORS[ckey], value, icon=icon)
 
         self.todo_col = _col("Todo")
         self.progress_col = _col("In Progress")

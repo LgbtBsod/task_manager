@@ -3,9 +3,9 @@ from typing import TYPE_CHECKING
 
 import flet as ft
 
+from core import strings as L
 from core.datetimeutil import to_date
 
-from . import labels as L
 from .app import COLORS, ic
 
 if TYPE_CHECKING:
@@ -33,14 +33,8 @@ class GanttView:
 
     def build(self):
         self.range_buttons = {}
-        range_items = [
-            ("all", "Все"),
-            ("month", "Месяц"),
-            ("week", "Неделя"),
-            ("quarter", "Квартал"),
-        ]
         btns = []
-        for val, label in range_items:
+        for val, label in L.UI.GANTT_RANGE.items():
             active = val == self._range_var
             btn = ft.Button(
                 content=label, on_click=lambda e, v=val: self._set_range(v),
@@ -56,7 +50,7 @@ class GanttView:
 
         header = ft.Container(
             content=ft.Row([
-                ft.Text("Диаграмма Ганта", size=18, weight=ft.FontWeight.BOLD,
+                ft.Text(L.UI.GANTT_TITLE, size=18, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_primary"]),
                 ft.Container(expand=True),
                 ft.Row(btns, spacing=4),
@@ -101,11 +95,9 @@ class GanttView:
                     content=ft.Column([
                         ft.Icon(ic("bar_chart"), size=48, color=COLORS["border_color"]),
                         ft.Container(height=12),
-                        ft.Text("Нет задач с датами для отображения", size=14,
-                                color=COLORS["text_secondary"]),
+                        ft.Text(L.UI.GANTT_EMPTY, size=14, color=COLORS["text_secondary"]),
                         ft.Container(height=4),
-                        ft.Text("Добавьте дату начала или дедлайн к задаче", size=12,
-                                color=COLORS["text_secondary"]),
+                        ft.Text(L.UI.GANTT_EMPTY_HINT, size=12, color=COLORS["text_secondary"]),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     alignment=ft.Alignment(0, 0), expand=True,
                 )
@@ -134,7 +126,8 @@ class GanttView:
 
         header_cells = [
             ft.Container(
-                content=ft.Text("Задача", size=10, color=muted, weight=ft.FontWeight.W_500),
+                content=ft.Text(L.UI.GANTT_COL_TASK, size=10, color=muted,
+                                weight=ft.FontWeight.W_500),
                 width=LEFT_MARGIN - 10, alignment=ft.Alignment(-1, 0),
             )
         ]
@@ -184,7 +177,10 @@ class GanttView:
                 padding=ft.Padding.only(left=8, right=8), alignment=ft.Alignment(-1, 0),
                 opacity=0.55 if is_done else 1.0,
                 on_click=lambda e, t=task: self.app.show_edit_dialog(t),
-                tooltip=f"{task.title} | {L.priority(task.priority.value)} | {L.status(task.status.value)} | {task.get_gantt_start()} — {task.get_gantt_end()}",
+                tooltip=L.UI.GANTT_TOOLTIP.format(
+                    title=task.title, priority=L.priority(task.priority.value),
+                    status=L.status(task.status.value),
+                    start=task.get_gantt_start(), end=task.get_gantt_end()),
             )
 
             duration_label = f"{duration} {L.UNIT_DAYS}" if duration > 0 else ""
@@ -228,7 +224,7 @@ class GanttView:
             today_offset = (today - self._min_date).days
             controls.append(ft.Container(height=2, bgcolor=grid))
             marker_cells = [
-                ft.Container(content=ft.Text("Сегодня", size=9, color=today_color,
+                ft.Container(content=ft.Text(L.UI.GANTT_TODAY, size=9, color=today_color,
                                              weight=ft.FontWeight.W_500),
                              width=LEFT_MARGIN - 10, alignment=ft.Alignment(1, 0)),
             ]

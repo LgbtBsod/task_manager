@@ -5,9 +5,9 @@ Main app module with routing, theme, and view switching.
 import flet as ft
 
 from core import paths
+from core import strings as L
 from core.models import TaskStatus
 
-from . import labels as L
 from .palette import COLORS, build_theme
 from .palette import apply as apply_palette
 
@@ -172,7 +172,7 @@ class TaskManagerApp:
         nxt = {"dark": "light", "light": "system", "system": "dark"}[mode]
         return ft.IconButton(
             icon=ic(icon), icon_color=COLORS["text_secondary"],
-            tooltip=f"Тема: {mode} → {nxt}",
+            tooltip=L.UI.THEME_SWITCH.format(mode=mode, next=nxt),
             on_click=lambda e: self.set_theme(mode=nxt),
         )
 
@@ -196,7 +196,7 @@ class TaskManagerApp:
             nav_buttons_row.append(btn)
 
         self.search_field = ft.TextField(
-            hint_text="\u041f\u043e\u0438\u0441\u043a...",
+            hint_text=L.UI.SEARCH,
             width=200, height=36, text_size=13,
             prefix_icon=ic("search"), border_radius=8,
             filled=True, fill_color=COLORS["bg_button"],
@@ -212,11 +212,7 @@ class TaskManagerApp:
         # down to the same line as the rest of the top bar.
         self.sort_dropdown = ft.Dropdown(
             width=185, text_size=13,
-            options=[
-                ft.dropdown.Option("default", text="\u0411\u0435\u0437 \u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0438"),
-                ft.dropdown.Option("priority", text="\u041f\u043e \u043f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442\u0443"),
-                ft.dropdown.Option("due_date", text="\u041f\u043e \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u0443"),
-            ],
+            options=[ft.dropdown.Option(k, text=v) for k, v in L.UI.SORT.items()],
             value="default", filled=True,
             fill_color=COLORS["bg_button"],
             border_color=ft.Colors.TRANSPARENT, border_radius=8,
@@ -226,7 +222,7 @@ class TaskManagerApp:
         )
 
         self.add_button = ft.Button(
-            content="\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c",
+            content=L.UI.ADD,
             icon=ic("add"),
             on_click=lambda e: self.show_create_dialog(),
             style=ft.ButtonStyle(
@@ -248,7 +244,7 @@ class TaskManagerApp:
                     self.sort_dropdown,
                     self._theme_toggle_button(),
                     ft.IconButton(icon=ic("settings"), icon_color=COLORS["text_secondary"],
-                                  tooltip="Настройки",
+                                  tooltip=L.UI.SETTINGS,
                                   on_click=lambda e: self.show_settings_dialog()),
                     self.add_button,
                 ],
@@ -265,7 +261,7 @@ class TaskManagerApp:
             page.add(top_bar)
 
     def _build_status_bar(self, page: ft.Page, replace: bool = False):
-        self.status_text = ft.Text("\u0413\u043e\u0442\u043e\u0432", size=11, color=COLORS["text_secondary"])
+        self.status_text = ft.Text(L.UI.SB_READY, size=11, color=COLORS["text_secondary"])
         status_bar = ft.Container(
             content=ft.Row(
                 controls=[
@@ -357,27 +353,27 @@ class TaskManagerApp:
         total = stats["total"]
         if self._search_query:
             filtered = len(self._filter_and_sort(self.service.get_all_tasks()))
-            self.status_text.value = f"\u041d\u0430\u0439\u0434\u0435\u043d\u043e: {filtered} \u0438\u0437 {total}"
+            self.status_text.value = L.UI.SB_FOUND.format(shown=filtered, total=total)
         else:
-            self.status_text.value = f"\u0417\u0430\u0434\u0430\u0447: {total}"
+            self.status_text.value = L.UI.SB_TASKS.format(total=total)
 
     def show_create_dialog(self):
         from .task_dialog import show_task_dialog
-        show_task_dialog(self.page, title="\u041d\u043e\u0432\u0430\u044f \u0437\u0430\u0434\u0430\u0447\u0430", on_save=self._on_create_task)
+        show_task_dialog(self.page, title=L.UI.NEW_TASK, on_save=self._on_create_task)
 
     def show_settings_dialog(self):
         s = self.settings
         enabled = ft.Switch(value=bool(s.get("notifications_enabled")),
-                            label="\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u044f\u0442\u044c \u043e \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0435\u043d\u0438\u0438 \u0441\u0440\u043e\u043a\u043e\u0432")
+                            label=L.UI.SET_NOTIFY_ENABLED)
         hours = ft.TextField(
-            label="\u0427\u0430\u0441\u043e\u0432 \u0434\u043e \u0441\u0440\u043e\u043a\u0430",
+            label=L.UI.SET_HOURS_BEFORE,
             value=str(s.get("notify_hours_before")),
             width=200, text_size=14, border_radius=8,
             keyboard_type=ft.KeyboardType.NUMBER,
         )
         auto_updates = ft.Switch(
             value=bool(s.get("check_updates_on_start")),
-            label="\u041f\u0440\u043e\u0432\u0435\u0440\u044f\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u0440\u0438 \u0437\u0430\u043f\u0443\u0441\u043a\u0435",
+            label=L.UI.SET_CHECK_ON_START,
         )
         err = ft.Text("", size=12, color=COLORS["accent_red"])
 
@@ -402,7 +398,8 @@ class TaskManagerApp:
                 b.style = _mode_style(k == m)
                 b.update()
 
-        for m, lbl in (("dark", "\u0422\u0451\u043c\u043d\u0430\u044f"), ("light", "\u0421\u0432\u0435\u0442\u043b\u0430\u044f"), ("system", "\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u0430\u044f")):
+        for m, lbl in (("dark", L.UI.SET_THEME_DARK), ("light", L.UI.SET_THEME_LIGHT),
+                       ("system", L.UI.SET_THEME_SYSTEM)):
             mode_buttons[m] = ft.Button(content=lbl, style=_mode_style(m == chosen["mode"]),
                                         on_click=lambda e, mm=m: _pick_mode(mm))
         mode_row = ft.Row(list(mode_buttons.values()), spacing=6)
@@ -437,7 +434,7 @@ class TaskManagerApp:
                 if not (1 <= h <= 24 * 30):
                     raise ValueError
             except ValueError:
-                err.value = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0447\u0438\u0441\u043b\u043e \u0447\u0430\u0441\u043e\u0432 \u043e\u0442 1 \u0434\u043e 720"
+                err.value = L.ERR.HOURS_RANGE
                 err.update()
                 return
             s.update(notifications_enabled=enabled.value, notify_hours_before=h,
@@ -449,7 +446,7 @@ class TaskManagerApp:
                 self.set_theme(mode=chosen["mode"], accent=chosen["accent"])
             else:
                 self.refresh_all()
-            self._show_snackbar("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b")
+            self._show_snackbar(L.UI.SET_SAVED)
 
         def check_updates_click(e):
             from .update_ui import check_now
@@ -472,42 +469,40 @@ class TaskManagerApp:
 
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", size=18, weight=ft.FontWeight.BOLD),
+            title=ft.Text(L.UI.SETTINGS, size=18, weight=ft.FontWeight.BOLD),
             content=ft.Column([
-                ft.Text("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", size=12, weight=ft.FontWeight.BOLD,
+                ft.Text(L.UI.SET_SECTION_NOTIFY, size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),
                 enabled,
                 hours,
-                ft.Text("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441 \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0430\u044e\u0449\u0438\u043c\u0441\u044f \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u043e\u043c \u043f\u043e\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044e\u0442\u0441\u044f; "
-                        "\u043a\u043e\u0433\u0434\u0430 \u0441\u0440\u043e\u043a \u043d\u0430\u0441\u0442\u0443\u043f\u0430\u0435\u0442 \u2014 \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u043a\u043d\u043e.",
-                        size=11, color=COLORS["text_secondary"]),
+                ft.Text(L.UI.SET_NOTIFY_HINT, size=11, color=COLORS["text_secondary"]),
                 ft.Divider(color=COLORS["border_color"]),
-                ft.Text("\u0422\u0435\u043c\u0430", size=12, weight=ft.FontWeight.BOLD,
+                ft.Text(L.UI.SET_THEME, size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),
                 mode_row,
-                ft.Text("\u0410\u043a\u0446\u0435\u043d\u0442\u043d\u044b\u0439 \u0446\u0432\u0435\u0442", size=11, color=COLORS["text_secondary"]),
+                ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
                 accent_row,
                 ft.Divider(color=COLORS["border_color"]),
-                ft.Text("\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f", size=12, weight=ft.FontWeight.BOLD,
+                ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),
                 auto_updates,
                 ft.Row([
-                    ft.TextButton("\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0441\u0435\u0439\u0447\u0430\u0441", icon=ic("refresh"),
+                    ft.TextButton(L.UI.SET_CHECK_NOW, icon=ic("refresh"),
                                   on_click=check_updates_click),
                     ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(color=COLORS["border_color"]),
-                ft.Text("\u0414\u0430\u043d\u043d\u044b\u0435", size=12, weight=ft.FontWeight.BOLD,
+                ft.Text(L.UI.SET_DATA, size=12, weight=ft.FontWeight.BOLD,
                         color=COLORS["text_secondary"]),
                 ft.Text(data_dir, size=11, color=COLORS["text_secondary"],
                         selectable=True, max_lines=2),
-                ft.TextButton("\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u043f\u043a\u0443 \u0441 \u0434\u0430\u043d\u043d\u044b\u043c\u0438", icon=ic("folder_open"),
+                ft.TextButton(L.UI.SET_OPEN_DATA_DIR, icon=ic("folder_open"),
                               on_click=open_data_dir),
                 err,
             ], tight=True, width=380, spacing=6, scroll=ft.ScrollMode.AUTO),
             actions=[
-                ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=lambda e: self.page.pop_dialog()),
-                ft.Button("\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", on_click=save,
+                ft.TextButton(L.UI.CANCEL, on_click=lambda e: self.page.pop_dialog()),
+                ft.Button(L.UI.SAVE, on_click=save,
                           style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff")),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -531,8 +526,7 @@ class TaskManagerApp:
             except ValueError as e:
                 self._show_snackbar(str(e), error=True)
 
-        show_task_dialog(self.page, title="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435",
-                               task=task, on_save=on_save)
+        show_task_dialog(self.page, title=L.UI.EDIT_TASK, task=task, on_save=on_save)
 
     def delete_task(self, task):
         def close_dlg(e=None):
@@ -545,11 +539,11 @@ class TaskManagerApp:
 
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text("\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0443"),
-            content=ft.Text(f'\u0423\u0434\u0430\u043b\u0438\u0442\u044c "{task.title}"?'),
+            title=ft.Text(L.UI.DELETE_TASK_TITLE),
+            content=ft.Text(L.UI.DELETE_TASK_CONFIRM.format(title=task.title)),
             actions=[
-                ft.TextButton("\u041e\u0442\u043c\u0435\u043d\u0430", on_click=close_dlg),
-                ft.TextButton("\u0423\u0434\u0430\u043b\u0438\u0442\u044c", on_click=on_confirm),
+                ft.TextButton(L.UI.CANCEL, on_click=close_dlg),
+                ft.TextButton(L.UI.DELETE, on_click=on_confirm),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -567,7 +561,7 @@ class TaskManagerApp:
             cloned = self.service.clone_task(task.id)
             if cloned:
                 self.refresh_all()
-                self._show_snackbar(f"Клонировано: {cloned.title}")
+                self._show_snackbar(L.UI.CLONED.format(title=cloned.title))
         except Exception as e:
             self._show_snackbar(str(e), error=True)
 
@@ -656,7 +650,7 @@ def run_app(context=None, db_path: str = None, port: int = 8550):
                     _sp.run(["powershell", "-NoProfile", "-Command",
                              f"Stop-Process -Id {pid} -Force -EA SilentlyContinue"],
                             capture_output=True, timeout=8)
-                    print(f"Остановлен зависший экземпляр (PID {pid}) на порту {p}")
+                    print(L.APP.KILLED_STALE.format(pid=pid, port=p))
                 except Exception:
                     pass
 
@@ -667,7 +661,7 @@ def run_app(context=None, db_path: str = None, port: int = 8550):
             body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).read(4096)
             if b"flutter" in body.lower() or b"flet" in body.lower():
                 webbrowser.open(f"http://127.0.0.1:{port}/")
-                print(f"Менеджер задач уже запущен: http://127.0.0.1:{port}/")
+                print(L.APP.ALREADY_RUNNING.format(port=port))
                 return
         except Exception:
             pass
@@ -681,7 +675,7 @@ def run_app(context=None, db_path: str = None, port: int = 8550):
         if not _port_free(port):
             for cand in range(port + 1, port + 40):
                 if _port_free(cand):
-                    print(f"Порт {port} занят другим приложением, запуск на {cand}")
+                    print(L.APP.PORT_BUSY.format(port=port, alt=cand))
                     port = cand
                     break
 

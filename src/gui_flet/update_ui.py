@@ -9,6 +9,8 @@ import sys
 
 import flet as ft
 
+from core import strings as L
+
 from .app import COLORS, ic
 
 REPO_OWNER = "LgbtBsod"
@@ -42,7 +44,7 @@ async def check_on_start(app) -> None:
 def check_now(app) -> None:
     """Manual 'check for updates' — always reports back to the user."""
     if not _is_frozen():
-        app._show_snackbar("Обновление доступно только в собранном приложении (.exe)")
+        app._show_snackbar(L.UPDATE.ONLY_FROZEN)
         return
     app.page.run_task(_run_check, app, manual=True)
 
@@ -67,13 +69,13 @@ async def _run_check(app, *, manual: bool) -> None:
         return
 
     if updater._rate_limited:
-        app._show_snackbar("GitHub временно ограничил запросы — попробуйте позже", error=True)
+        app._show_snackbar(L.UPDATE.RATE_LIMITED, error=True)
     elif not updater._network_reachable:
-        app._show_snackbar("Нет доступа к серверу обновлений", error=True)
+        app._show_snackbar(L.UPDATE.NO_SERVER, error=True)
     elif has_update and not url:
-        app._show_snackbar(f"Версия {version} опубликована, но файл сборки ещё не готов")
+        app._show_snackbar(L.UPDATE.NOT_READY.format(version=version))
     else:
-        app._show_snackbar("У вас последняя версия")
+        app._show_snackbar(L.UPDATE.UP_TO_DATE)
 
 
 def _prompt(app, current: str, version: str, url: str) -> None:
@@ -88,7 +90,7 @@ def _prompt(app, current: str, version: str, url: str) -> None:
     def skip(e):
         app.settings.update(skipped_update_version=version)
         close()
-        app._show_snackbar("Эта версия будет пропущена")
+        app._show_snackbar(L.UPDATE.SKIPPED)
 
     def download(e):
         close()
@@ -97,18 +99,18 @@ def _prompt(app, current: str, version: str, url: str) -> None:
     dlg = ft.AlertDialog(
         modal=True,
         title=ft.Row([ft.Icon(ic("system_update"), color=COLORS["accent_blue"]),
-                      ft.Text("Доступно обновление")], spacing=8),
+                      ft.Text(L.UPDATE.AVAILABLE_TITLE)], spacing=8),
         content=ft.Column([
-            ft.Text(f"Новая версия: {version}", size=14, weight=ft.FontWeight.W_600),
-            ft.Text(f"Текущая: {current}", size=12, color=COLORS["text_secondary"]),
+            ft.Text(L.UPDATE.NEW_VERSION.format(version=version), size=14, weight=ft.FontWeight.W_600),
+            ft.Text(L.UPDATE.CURRENT_VERSION.format(current=current), size=12,
+                    color=COLORS["text_secondary"]),
             ft.Container(height=6),
-            ft.Text("Загрузить и установить? Приложение перезапустится.",
-                    size=12, color=COLORS["text_secondary"]),
+            ft.Text(L.UPDATE.CONFIRM, size=12, color=COLORS["text_secondary"]),
         ], tight=True, width=380, spacing=2),
         actions=[
-            ft.TextButton("Пропустить", on_click=skip),
-            ft.TextButton("Позже", on_click=later),
-            ft.Button("Обновить", on_click=download,
+            ft.TextButton(L.UPDATE.BTN_SKIP, on_click=skip),
+            ft.TextButton(L.UPDATE.BTN_LATER, on_click=later),
+            ft.Button(L.UPDATE.BTN_UPDATE, on_click=download,
                       style=ft.ButtonStyle(bgcolor=COLORS["accent_blue"], color="#ffffff")),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
@@ -122,10 +124,11 @@ async def _download_and_restart(app, url: str, version: str) -> None:
     page = app.page
     bar = ft.ProgressBar(value=0, bar_height=8, color=COLORS["accent_blue"],
                          bgcolor=COLORS["bg_button"])
-    status = ft.Text("Загрузка…", size=12, color=COLORS["text_secondary"])
+    status = ft.Text(L.UPDATE.DOWNLOADING, size=12, color=COLORS["text_secondary"])
     dlg = ft.AlertDialog(
         modal=True,
-        title=ft.Text(f"Обновление до {version}", size=16, weight=ft.FontWeight.BOLD),
+        title=ft.Text(L.UPDATE.DOWNLOADING_TO.format(version=version), size=16,
+                      weight=ft.FontWeight.BOLD),
         content=ft.Column([status, ft.Container(height=8), bar],
                           tight=True, width=360, spacing=0),
     )
@@ -136,7 +139,8 @@ async def _download_and_restart(app, url: str, version: str) -> None:
             if p.total_bytes:
                 bar.value = max(0.0, min(1.0, p.percent / 100))
             status.value = (f"{p.percent:.0f}%   {p.formatted_speed}"
-                            if p.total_bytes else f"{p.bytes_downloaded // 1024} КБ")
+                            if p.total_bytes
+                            else L.UPDATE.KB.format(n=p.bytes_downloaded // 1024))
             page.update()
         except Exception:
             pass
@@ -148,7 +152,7 @@ async def _download_and_restart(app, url: str, version: str) -> None:
     page.pop_dialog()
 
     if not ok:
-        app._show_snackbar("Не удалось установить обновление", error=True)
+        app._show_snackbar(L.UPDATE.INSTALL_FAILED, error=True)
         return
 
     # download_update has already swapped in the new binary and spawned the
@@ -156,8 +160,8 @@ async def _download_and_restart(app, url: str, version: str) -> None:
     done = ft.AlertDialog(
         modal=True,
         title=ft.Row([ft.Icon(ic("check_circle"), color=COLORS["accent_green"]),
-                      ft.Text("Обновление установлено")], spacing=8),
-        content=ft.Text("Приложение перезапускается…", size=12),
+                      ft.Text(L.UPDATE.INSTALLED_TITLE)], spacing=8),
+        content=ft.Text(L.UPDATE.INSTALLED_BODY, size=12),
     )
     page.show_dialog(done)
     await asyncio.sleep(1.5)

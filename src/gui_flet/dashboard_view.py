@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 import flet as ft
 
+from core import strings as L
 from core.models import Priority, TaskStatus, TaskType
 
-from . import labels as L
 from .app import COLORS, ic
 
 if TYPE_CHECKING:
@@ -92,13 +92,13 @@ class DashboardView:
         self._status_labels: dict[str, ft.Text] = {}
 
     def build(self):
-        self.stat_total = StatCard("Всего", "0", COLORS["accent_blue"], icon="task_alt",
+        self.stat_total = StatCard(L.UI.DASH_TOTAL, "0", COLORS["accent_blue"], icon="task_alt",
                                      bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
-        self.stat_done = StatCard("Выполнено", "0", COLORS["accent_green"], icon="check_circle",
+        self.stat_done = StatCard(L.UI.DASH_DONE, "0", COLORS["accent_green"], icon="check_circle",
                                     bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
-        self.stat_progress = StatCard("В работе", "0", COLORS["accent_orange"], icon="pending",
+        self.stat_progress = StatCard(L.UI.DASH_IN_PROGRESS, "0", COLORS["accent_orange"], icon="pending",
                                         bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
-        self.stat_overdue = StatCard("Просрочено", "0", COLORS["accent_red"], icon="warning",
+        self.stat_overdue = StatCard(L.UI.DASH_OVERDUE, "0", COLORS["accent_red"], icon="warning",
                                       bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
 
         prio_section = []
@@ -116,7 +116,7 @@ class DashboardView:
 
         status_section = []
         status_config = [
-            (s.name.lower(), L.STATUS[s.value], COLORS[L.status_style(s.value)[1]])
+            (s.name.lower(), L.STATUS_LABEL[s.value], COLORS[L.status_style(s.value)[1]])
             for s in TaskStatus
         ]
         for key, label, color in status_config:
@@ -131,7 +131,7 @@ class DashboardView:
             ], spacing=4))
 
         self._workload_column = ft.Column([
-            ft.Text("Нагрузка на команду", size=15, weight=ft.FontWeight.BOLD,
+            ft.Text(L.UI.DASH_WORKLOAD, size=15, weight=ft.FontWeight.BOLD,
                     color=COLORS["text_primary"]),
             ft.Container(height=8),
         ], spacing=8)
@@ -152,19 +152,22 @@ class DashboardView:
             ft.Container(height=16),
             ft.Container(content=ft.Row([
                 ft.Container(content=ft.Column([
-                    ft.Text("По приоритету", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
+                    ft.Text(L.UI.DASH_BY_PRIORITY, size=15, weight=ft.FontWeight.BOLD,
+                            color=COLORS["text_primary"]),
                     ft.Container(height=8), *prio_section,
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
                 ft.Container(width=12),
                 ft.Container(content=ft.Column([
-                    ft.Text("По типу", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
+                    ft.Text(L.UI.DASH_BY_TYPE, size=15, weight=ft.FontWeight.BOLD,
+                            color=COLORS["text_primary"]),
                     ft.Container(height=8), *type_section,
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
             ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Row([
                 ft.Container(content=ft.Column([
-                    ft.Text("По статусу", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
+                    ft.Text(L.UI.DASH_BY_STATUS, size=15, weight=ft.FontWeight.BOLD,
+                            color=COLORS["text_primary"]),
                     ft.Container(height=8), *status_section,
                 ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
                 ft.Container(width=12),
@@ -174,9 +177,10 @@ class DashboardView:
             ft.Container(height=16),
             ft.Container(content=ft.Column([
                 ft.Row([
-                    ft.Text("Прогресс выполнения", size=15, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"]),
+                    ft.Text(L.UI.DASH_PROGRESS, size=15, weight=ft.FontWeight.BOLD,
+                            color=COLORS["text_primary"]),
                     ft.Container(expand=True),
-                    ft.Text("Затрачено времени", size=13, color=COLORS["text_secondary"]),
+                    ft.Text(L.UI.DASH_TIME_SPENT, size=13, color=COLORS["text_secondary"]),
                 ]),
                 ft.Container(height=8), self._build_progress_bar(),
             ]), padding=20, bgcolor=COLORS["bg_card"], border_radius=16,
@@ -220,7 +224,7 @@ class DashboardView:
             count = stats["by_status"][key]
             pct = (count / total * 100) if total > 0 else 0
             if key in self._status_labels:
-                self._status_labels[key].value = f"{L.STATUS[s.value]}: {count}"
+                self._status_labels[key].value = f"{L.STATUS_LABEL[s.value]}: {count}"
             if key in self._status_bars:
                 self._status_bars[key].width = max(pct * 3, 0)
 
@@ -251,9 +255,10 @@ class DashboardView:
                     ft.Icon(ic("person"), size=14, color=COLORS["accent_blue"]),
                     ft.Text(name, size=13, weight=ft.FontWeight.W_600, color=COLORS["text_primary"], width=100),
                     ft.Container(expand=True),
-                    ft.Text(f"{total} задач", size=12, color=COLORS["text_secondary"]),
+                    ft.Text(L.UI.DASH_N_TASKS.format(n=total), size=12,
+                            color=COLORS["text_secondary"]),
                     ft.Container(width=12),
-                    ft.Text(f"{in_prog} в работе", size=12,
+                    ft.Text(L.UI.DASH_N_IN_PROGRESS.format(n=in_prog), size=12,
                             color=COLORS["accent_orange"] if in_prog > 0 else COLORS["text_secondary"]),
                     ft.Container(width=12),
                     ft.Text(f"{L.STORY_POINTS}:{sp}" if sp else "", size=12, color=COLORS["accent_purple"]),
