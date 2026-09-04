@@ -12,19 +12,14 @@ Principles:
 - DIP: Depends on abstractions (file path), not concrete implementations
 - YAGNI: No unnecessary methods or complexity
 """
-import itertools
 import json
 import logging
-import os
 import shutil
-import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
-_tmp_counter = itertools.count()
-_write_lock = threading.Lock()  # serialize JSON writes (they are short and rare)
+from ._atomic import atomic_write_text
 
 # Bumped only when the export/import dict shape changes (not the app version).
 EXPORT_SCHEMA_VERSION = "1"
@@ -32,20 +27,6 @@ EXPORT_SCHEMA_VERSION = "1"
 from .models import Task, TaskStatus, Sprint, VersionRelease, TaskTemplate, Category, RecurringTask, Notification
 
 log = logging.getLogger(__name__)
-
-
-def _coerce_list(raw) -> list:
-    """Normalize whatever json.load returned into a list of records.
-
-    Tolerates the legacy ``{"tasks": [...], "categories": [...], ...}`` shape
-    that older seed code wrote, and anything unexpected -> [].
-    """
-    if isinstance(raw, list):
-        return raw
-    if isinstance(raw, dict):
-        inner = raw.get("tasks")
-        return inner if isinstance(inner, list) else []
-    return []
 
 
 def _read_json_list(path: Path) -> list:
@@ -61,9 +42,10 @@ def _read_json_list(path: Path) -> list:
 
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
-            data = _coerce_list(json.loads(raw_bytes.decode(enc)))
+            parsed = json.loads(raw_bytes.decode(enc))
         except (UnicodeDecodeError, json.JSONDecodeError):
             continue
+        data = parsed if isinstance(parsed, list) else []
         if enc != "utf-8":
             log.warning("Re-saving %s from %s to UTF-8", path.name, enc)
             try:
@@ -84,33 +66,8 @@ def _read_json_list(path: Path) -> list:
 
 
 def _write_json_list(path: Path, items: list) -> None:
-    """Atomically write *items* as pretty JSON to *path*.
-
-    Writes to a per-writer temp file then ``os.replace`` (atomic on POSIX and
-    Windows), so a crash mid-write never leaves a half-written file and
-    concurrent writers don't clobber each other's temp file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{next(_tmp_counter)}.tmp")
-    with _write_lock:
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(items, f, indent=2, ensure_ascii=False)
-            # os.replace can transiently fail on Windows (AV / lingering handle).
-            for attempt in range(5):
-                try:
-                    os.replace(tmp, path)
-                    break
-                except PermissionError:
-                    if attempt == 4:
-                        raise
-                    time.sleep(0.05 * (attempt + 1))
-        finally:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
+    """Atomically write *items* as pretty UTF-8 JSON to *path*."""
+    atomic_write_text(path, json.dumps(items, indent=2, ensure_ascii=False))
 
 
 def _parse_each(records: list, factory, kind: str) -> list:
@@ -213,7 +170,9 @@ class TaskRepository:
         """
         self.db_path = Path(db_path)
         self._task_cache: Optional[list[dict]] = None
-        self._ensure_db_exists()
+        # The file is created lazily on first write (atomic_write_text mkdirs);
+        # missing reads already fall back to []. AppContext also seeds it via
+        # paths.ensure_data_dir().
 
         # One CRUD store per secondary entity, all sidecar files next to the
         # task DB: ``tasks_sprints.json``, ``tasks_versions.json``, …
@@ -226,13 +185,6 @@ class TaskRepository:
         self._categories = _JsonCollection(_side("categories"), Category.from_dict, "category")
         self._recurring = _JsonCollection(_side("recurring"), RecurringTask.from_dict, "recurring task")
         self._notifications = _JsonCollection(_side("notifications"), Notification.from_dict, "notification")
-
-    def _ensure_db_exists(self) -> None:
-        """Create database file if it doesn't exist."""
-        if not self.db_path.exists():
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.db_path, 'w', encoding='utf-8') as f:
-                json.dump([], f)
 
     def _load_tasks(self) -> list[dict]:
         """Load raw task dicts from the JSON file (cached in-memory).

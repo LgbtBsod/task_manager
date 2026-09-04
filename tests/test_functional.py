@@ -389,7 +389,10 @@ def test_repository_corrupted_json(r):
 def test_repository_missing_file(r):
     tmp = tempfile.mktemp(suffix='.json')
     repo = TaskRepository(db_path=tmp)
-    r.ok('missing file creates empty db' if repo.count() == 0 else f'count={repo.count()}')
+    assert repo.count() == 0
+    assert not os.path.exists(tmp)          # created lazily, only on first write
+    repo.add(Task(title='first'))
+    assert os.path.exists(tmp)
     os.unlink(tmp)
 
 

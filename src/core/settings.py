@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from ._atomic import atomic_write_text
+
 log = logging.getLogger(__name__)
 
 # Named accent presets offered in the settings dialog. The value is the hex
@@ -76,10 +78,7 @@ class SettingsStore:
 
     def save(self) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(self.data.model_dump_json(indent=2), encoding="utf-8")
-            tmp.replace(self.path)
+            atomic_write_text(self.path, self.data.model_dump_json(indent=2))
         except OSError as exc:
             log.warning("Could not save settings: %s", exc)
 
