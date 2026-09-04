@@ -131,24 +131,24 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
     "blocked by" chip picker; omit it to hide both."""
     title_field = field(
         label=L.UI.F_TITLE, value=task.title if task else "",
-        text_size=14, autofocus=True, border_radius=8,
+        text_size=14, autofocus=True,
     )
     desc_field = field(
         label=L.UI.F_DESCRIPTION, value=task.description if task else "",
-        text_size=14, multiline=True, min_lines=2, max_lines=4, border_radius=8,
+        text_size=14, multiline=True, min_lines=2, max_lines=4,
     )
     priority_var = task.priority.value if task else "Medium"
     priority_field = dropdown(
         label=L.UI.F_PRIORITY, value=priority_var,
         options=[ft.dropdown.Option(p.value, text=L.priority(p.value)) for p in Priority],
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
 
     task_type_var = getattr(task, 'task_type', 'Task') if task else 'Task'
     task_type_field = dropdown(
         label=L.UI.F_TYPE, value=task_type_var,
         options=[ft.dropdown.Option(t.value, text=L.task_type(t.value)) for t in TaskType],
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
 
     # ── Dates (date picker) + optional time (ЧЧ:ММ text field) ──
@@ -165,21 +165,21 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
 
     start_display = field(
         label=L.UI.F_START_DATE, value=start_date_value,
-        text_size=14, border_radius=8, read_only=True,
+        text_size=14, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
     start_time_field = field(
         label=L.UI.F_TIME, value=start_time_value, hint_text=L.UI.F_TIME_HINT,
-        text_size=14, border_radius=8, width=90,
+        text_size=14, width=90,
     )
     due_display = field(
         label=L.UI.F_DUE_DATE, value=due_date_value,
-        text_size=14, border_radius=8, read_only=True,
+        text_size=14, read_only=True,
         suffix_icon=ic("calendar_today"), width=150,
     )
     due_time_field = field(
         label=L.UI.F_TIME, value=due_time_value, hint_text=L.UI.F_TIME_HINT,
-        text_size=14, border_radius=8, width=90,
+        text_size=14, width=90,
     )
 
     def _parse_or_now(s: str) -> datetime:
@@ -217,7 +217,7 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
     time_field = field(
         label=L.UI.F_TIME_SPENT,
         value=str(task.time_spent) if task and task.time_spent > 0 else "0",
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
     # Tags: a chip picker off the registry when a catalog is supplied, else the
     # legacy free-text field (tests / callers that don't pass one).
@@ -230,23 +230,23 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
         tags_field = field(
             label=L.UI.F_TAGS,
             value=", ".join(task.tags) if task and task.tags else "",
-            text_size=14, border_radius=8, hint_text="frontend, bug, feature",
+            text_size=14, hint_text="frontend, bug, feature",
         )
     assignee_field = field(
         label=L.UI.F_ASSIGNEE,
         value=getattr(task, 'assignee', None) or "",
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
     story_points_field = field(
         label=L.UI.F_STORY_POINTS,
         value=str(task.story_points) if task and task.story_points else "",
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
 
     urgency_field = dropdown(
         label=L.UI.F_URGENCY, value=getattr(task, 'urgency', 'Normal') if task else 'Normal',
         options=[ft.dropdown.Option(u.value, text=L.urgency(u.value)) for u in Urgency],
-        text_size=14, border_radius=8, width=200,
+        text_size=14, width=200,
     )
     # Epic parent + "blocked by" dependencies — both built on relationships the
     # data model already had (epic_link, Task.links/LinkType.BLOCKED_BY); see
@@ -261,7 +261,7 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
             value=getattr(task, 'epic_link', None) or "",
             options=[ft.dropdown.Option("", text=L.UI.F_EPIC_NONE)]
                    + [ft.dropdown.Option(t.id, text=t.title[:40]) for t in epic_options],
-            text_size=14, border_radius=8, width=250,
+            text_size=14, width=250,
         )
         selected_blocked_by: set[str] = ({l.target_task_id for l in task.links
                                           if l.link_type == LinkType.BLOCKED_BY.value}
@@ -272,7 +272,7 @@ def show_task_dialog(page: ft.Page, title: str = L.UI.NEW_TASK,
     watchers_field = field(
         label=L.UI.F_WATCHERS,
         value=", ".join(getattr(task, 'watchers', []) or []) if task and getattr(task, 'watchers', None) else "",
-        text_size=14, border_radius=8, hint_text="alice, bob",
+        text_size=14, hint_text="alice, bob",
     )
     error_label = ft.Text("", size=12, color=COLORS["accent_red"])
 

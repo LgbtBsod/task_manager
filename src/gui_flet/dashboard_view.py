@@ -8,6 +8,7 @@ from core import strings as L
 from core.models import Priority, TaskStatus, TaskType
 
 from .app import COLORS, ic
+from .palette import RADIUS_CARD, elevation
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -18,6 +19,7 @@ class StatCard(ft.Container):
 
     def __init__(self, title: str, value: str, color: str, subtitle: str = "",
                  icon: str = "", **kwargs):
+        kwargs.setdefault("shadow", elevation(1))
         super().__init__(**kwargs)
         self.title_text = title
         self.value_text = value
@@ -93,13 +95,13 @@ class DashboardView:
 
     def build(self):
         self.stat_total = StatCard(L.UI.DASH_TOTAL, "0", COLORS["accent_blue"], icon="task_alt",
-                                     bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
+                                     bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD, padding=20)
         self.stat_done = StatCard(L.UI.DASH_DONE, "0", COLORS["accent_green"], icon="check_circle",
-                                    bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
+                                    bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD, padding=20)
         self.stat_progress = StatCard(L.UI.DASH_IN_PROGRESS, "0", COLORS["accent_orange"], icon="pending",
-                                        bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
+                                        bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD, padding=20)
         self.stat_overdue = StatCard(L.UI.DASH_OVERDUE, "0", COLORS["accent_red"], icon="warning",
-                                      bgcolor=COLORS["bg_card"], border_radius=16, padding=20)
+                                      bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD, padding=20)
 
         prio_section = []
         for p in Priority:
@@ -161,13 +163,13 @@ class DashboardView:
                     ft.Text(L.UI.DASH_BY_PRIORITY, size=15, weight=ft.FontWeight.BOLD,
                             color=COLORS["text_primary"]),
                     ft.Container(height=8), *prio_section,
-                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
+                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD),
                 ft.Container(width=12),
                 ft.Container(content=ft.Column([
                     ft.Text(L.UI.DASH_BY_TYPE, size=15, weight=ft.FontWeight.BOLD,
                             color=COLORS["text_primary"]),
                     ft.Container(height=8), *type_section,
-                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
+                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD),
             ], spacing=0), padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Row([
@@ -175,15 +177,15 @@ class DashboardView:
                     ft.Text(L.UI.DASH_BY_STATUS, size=15, weight=ft.FontWeight.BOLD,
                             color=COLORS["text_primary"]),
                     ft.Container(height=8), *status_section,
-                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
+                ]), expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD),
                 ft.Container(width=12),
                 ft.Container(content=self._workload_column,
-                             expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=16),
+                             expand=1, padding=20, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD),
             ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
                 padding=ft.Padding.symmetric(horizontal=20)),
             ft.Container(height=16),
             ft.Container(content=self._tag_column, padding=20, bgcolor=COLORS["bg_card"],
-                         border_radius=16, margin=ft.Margin.only(left=20, right=20)),
+                         border_radius=RADIUS_CARD, margin=ft.Margin.only(left=20, right=20)),
             ft.Container(height=16),
             ft.Container(content=ft.Column([
                 ft.Row([
@@ -193,7 +195,7 @@ class DashboardView:
                     ft.Text(L.UI.DASH_TIME_SPENT, size=13, color=COLORS["text_secondary"]),
                 ]),
                 ft.Container(height=8), self._build_progress_bar(),
-            ]), padding=20, bgcolor=COLORS["bg_card"], border_radius=16,
+            ]), padding=20, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD,
             margin=ft.Margin.only(left=20, right=20)),
             ft.Container(height=16),
         ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)

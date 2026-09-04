@@ -192,3 +192,19 @@ def test_non_cyclic_blocked_by_chain_is_allowed(svc):
     _block(svc, b, c)
     a = svc.get_task(a.id)
     assert {t.id for t in svc.blocking_tasks(a)} == {b.id}
+
+
+def test_epic_link_cycle_is_rejected(svc):
+    epic_a = svc.create_task("Epic A", task_type=TaskType.EPIC.value)
+    epic_b = svc.create_task("Epic B", task_type=TaskType.EPIC.value)
+    svc.set_epic_link(epic_b.id, epic_a.id)   # B nested under A
+    with pytest.raises(ValueError, match="cycle"):
+        svc.set_epic_link(epic_a.id, epic_b.id)   # A under B would close the loop
+    epic_a = svc.get_task(epic_a.id)
+    assert epic_a.epic_link is None
+
+
+def test_epic_link_self_nesting_is_rejected(svc):
+    epic = svc.create_task("Epic", task_type=TaskType.EPIC.value)
+    with pytest.raises(ValueError, match="cycle"):
+        svc.set_epic_link(epic.id, epic.id)

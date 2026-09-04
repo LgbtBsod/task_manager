@@ -669,6 +669,21 @@ class TaskService:
 
     # ── Epic Link ──
 
+    def _epic_link_reaches(self, start_id: str, goal_id: str, seen: set | None = None) -> bool:
+        """True if ``start_id`` transitively reaches ``goal_id`` by following
+        epic_link edges — guards against nesting an Epic under one of its own
+        descendants (which would make the chain unresolvable)."""
+        seen = seen if seen is not None else set()
+        if start_id in seen:
+            return False
+        seen.add(start_id)
+        if start_id == goal_id:
+            return True
+        task = self.repo.get_by_id(start_id)
+        if not task or not task.epic_link:
+            return False
+        return self._epic_link_reaches(task.epic_link, goal_id, seen)
+
     def set_epic_link(self, task_id: str, epic_task_id: str | None) -> Task | None:
         """Set or clear the epic link for a task. A no-op call (unchanged
         value) skips the write — callers may pass it unconditionally on every
@@ -682,6 +697,8 @@ class TaskService:
                     raise ValueError(f"Epic task {epic_task_id} not found")
                 if epic.task_type != TaskType.EPIC.value:
                     raise ValueError(f"Task {epic_task_id} is not an Epic")
+                if self._epic_link_reaches(epic_task_id, task_id):
+                    raise ValueError("This would create an epic hierarchy cycle")
             task.record_change("epic_link", task.epic_link or "", epic_task_id or "")
             task.epic_link = epic_task_id
 

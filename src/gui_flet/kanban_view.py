@@ -8,7 +8,7 @@ from core import strings as L
 
 from ._ui import safe_update
 from .app import COLORS, ic
-from .palette import readable_variant
+from .palette import RADIUS_CARD_COMPACT, RADIUS_CHIP, elevation, readable_variant
 
 if TYPE_CHECKING:
     from .app import TaskManagerApp
@@ -67,7 +67,7 @@ def _deadline_badge(task, app):
                         ft.Text(text, size=9, color="#ffffff", weight=ft.FontWeight.BOLD)],
                        spacing=3, tight=True),
         padding=ft.Padding.symmetric(horizontal=5, vertical=2),
-        bgcolor=bg, border_radius=4,
+        bgcolor=bg, border_radius=RADIUS_CHIP,
     )
 
 
@@ -94,7 +94,7 @@ class TaskCard:
             data=self.task_id,
             content=self._build_card(task, app),
             content_when_dragging=ft.Container(
-                height=64, border_radius=12,
+                height=64, border_radius=RADIUS_CARD_COMPACT,
                 bgcolor=COLORS["bg_button"], opacity=0.4,
             ),
             content_feedback=ft.Container(
@@ -104,7 +104,7 @@ class TaskCard:
                             color=COLORS["text_primary"], max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS),
                 ], spacing=8),
-                bgcolor=COLORS["bg_card"], border_radius=12,
+                bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD_COMPACT,
                 padding=12, width=260,
             ),
         )
@@ -134,7 +134,7 @@ class TaskCard:
                                         weight=ft.FontWeight.BOLD)],
                                spacing=3, tight=True),
                 padding=ft.Padding.symmetric(horizontal=5, vertical=2),
-                bgcolor=COLORS["text_secondary"], border_radius=4,
+                bgcolor=COLORS["text_secondary"], border_radius=RADIUS_CHIP,
                 tooltip=L.UI.D_BLOCKED_TOOLTIP.format(
                     titles=", ".join(b.title for b in blockers[:3])),
             ))
@@ -143,7 +143,7 @@ class TaskCard:
                 content=ft.Text(L.UI.D_ON_HOLD, size=9, color=COLORS["text_secondary"],
                                 weight=ft.FontWeight.W_600),
                 padding=ft.Padding.symmetric(horizontal=5, vertical=2),
-                bgcolor=COLORS["bg_button"], border_radius=4,
+                bgcolor=COLORS["bg_button"], border_radius=RADIUS_CHIP,
             ))
         _dbadge = _deadline_badge(task, app)
         if _dbadge is not None:
@@ -152,13 +152,13 @@ class TaskCard:
             header_right.append(ft.Container(
                 content=ft.Text(L.task_type(task.task_type), size=9, color=type_color, weight=ft.FontWeight.W_600),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                bgcolor=ft.Colors.with_opacity(0.15, type_color), border_radius=4,
+                bgcolor=ft.Colors.with_opacity(0.15, type_color), border_radius=RADIUS_CHIP,
             ))
         if task.story_points is not None:
             header_right.append(ft.Container(
                 content=ft.Text(f"{L.STORY_POINTS}:{task.story_points}", size=9, color=COLORS["text_secondary"]),
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                bgcolor=COLORS["bg_button"], border_radius=4,
+                bgcolor=COLORS["bg_button"], border_radius=RADIUS_CHIP,
             ))
 
         tag_chips = []
@@ -269,7 +269,8 @@ class TaskCard:
 
         card = ft.Container(
             content=ft.Column(card_children, spacing=5),
-            padding=12, bgcolor=COLORS["bg_card"], border_radius=12,
+            padding=12, bgcolor=COLORS["bg_card"], border_radius=RADIUS_CARD_COMPACT,
+            shadow=elevation(1),
             opacity=0.6 if task.on_hold else 1.0,
         )
         return card
@@ -314,7 +315,7 @@ class DropColumn:
             content=ft.Column([header, self._list_view], spacing=8, expand=True),
             padding=10,
             border=ft.Border.all(1, COLORS["border_color"]),
-            border_radius=12,
+            border_radius=RADIUS_CARD_COMPACT,
             bgcolor=COLORS["bg_card"],
             expand=True,
         )

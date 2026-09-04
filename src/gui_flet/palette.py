@@ -34,16 +34,28 @@ _NEUTRALS = {
         "bg_card": "#ffffff",
         "bg_card_hover": "#eef1f3",
         "bg_button": "#e9eef1",
-        "text_primary": "#1d2d3e",  # Horizon dark blue-grey
+        "text_primary": "#131e29",  # SAP "Text and Titles", Morning Horizon
         "text_secondary": "#556b82",
         "border_color": "#d5dadd",
     },
 }
-_SEMANTIC = {                       # Horizon accents — same hue both modes
-    "accent_green": "#36a41d",      # positive
-    "accent_orange": "#e76500",     # critical / in-progress (Horizon mango)
-    "accent_red": "#f53232",        # negative
-    "accent_purple": "#7858ff",     # informative-alt / story (Horizon indigo)
+# Horizon semantic accents — SAP's own spec swaps these per theme (a saturated
+# hue tuned to read on white goes muddy on a dark surface), NOT one shared
+# value: https://www.sap.com/design-system/fiori-design-web/v1-151/foundations/visual/colors/morning-horizon
+# and .../colors/evening-horizon ("Semantic Foreground Colors").
+_SEMANTIC = {
+    "dark": {                       # Evening Horizon
+        "accent_green": "#97dd40",   # positive
+        "accent_orange": "#ffdf72",  # critical / in-progress (Horizon mango)
+        "accent_red": "#fa6161",     # negative
+        "accent_purple": "#d3b6ff",  # informative-alt / story (Horizon indigo)
+    },
+    "light": {                      # Morning Horizon
+        "accent_green": "#256f3a",
+        "accent_orange": "#e76500",
+        "accent_red": "#aa0808",
+        "accent_purple": "#5d36ff",
+    },
 }
 
 # token -> RU label, in settings display order. The one source for CUSTOMISABLE.
@@ -74,10 +86,31 @@ SWATCH_PALETTE: list[str] = [
 COLORS: dict[str, str] = {}
 
 # Corner-radius scale (Horizon leans on rounded surfaces at a few fixed steps).
-RADIUS_CHIP = 4       # tags, small badges
-RADIUS_FIELD = 8      # text fields, buttons, swatches
-RADIUS_MENU = 10      # dropdown / popup menus
-RADIUS_CARD = 16      # cards, dialog panels, stat tiles
+RADIUS_CHIP = 4          # tags, small badges
+RADIUS_FIELD = 8         # text fields, buttons, swatches
+RADIUS_MENU = 10         # dropdown / popup menus
+RADIUS_CARD_COMPACT = 12 # kanban task cards / column frame (denser than a panel)
+RADIUS_CARD = 16         # section panels, dialog panels, stat tiles
+
+# Elevation scale: (blur_radius, y-offset, (light_opacity, dark_opacity)).
+# Dark mode needs a higher opacity — a black shadow reads far fainter once the
+# surface behind it is already dark, so the same alpha would look flat.
+_ELEVATION = {
+    1: (3, 1, (0.12, 0.35)),    # resting cards (kanban task card, stat tile)
+    2: (8, 2, (0.16, 0.40)),    # raised / floating surfaces (popovers)
+    3: (20, 8, (0.20, 0.50)),   # modals — reserved; Flet's own Dialog handles most of these
+}
+
+
+def elevation(level: int) -> ft.BoxShadow:
+    """A named elevation shadow (1 = resting card … 3 = modal-level), tuned
+    per the *current* theme so callers don't have to thread a dark/light
+    flag through — read fresh at each rebuild, same as any ``COLORS[...]``
+    lookup."""
+    blur, dy, (light_op, dark_op) = _ELEVATION[level]
+    dark = _relative_luminance(COLORS["bg_dark"]) < 0.5
+    return ft.BoxShadow(blur_radius=blur, offset=ft.Offset(0, dy),
+                        color=ft.Colors.with_opacity(dark_op if dark else light_op, "#000000"))
 
 
 def resolve_dark(mode: str, system_is_dark: bool = True) -> bool:
@@ -91,7 +124,8 @@ def resolve_dark(mode: str, system_is_dark: bool = True) -> bool:
 
 def base_colors(dark: bool) -> dict[str, str]:
     """The built-in palette for a mode (``accent_blue`` not included)."""
-    return {**_NEUTRALS["dark" if dark else "light"], **_SEMANTIC}
+    mode = "dark" if dark else "light"
+    return {**_NEUTRALS[mode], **_SEMANTIC[mode]}
 
 
 # Every recolourable token, in display order — derived, never hand-listed.
