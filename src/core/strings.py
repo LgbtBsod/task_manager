@@ -159,7 +159,11 @@ class UI:
     GANTT_RANGE = {"all": "Все", "month": "Месяц", "week": "Неделя", "quarter": "Квартал"}
     GANTT_TOOLTIP = "{title} | {priority} | {status} | {start} — {end}"
 
-    # settings dialog
+    # settings dialog — top-level categories (each collapses a group of sections)
+    SET_CATEGORY_APPEARANCE = "Внешний вид"
+    SET_CATEGORY_PROCESS = "Процессы"
+    SET_CATEGORY_SYSTEM = "Система"
+
     SET_SECTION_NOTIFY = "Уведомления"
     SET_NOTIFY_ENABLED = "Уведомлять о приближении сроков"
     SET_HOURS_BEFORE = "Часов до срока"

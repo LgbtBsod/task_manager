@@ -356,46 +356,75 @@ def show_settings_dialog(app: "TaskManagerApp") -> None:
         if not paths.open_in_file_manager(paths.data_dir):
             app._show_snackbar(data_dir)
 
+    # ── top-level categories: the dialog grew to 6 sections over several
+    # releases (theme, colours, tags, automation, notifications, updates,
+    # data) — collapse related ones under 3 headers instead of one long
+    # scroll. Same ExpansionTile pattern colors_expander/tags_expander
+    # already used, just one level up.
+    _category_style = dict(
+        tile_padding=ft.Padding.symmetric(horizontal=0),
+        controls_padding=ft.Padding.only(bottom=8),
+        text_color=COLORS["text_primary"], collapsed_text_color=COLORS["text_primary"],
+        icon_color=COLORS["text_secondary"], collapsed_icon_color=COLORS["text_secondary"],
+    )
+
+    def _category(label: str, controls: list, expanded: bool = False) -> ft.ExpansionTile:
+        return ft.ExpansionTile(
+            title=ft.Text(label, size=13, weight=ft.FontWeight.BOLD),
+            controls=controls, expanded=expanded, **_category_style)
+
+    appearance_section = _category(L.UI.SET_CATEGORY_APPEARANCE, [
+        ft.Text(L.UI.SET_THEME, size=12, weight=ft.FontWeight.BOLD,
+                color=COLORS["text_secondary"]),
+        mode_row,
+        ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
+        accent_row,
+        colors_expander,
+    ], expanded=True)
+
+    process_section = _category(L.UI.SET_CATEGORY_PROCESS, [
+        ft.Text(L.UI.SET_SECTION_NOTIFY, size=12, weight=ft.FontWeight.BOLD,
+                color=COLORS["text_secondary"]),
+        enabled,
+        hours,
+        ft.Text(L.UI.SET_NOTIFY_HINT, size=11, color=COLORS["text_secondary"]),
+        ft.Divider(color=COLORS["border_color"]),
+        ft.Text(L.UI.SET_SECTION_WORKFLOW, size=12, weight=ft.FontWeight.BOLD,
+                color=COLORS["text_secondary"]),
+        auto_start_unblocked,
+        ft.Text(L.UI.SET_AUTO_START_UNBLOCKED_HINT, size=10, color=COLORS["text_secondary"]),
+        auto_close_epic,
+        ft.Divider(color=COLORS["border_color"]),
+        tags_expander,
+    ])
+
+    system_section = _category(L.UI.SET_CATEGORY_SYSTEM, [
+        ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
+                color=COLORS["text_secondary"]),
+        auto_updates,
+        ft.Row([
+            ft.TextButton(L.UI.SET_CHECK_NOW, icon=ic("refresh"),
+                          on_click=check_updates_click),
+            ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Divider(color=COLORS["border_color"]),
+        ft.Text(L.UI.SET_DATA, size=12, weight=ft.FontWeight.BOLD,
+                color=COLORS["text_secondary"]),
+        ft.Text(data_dir, size=11, color=COLORS["text_secondary"],
+                selectable=True, max_lines=2),
+        ft.TextButton(L.UI.SET_OPEN_DATA_DIR, icon=ic("folder_open"),
+                      on_click=open_data_dir),
+    ])
+
     dlg = ft.AlertDialog(
         modal=True,
         title=ft.Text(L.UI.SETTINGS, size=18, weight=ft.FontWeight.BOLD),
         content=ft.Column([
-            ft.Text(L.UI.SET_SECTION_NOTIFY, size=12, weight=ft.FontWeight.BOLD,
-                    color=COLORS["text_secondary"]),
-            enabled,
-            hours,
-            ft.Text(L.UI.SET_NOTIFY_HINT, size=11, color=COLORS["text_secondary"]),
+            appearance_section,
             ft.Divider(color=COLORS["border_color"]),
-            ft.Text(L.UI.SET_THEME, size=12, weight=ft.FontWeight.BOLD,
-                    color=COLORS["text_secondary"]),
-            mode_row,
-            ft.Text(L.UI.SET_ACCENT, size=11, color=COLORS["text_secondary"]),
-            accent_row,
-            colors_expander,
+            process_section,
             ft.Divider(color=COLORS["border_color"]),
-            tags_expander,
-            ft.Divider(color=COLORS["border_color"]),
-            ft.Text(L.UI.SET_SECTION_WORKFLOW, size=12, weight=ft.FontWeight.BOLD,
-                    color=COLORS["text_secondary"]),
-            auto_start_unblocked,
-            ft.Text(L.UI.SET_AUTO_START_UNBLOCKED_HINT, size=10, color=COLORS["text_secondary"]),
-            auto_close_epic,
-            ft.Divider(color=COLORS["border_color"]),
-            ft.Text(L.UI.SET_UPDATES, size=12, weight=ft.FontWeight.BOLD,
-                    color=COLORS["text_secondary"]),
-            auto_updates,
-            ft.Row([
-                ft.TextButton(L.UI.SET_CHECK_NOW, icon=ic("refresh"),
-                              on_click=check_updates_click),
-                ft.Text(f"v{_app_version()}", size=11, color=COLORS["text_secondary"]),
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(color=COLORS["border_color"]),
-            ft.Text(L.UI.SET_DATA, size=12, weight=ft.FontWeight.BOLD,
-                    color=COLORS["text_secondary"]),
-            ft.Text(data_dir, size=11, color=COLORS["text_secondary"],
-                    selectable=True, max_lines=2),
-            ft.TextButton(L.UI.SET_OPEN_DATA_DIR, icon=ic("folder_open"),
-                          on_click=open_data_dir),
+            system_section,
             err,
         ], tight=True, width=440, spacing=6, scroll=ft.ScrollMode.AUTO),
         actions=[
