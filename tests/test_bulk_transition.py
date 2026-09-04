@@ -93,8 +93,9 @@ def test_empty_source_status_returns_zero(svc):
 
 
 def test_unknown_tag_returns_zero(svc):
-    svc.create_task("A", tags=["front"])
+    a = svc.create_task("A", tags=["front"])
     assert svc.bulk_transition_by_tag(["nope"], [TODO], DONE) == 0
+    assert svc.get_task(a.id).status == TODO
 
 
 def test_tag_match_is_case_insensitive(svc):
@@ -109,24 +110,31 @@ def test_accepts_raw_string_statuses(svc):
 
 def test_history_entry_written_per_move(svc):
     a = svc.create_task("A", tags=["front"])
-    svc.bulk_transition_by_tag(["front"], [TODO], PROG)
+    n = svc.bulk_transition_by_tag(["front"], [TODO], PROG)
+    assert n == 1
     history = svc.get_task_history(a.id)
-    assert any(h["field_name"] == "status" and h["old_value"] == "Todo"
-               and h["new_value"] == "In Progress" for h in history)
+    status_entries = [h for h in history if h["field_name"] == "status"]
+    assert status_entries == [{
+        "field_name": "status", "old_value": "Todo", "new_value": "In Progress",
+        "timestamp": status_entries[0]["timestamp"],
+    }]
 
 
 def test_candidates_is_read_only_and_matches_apply(svc):
     a = svc.create_task("A", tags=["front"])
-    svc.create_task("B", tags=["front"])
+    b = svc.create_task("B", tags=["front"])
     c = svc.create_task("C", tags=["front"])
     svc.update_task_status(c.id, DONE)
 
     cands = svc.bulk_transition_candidates(["front"], [TODO], PROG)
-    assert len(cands) == 2
+    assert {t.id for t in cands} == {a.id, b.id}        # exactly the two TODO tasks
     assert svc.get_task(a.id).status == TODO           # preview didn't mutate
     assert svc.get_task_history(a.id) == []
 
     assert svc.bulk_transition_by_tag(["front"], [TODO], PROG) == 2
+    assert svc.get_task(a.id).status == PROG            # the right tasks moved...
+    assert svc.get_task(b.id).status == PROG
+    assert svc.get_task(c.id).status == DONE            # ...and only the right ones
 
 
 def test_changes_persist_across_reload(svc, tmp_path):

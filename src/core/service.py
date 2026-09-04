@@ -34,6 +34,12 @@ def _to_priority(value: str) -> Priority:
         return Priority.MEDIUM
 
 
+def _clean_tag_names(tag_names: list[str]) -> set[str]:
+    """Lower-cased, blank/``None``-filtered tag names — the one place
+    ``bulk_transition_*`` normalizes its ``tag_names`` input."""
+    return {n.strip().lower() for n in tag_names if n and n.strip()}
+
+
 class TaskService:
     """Business logic service for task management."""
 
@@ -420,7 +426,7 @@ class TaskService:
         never mutate. ``match_all`` False = task has ANY wanted tag; True = ALL.
         Statuses may be ``TaskStatus`` members or their raw string values.
         """
-        wanted = {n.strip().lower() for n in tag_names if n and n.strip()}
+        wanted = _clean_tag_names(tag_names)
         if not wanted or not from_statuses:
             return []
         froms = {TaskStatus(s) for s in from_statuses}
@@ -452,7 +458,7 @@ class TaskService:
             tag_names, from_statuses, to_status, match_all=match_all)
         moved = self.bulk_status_change([t.id for t in cands], target)
         log.info("bulk_transition_by_tag tags=%s from=%s -> %s: %d moved",
-                 sorted({n.strip().lower() for n in tag_names if n.strip()}),
+                 sorted(_clean_tag_names(tag_names)),
                  [TaskStatus(s).value for s in from_statuses], target.value, moved)
         return moved
 
