@@ -284,9 +284,11 @@ class AutoUpdater:
 
     @staticmethod
     def _is_newer_version(latest: str, current: str) -> bool:
-        """PEP 440 comparison via ``packaging`` — it understands both the legacy
-        ``1.0.0.0.0.0.2.1.16.b`` tags (N-component release + ``b`` pre-release)
-        and plain semver ``1.1.0`` we moved to, so the transition is seamless.
+        """PEP 440 comparison via ``packaging``. The project uses semver
+        (``2.2.0``) but older releases carry the legacy N-component scheme
+        (``1.0.0.0.0.0.2.1.16.b``); ``packaging`` orders both correctly, and
+        any semver release outranks every legacy tag, so the feed stays sane
+        through the transition.
         """
         from packaging.version import Version, InvalidVersion
         try:
@@ -391,9 +393,9 @@ class AutoUpdater:
         """From a list of releases, the newest one that beats the current
         version *and* ships an asset for this platform.
 
-        We don't trust GitHub's ``/releases/latest`` pointer: with a non-semver
-        tag scheme (``v.1.0.0.0.0.0.2.1.9.b``) GitHub often keeps an older tag
-        flagged as "latest".
+        We don't lean on GitHub's ``/releases/latest`` pointer: the legacy
+        non-semver tags (``v.1.0.0.0.0.0.2.1.9.b``) left it stuck on an older
+        release, and picking by our own comparison is robust either way.
         """
         best: Optional[Dict[str, Any]] = None
         best_tag: Optional[str] = None

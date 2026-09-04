@@ -26,6 +26,9 @@ from typing import Callable, Optional, Protocol
 _tmp_counter = itertools.count()
 _write_lock = threading.Lock()  # serialize JSON writes (they are short and rare)
 
+# Bumped only when the export/import dict shape changes (not the app version).
+EXPORT_SCHEMA_VERSION = "1"
+
 from .models import Task, TaskStatus, Sprint, VersionRelease, TaskTemplate, Category, RecurringTask, Notification
 
 log = logging.getLogger(__name__)
@@ -527,7 +530,7 @@ class TaskRepository:
         out = {"tasks": self._load_tasks()}
         out.update({key: coll.load_raw() for key, coll in self._collections().items()})
         out["exported_at"] = datetime.now().isoformat()
-        out["version"] = "0.0.0.0.1"
+        out["schema_version"] = EXPORT_SCHEMA_VERSION
         return out
 
     def import_all(self, data: dict, overwrite: bool = False) -> dict:
